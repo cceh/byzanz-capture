@@ -16,7 +16,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.uic import loadUi
 
-from camera_thread import CameraWorker
+from camera_worker import CameraWorker
+from image_files_widget import ImageFilesWidget
 from load_image_worker import LoadImageWorker, LoadImageWorkerResult
 from photo_viewer import PhotoViewer
 
@@ -28,22 +29,28 @@ from spinner import Spinner
 
 class Session:
     name: str
+
     def __init__(self, name):
         self.name = name
 
+
 class CameraStates:
-    class WaitingForCamera(NamedTuple): pass
+    class WaitingForCamera: pass
+
     class Disconnected(NamedTuple):
         camera_name: str
         manual: bool = False
-    class Disconnecting(NamedTuple): pass
-    class Connecting(NamedTuple): pass
+
+    class Disconnecting: pass
+
+    class Connecting: pass
+
     class Connected(NamedTuple):
         camera_name: str
 
+    class WaitingForConfig: pass
+
     StateType = Union[WaitingForCamera, Disconnected, Connected, Connecting, Disconnecting]
-
-
 
 
 class GUI(QMainWindow):
@@ -51,8 +58,11 @@ class GUI(QMainWindow):
     preview_counter = 1
 
     __session: Session
+
     @property
-    def session(self): return self.__session
+    def session(self):
+        return self.__session
+
     @session.setter
     def session(self, _session):
         self.__session = _session
@@ -69,11 +79,12 @@ class GUI(QMainWindow):
             self.session_name_edit.clear()
             self.session_name_edit.setFocus()
 
-
-
     __camera_state: CameraStates.StateType
+
     @property
-    def camera_state(self): return self.__camera_state
+    def camera_state(self):
+        return self.__camera_state
+
     def set_camera_state(self, state: CameraStates.StateType):
         print(state)
 
@@ -128,7 +139,7 @@ class GUI(QMainWindow):
         self.photo_viewer: PhotoViewer = self.findChild(QWidget, "photoViewer")
         self.preview_list: QListWidget = self.findChild(QListWidget, "previewList")
         self.session_controls: QWidget = self.findChild(QWidget, "sessionControls")
-        self.capture_view: QFrame = self.findChild(QFrame, "captureView")
+        self.capture_view: QToolBox = self.findChild(QToolBox, "captureView")
         self.camera_control_frame: QFrame = self.findChild(QFrame, "cameraControlFrame")
         self.session_name_edit: QLineEdit = self.findChild(QLineEdit, "sessionNameEdit")
 
@@ -167,11 +178,11 @@ class GUI(QMainWindow):
         self.camera_worker.events.config_updated.connect(self.on_config_update)
         self.camera_worker.events.camera_found.connect(
             lambda camera_name:
-                self.set_camera_state(CameraStates.Disconnected(camera_name=camera_name))
+            self.set_camera_state(CameraStates.Disconnected(camera_name=camera_name))
         )
         self.camera_worker.events.camera_connected.connect(
             lambda camera_name:
-                self.set_camera_state(CameraStates.Connected(camera_name=camera_name))
+            self.set_camera_state(CameraStates.Connected(camera_name=camera_name))
         )
         self.camera_worker.events.camera_disconnected.connect(self.on_camera_disconnected)
 
@@ -193,10 +204,8 @@ class GUI(QMainWindow):
         self.set_camera_state(CameraStates.Disconnecting())
         self.camera_worker.commands.disconnect_camera.emit(True)
 
-
     def on_camera_disconnected(self, camera_name, manual):
         self.set_camera_state(CameraStates.Disconnected(camera_name=camera_name, manual=manual))
-
 
     def create_session(self, name):
         print("Create" + name)
@@ -206,18 +215,28 @@ class GUI(QMainWindow):
         self.session = None
 
     def config_hookup_select(self, config: gp.CameraWidget, config_name, combo_box: QComboBox):
+        try:
+            combo_box.currentIndexChanged.disconnect()
+        except:
+            pass
+
         cfg = config.get_child_by_name(config_name)
         for idx, choice in enumerate(cfg.get_choices()):
             combo_box.addItem(choice)
             if choice == cfg.get_value():
                 combo_box.setCurrentIndex(idx)
 
+        combo_box.currentIndexChanged.connect(lambda: self.camera_worker.commands.set_config.emit(
+            config_name, combo_box.currentText()
+        ))
+
     def on_config_update(self, config: gp.CameraWidget):
         self.config_hookup_select(config, "f-number", self.f_number_select)
-        self.config_hookup_select(config, "shutterspeed", self.shutter_speed_select)
+        self.config_hookup_select(config, "shutterspeed2", self.shutter_speed_select)
 
     def test(self):
-        self.camera_worker.commands.capture_test_image.emit("%s_test_%s.jpg" % (self.session.name, str(self.preview_counter).zfill(2)))
+        self.camera_worker.commands.capture_test_image.emit(
+            "%s_test_%s.jpg" % (self.session.name, str(self.preview_counter).zfill(2)))
 
     def on_preview_image_captured(self, path):
 
@@ -237,12 +256,12 @@ class GUI(QMainWindow):
         list_item = QListWidgetItem()
         file_name = Path(load_image_result.path).name
         list_item.setData(Qt.ItemDataRole.UserRole, load_image_result.path)
-        list_item.setData(Qt.ItemDataRole.DecorationRole, load_image_result.pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio))
+        list_item.setData(Qt.ItemDataRole.DecorationRole,
+                          load_image_result.pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio))
 
-        exposure_time = Fraction(float(load_image_result.exif["ExposureTime"]))
+        exposure_time = load_image_result.exif["ExposureTime"].real
         f_number = load_image_result.exif["FNumber"]
-        list_item.setText("%s\nf/%s | %s" %(file_name, f_number, exposure_time))
-
+        list_item.setText("%s\nf/%s | %s" % (file_name, f_number, exposure_time))
 
         self.preview_list.addItem(list_item)
         self.preview_list.blockSignals(True)

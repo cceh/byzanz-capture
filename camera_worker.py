@@ -15,6 +15,7 @@ class CameraCommands(QObject):
     find_camera = pyqtSignal()
     connect_camera = pyqtSignal()
     disconnect_camera = pyqtSignal(bool)
+    set_config = pyqtSignal(str, str)
 
 class CameraEvents(QObject):
     image_captured = pyqtSignal(str)
@@ -24,6 +25,8 @@ class CameraEvents(QObject):
     camera_connected = pyqtSignal(str)
     camera_disconnected = pyqtSignal(str, bool)
 
+class ConfigChangeResult(QObject):
+    config_changed = pyqtSignal
 
 class CameraWorker(QObject):
     commands = CameraCommands()
@@ -40,7 +43,6 @@ class CameraWorker(QObject):
         # self.input_queue = input_queue
         # self.daemon = True
 
-
     def initialize(self):
         # code to run in the new thread
         print("Thread running")
@@ -49,7 +51,7 @@ class CameraWorker(QObject):
         self.commands.find_camera.connect(self.__find_camera)
         self.commands.connect_camera.connect(self.__connect_camera)
         self.commands.disconnect_camera.connect(self.__disconnect_camera)
-
+        self.commands.set_config.connect(self.__set_config)
 
     def __find_camera(self):
         camera_list = None
@@ -65,11 +67,9 @@ class CameraWorker(QObject):
 
 
     def __connect_camera(self):
-        sleep(3)
         self.camera = gp.Camera()
         self.camera.init()
         current_cfg: CameraWidget = self.camera.get_config()
-
         self.events.config_updated.emit(current_cfg)
         self.camera_name = "%s %s" % (
             current_cfg.get_child_by_name("cameramodel").get_value(),
@@ -78,12 +78,23 @@ class CameraWorker(QObject):
         self.events.camera_connected.emit(self.camera_name)
 
     def __disconnect_camera(self, manual: bool):
-        sleep(3)
         self.camera.exit()
         del self.camera
         self.events.camera_disconnected.emit(self.camera_name, manual)
         self.camera_name = None
 
+    def __set_config(self, name, value):
+        cfg: CameraWidget = self.camera.get_config()
+        cfg_widget = cfg.get_child_by_name(name)
+        cfg_widget.set_value(value)
+        self.camera.set_config(cfg)
+        print("Did set config %s to %s" % (name, value))
+        self.empty_event_queue()
+        self.__emit_current_config()
+
+    def __emit_current_config(self):
+        current_cfg: CameraWidget = self.camera.get_config()
+        self.events.config_updated.emit(current_cfg)
 
     def event_text(self, event_type):
         if event_type == gp.GP_EVENT_CAPTURE_COMPLETE:
@@ -126,8 +137,6 @@ class CameraWorker(QObject):
     def captureTestImage(self, filename):
         try:
             print("Capturing test image")
-            self.camera = gp.Camera()
-            self.camera.init()
             self.empty_event_queue()
 
             cfg = self.camera.get_config()
@@ -150,10 +159,8 @@ class CameraWorker(QObject):
                 file_path.folder, file_path.name, gp.GP_FILE_TYPE_NORMAL)
             camera_file.save(target)
             self.events.test_image_captured.emit(target)
-
-        finally:
-            self.camera.exit()
-            del self.camera
+        except:
+            pass
 
     def captureImage(self):
         try:
