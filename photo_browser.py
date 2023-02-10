@@ -14,11 +14,13 @@ from photo_viewer import PhotoViewer
 class PhotoBrowser(QWidget):
     __currentPath: str = None
     __currentFileSet: set[str] = set()
-    __fileSystemWatcher = QFileSystemWatcher()
+    __fileSystemWatcher: QFileSystemWatcher
 
     def __init__(self, parent=None):
         super().__init__(parent)
         loadUi('ui/photo_browser.ui', self)
+
+        self.__fileSystemWatcher = QFileSystemWatcher()
 
         self.photo_viewer: PhotoViewer = self.findChild(QWidget, "photoViewer")
         self.image_file_list: QListWidget = self.findChild(QListWidget, "imageFileList")
@@ -33,6 +35,7 @@ class PhotoBrowser(QWidget):
 
         self.__currentPath = dir_path
         self.__fileSystemWatcher.addPath(self.__currentPath)
+        print("Watching " + self.__currentPath)
         self.__load_directory()
 
     def close_directory(self):
@@ -69,6 +72,7 @@ class PhotoBrowser(QWidget):
         self.__load_image(file_path, lambda result: self.photo_viewer.setPhoto(QPixmap.fromImage(result.image)))
 
     def __add_image_item(self, image_worker_result: LoadImageWorkerResult):
+        print("Dr changed")
         list_item = QListWidgetItem()
         file_name = Path(image_worker_result.path).name
         list_item.setData(Qt.ItemDataRole.UserRole, image_worker_result.path)

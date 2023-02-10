@@ -344,7 +344,7 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>390</height>
+         <height>415</height>
         </rect>
        </property>
        <property name="font">
@@ -371,7 +371,7 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>406</height>
+         <height>415</height>
         </rect>
        </property>
        <property name="font">
@@ -426,6 +426,13 @@
         </spacer>
        </item>
        <item>
+        <widget class="QPushButton" name="cancelCaptureButton">
+         <property name="text">
+          <string>Aufnahme abbrechen</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QComboBox" name="shutterSpeedSelect">
          <property name="maxVisibleItems">
           <number>10</number>
@@ -460,7 +467,7 @@
      <x>0</x>
      <y>0</y>
      <width>1443</width>
-     <height>24</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuHALLO">
@@ -531,12 +538,28 @@
    <slot>open_settings()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>1202</x>
-     <y>82</y>
+     <x>1170</x>
+     <y>102</y>
     </hint>
     <hint type="destinationlabel">
      <x>1205</x>
      <y>-3</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>cancelCaptureButton</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>cancel_capture()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>933</x>
+     <y>696</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>754</x>
+     <y>725</y>
     </hint>
    </hints>
   </connection>
@@ -545,5 +568,6 @@
   <slot>open_settings()</slot>
   <slot>on_capture_mode_changed()</slot>
   <slot>capture_image()</slot>
+  <slot>cancel_capture()</slot>
  </slots>
 </ui>

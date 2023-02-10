@@ -40,18 +40,28 @@
      <property name="frameShadow">
       <enum>QFrame::Raised</enum>
      </property>
-     <layout class="QGridLayout" name="gridLayout">
+     <layout class="QFormLayout" name="formLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Arbeitsverzeichnis</string>
+        </property>
+       </widget>
+      </item>
       <item row="0" column="1">
        <widget class="QLineEdit" name="workingDirectoryInput">
         <property name="text">
          <string>/tmp</string>
         </property>
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
        </widget>
       </item>
-      <item row="0" column="0">
-       <widget class="QLabel" name="label">
+      <item row="2" column="1">
+       <widget class="QPushButton" name="pushButton">
         <property name="text">
-         <string>Arbeitsverzeichnis</string>
+         <string>auswählen</string>
         </property>
        </widget>
       </item>
@@ -79,8 +89,8 @@
    <slot>accept()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>248</x>
-     <y>254</y>
+     <x>257</x>
+     <y>301</y>
     </hint>
     <hint type="destinationlabel">
      <x>157</x>
@@ -95,8 +105,8 @@
    <slot>reject()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>316</x>
-     <y>260</y>
+     <x>325</x>
+     <y>301</y>
     </hint>
     <hint type="destinationlabel">
      <x>286</x>
@@ -104,5 +114,24 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>pushButton</sender>
+   <signal>clicked()</signal>
+   <receiver>Dialog</receiver>
+   <slot>choose_working_directory()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>286</x>
+     <y>241</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>41</x>
+     <y>4</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
+ <slots>
+  <slot>choose_working_directory()</slot>
+ </slots>
 </ui>
