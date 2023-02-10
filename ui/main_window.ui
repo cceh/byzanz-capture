@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1443</width>
-    <height>979</height>
+    <height>758</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -344,7 +344,7 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>597</height>
+         <height>415</height>
         </rect>
        </property>
        <property name="font">
@@ -371,7 +371,7 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>597</height>
+         <height>415</height>
         </rect>
        </property>
        <property name="font">
@@ -491,8 +491,6 @@
   <tabstop>startSessionButton</tabstop>
   <tabstop>captureTestImageButton</tabstop>
  </tabstops>
- <resources>
-  <include location="resources.qrc"/>
- </resources>
+ <resources/>
  <connections/>
 </ui>
