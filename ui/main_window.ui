@@ -79,7 +79,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>start_session.svg</normaloff>start_session.svg</iconset>
+             <normaloff>../../../.designer/backup/start_session.svg</normaloff>../../../.designer/backup/start_session.svg</iconset>
            </property>
            <property name="iconSize">
             <size>
@@ -96,7 +96,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>check-circle.svg</normaloff>check-circle.svg</iconset>
+             <normaloff>../../../.designer/backup/check-circle.svg</normaloff>../../../.designer/backup/check-circle.svg</iconset>
            </property>
           </widget>
          </item>
@@ -148,7 +148,7 @@
             <string/>
            </property>
            <property name="pixmap">
-            <pixmap>camera_waiting.png</pixmap>
+            <pixmap>../../../.designer/backup/camera_waiting.png</pixmap>
            </property>
            <property name="scaledContents">
             <bool>true</bool>
@@ -194,7 +194,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>disconnect-camera.svg</normaloff>disconnect-camera.svg</iconset>
+             <normaloff>../../../.designer/backup/disconnect-camera.svg</normaloff>../../../.designer/backup/disconnect-camera.svg</iconset>
            </property>
           </widget>
          </item>
@@ -205,7 +205,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>camera-change.svg</normaloff>camera-change.svg</iconset>
+             <normaloff>../../../.designer/backup/camera-change.svg</normaloff>../../../.designer/backup/camera-change.svg</iconset>
            </property>
           </widget>
          </item>
@@ -233,13 +233,13 @@
           </spacer>
          </item>
          <item>
-          <widget class="QPushButton" name="openSettingsButton">
+          <widget class="QPushButton" name="settingsButton">
            <property name="text">
             <string>Einstellungen</string>
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>settings.svg</normaloff>settings.svg</iconset>
+             <normaloff>../../../.designer/backup/settings.svg</normaloff>../../../.designer/backup/settings.svg</iconset>
            </property>
           </widget>
          </item>
@@ -336,15 +336,15 @@
        <enum>QFrame::Plain</enum>
       </property>
       <property name="currentIndex">
-       <number>1</number>
+       <number>0</number>
       </property>
-      <widget class="QWidget" name="page_3">
+      <widget class="QWidget" name="previewPage">
        <property name="geometry">
         <rect>
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>415</height>
+         <height>390</height>
         </rect>
        </property>
        <property name="font">
@@ -361,17 +361,17 @@
        </attribute>
        <layout class="QHBoxLayout" name="horizontalLayout_2">
         <item>
-         <widget class="ImageFilesWidget" name="testImageFilesView" native="true"/>
+         <widget class="PhotoBrowser" name="previewImageBrowser" native="true"/>
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="page_4">
+      <widget class="QWidget" name="RTIPage">
        <property name="geometry">
         <rect>
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>415</height>
+         <height>406</height>
         </rect>
        </property>
        <property name="font">
@@ -388,7 +388,7 @@
        </attribute>
        <layout class="QHBoxLayout" name="horizontalLayout_3">
         <item>
-         <widget class="ImageFilesWidget" name="rtiImageFilesView" native="true"/>
+         <widget class="PhotoBrowser" name="rtiImageBrowser" native="true"/>
         </item>
        </layout>
       </widget>
@@ -443,7 +443,7 @@
         </widget>
        </item>
        <item>
-        <widget class="QPushButton" name="captureTestImageButton">
+        <widget class="QPushButton" name="captureButton">
          <property name="text">
           <string>Testaufnahme auslösen</string>
          </property>
@@ -460,7 +460,7 @@
      <x>0</x>
      <y>0</y>
      <width>1443</width>
-     <height>22</height>
+     <height>24</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuHALLO">
@@ -480,17 +480,70 @@
    <container>1</container>
   </customwidget>
   <customwidget>
-   <class>ImageFilesWidget</class>
+   <class>PhotoBrowser</class>
    <extends>QWidget</extends>
-   <header>image_files_widget</header>
-   <container>1</container>
+   <header>photo_browser</header>
   </customwidget>
  </customwidgets>
  <tabstops>
   <tabstop>sessionNameEdit</tabstop>
   <tabstop>startSessionButton</tabstop>
-  <tabstop>captureTestImageButton</tabstop>
+  <tabstop>captureButton</tabstop>
  </tabstops>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>captureView</sender>
+   <signal>currentChanged(int)</signal>
+   <receiver>MainWindow</receiver>
+   <slot>on_capture_mode_changed()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>721</x>
+     <y>397</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>721</x>
+     <y>378</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>captureButton</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>capture_image()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>1326</x>
+     <y>687</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>1219</x>
+     <y>715</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>settingsButton</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>open_settings()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>1202</x>
+     <y>82</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>1205</x>
+     <y>-3</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <slot>open_settings()</slot>
+  <slot>on_capture_mode_changed()</slot>
+  <slot>capture_image()</slot>
+ </slots>
 </ui>

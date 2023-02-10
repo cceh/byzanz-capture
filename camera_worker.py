@@ -4,13 +4,15 @@ import threading
 from time import sleep
 import time
 
+from string import Template
+
 import gphoto2 as gp
-from PyQt6.QtCore import QThread, pyqtSignal, QObject
+from PyQt6.QtCore import QThread, pyqtSignal, QObject, QElapsedTimer
 from gphoto2 import CameraWidget
 
 
 class CameraCommands(QObject):
-    capture_image = pyqtSignal()
+    capture_images = pyqtSignal(str, int)
     capture_test_image = pyqtSignal(str)
     find_camera = pyqtSignal()
     connect_camera = pyqtSignal()
@@ -46,7 +48,7 @@ class CameraWorker(QObject):
     def initialize(self):
         # code to run in the new thread
         print("Thread running")
-        self.commands.capture_image.connect(self.captureImage)
+        self.commands.capture_images.connect(self.captureImages)
         self.commands.capture_test_image.connect(self.captureTestImage)
         self.commands.find_camera.connect(self.__find_camera)
         self.commands.connect_camera.connect(self.__connect_camera)
@@ -108,28 +110,39 @@ class CameraWorker(QObject):
         else:
             return "Unknown Event"
 
-    def empty_event_queue(self):
+    def empty_event_queue(self, timeout=500, target_file_path_template=None):
         print("Empty event queue!")
-        typ, data = self.camera.wait_for_event(500)
+        typ, data = self.camera.wait_for_event(timeout)
         while typ != gp.GP_EVENT_TIMEOUT:
 
             print("Event: %s, data: %s" % (self.event_text(typ), data))
 
 
             if typ == gp.GP_EVENT_FILE_ADDED:
-                fn = os.path.join(data.folder, data.name)
-                print("New file: %s" % fn)
-                cam_file = self.camera.file_get(
-                    data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
-                target_path = os.path.join(os.getcwd(), data.name)
-                print("Image is being saved to {}".format(target_path))
-                cam_file.save(target_path)
+                cam_file_path = os.path.join(data.folder, data.name)
+                print("New file: %s" % cam_file_path)
+                basename, extension = os.path.splitext(data.name)
+
+                if target_file_path_template is not None:
+                    tpl = Template(target_file_path_template)
+                    file_target_path = tpl.substitute(
+                        basename=basename,
+                        extension=extension,
+                        num=str(self.filesCounter).zfill(3)
+                    )
+                    cam_file = self.camera.file_get(
+                        data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
+                    print("Image is being saved to {}".format(file_target_path))
+                    cam_file.save(file_target_path)
+
+                self.camera.file_delete(data.folder, data.name)
                 self.filesCounter += 1
+
             elif typ == gp.GP_EVENT_CAPTURE_COMPLETE:
                 self.captureComplete = True
 
 
-            # self.download_file(fn)
+            # self.download_file(cam_file_path)
 
             # try to grab another event
             typ, data = self.camera.wait_for_event(1)
@@ -162,70 +175,53 @@ class CameraWorker(QObject):
         except:
             pass
 
-    def captureImage(self):
+    def captureImages(self, target_path, number = 1):
+        timer = QElapsedTimer()
         try:
-            start_time = time.process_time()
-            self.camera.init()
+            timer.start()
             self.empty_event_queue()
             self.filesCounter = 0
             self.captureComplete = False
 
             cfg = self.camera.get_config()
-            capturetarget_cfg = cfg.get_child_by_name('capturetarget')
-            capturetarget_cfg.set_value('Internal RAM')
-
-            recmedia_cfg = cfg.get_child_by_name('recordingmedia')
-            recmedia_cfg.set_value('SDRAM')
-
+            self.__try_set_config(cfg, "capturetarget", "Internal RAM")
+            self.__try_set_config(cfg, "recordingmedia", "SDRAM")
             # TODO: set format to nef+fine
-
-            print("viewfinder 1")
-            x = cfg.get_child_by_name('viewfinder')
-            x.set_value(1)
-
-            y = cfg.get_child_by_name('burstnumber')
-            y.set_value(60)
-
+            self.__try_set_config(cfg, "viewfinder", 1)
+            self.__try_set_config(cfg, "burstnumber", number)
             self.camera.set_config(cfg)
 
-            sleep(3)
-
-            print("hallo")
-            while not self.filesCounter == 120:
+            while not self.filesCounter == number:
+                self.captureComplete = False
                 self.camera.trigger_capture()
 
                 while not self.captureComplete:
-                    self.empty_event_queue()
+                    self.empty_event_queue(target_file_path_template=target_path)
 
                 print("Curr. files: %i" % self.filesCounter)
-                remaining = 120 - self.filesCounter
-                print("Remaining: %s" % str(self.empty_event_queue()))
-                print("Restarting")
+                remaining = number - self.filesCounter
+                print("Remaining: %s" % str(remaining))
 
-            print("viewfinder0")
-            x.set_value(0)
+            print("Viewfinder 0")
+            cfg = self.camera.get_config()
+            self.__try_set_config(cfg, "viewfinder", 0)
             self.camera.set_config(cfg)
 
             # empty the event queue
 
             print("No. Files: %i" % self.filesCounter)
 
-            print("Took %i" % time.process_time() - start_time)
+            print("Took %d ms" % timer.elapsed())
 
-            # file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
-            # print('Camera file path: {0}/{1}'.format(file_path.folder, file_path.name))
-            # target = os.path.join('/tmp', file_path.name)
-            # camera_file = self.camera.file_get(
-            #     file_path.folder, file_path.name, gp.GP_FILE_TYPE_NORMAL
-            # )
-            # camera_file.save(target)
-            # self.camera.file_delete(file_path.folder, file_path.name)
+        except:
+            pass # TODO: ERROR HANDULNG
 
-            # self.image_captured.emit(target)
-        finally:
-            if self.camera:
-                self.camera.exit()
-
+    def __try_set_config(self, config: CameraWidget, name: str, value):
+        try:
+            config_widget = config.get_child_by_name(name)
+            config_widget.set_value(value)
+        except gp.GPhoto2Error:
+            print("Config '%s' not supported by camera.", name)
 
     def __del__(self):
         print("Disconnecting camera")

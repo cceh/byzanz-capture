@@ -1,14 +1,14 @@
 import sys
 from abc import ABC, ABCMeta
 from collections import namedtuple
-from enum import Enum
+from enum import Enum, auto
 from fractions import Fraction
 from pathlib import Path
 
 import os
 from typing import NamedTuple, Union
 
-from PyQt6.QtCore import QThread, Qt, QThreadPool
+from PyQt6.QtCore import QThread, Qt, QThreadPool, QFileSystemWatcher, QSettings, QStandardPaths
 from PyQt6.QtGui import QPixmap, QImageReader
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QMessageBox, QPushButton, QWidget, QListWidget, QListWidgetItem, QFrame, QLineEdit,
@@ -17,13 +17,14 @@ from PyQt6.QtWidgets import (
 from PyQt6.uic import loadUi
 
 from camera_worker import CameraWorker
-from image_files_widget import ImageFilesWidget
+from photo_browser import PhotoBrowser
 from load_image_worker import LoadImageWorker, LoadImageWorkerResult
 from photo_viewer import PhotoViewer
 
 import gphoto2 as gp
 from time import sleep
 
+from settings_dialog import SettingsDialog
 from spinner import Spinner
 
 
@@ -52,12 +53,24 @@ class CameraStates:
 
     StateType = Union[WaitingForCamera, Disconnected, Connected, Connecting, Disconnecting]
 
+# Corresponds to itemIndex of the captureView QToolBox
+class CaptureMode(Enum):
+    Preview = 0
+    RTI = 1
 
-class GUI(QMainWindow):
+class RTICaptureMainWindow(QMainWindow):
     camera_worker = CameraWorker()
     preview_counter = 1
 
     __session: Session
+
+    @property
+    def capture_mode(self) -> CaptureMode:
+        return CaptureMode(self.capture_view.currentIndex())
+
+    @capture_mode.setter
+    def capture_mode(self, mode: CaptureMode):
+        self.capture_view.setCurrentIndex(mode.value)
 
     @property
     def session(self):
@@ -121,39 +134,40 @@ class GUI(QMainWindow):
                 self.set_camera_connection_busy(True)
                 self.camera_state_label.setText("Trenne Kamera...")
 
+    def capture_image(self):
+        file_path_template = "/tmp/test/${basename}_${num}.${extension}"
+        self.camera_worker.commands.capture_images.emit(file_path_template, 5)
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
         loadUi('ui/main_window.ui', self)
 
-        self.threadpool = QThreadPool()
-
-        capture_image_test_button: QPushButton = self.findChild(QPushButton, "captureTestImageButton")
-        self.start_session_button: QPushButton = self.findChild(QPushButton, "startSessionButton")
-        self.close_session_button: QPushButton = self.findChild(QPushButton, "closeSessionButton")
-
         self.disconnect_camera_button: QPushButton = self.findChild(QPushButton, "disconnectCameraButton")
         self.connect_camera_button: QPushButton = self.findChild(QPushButton, "connectCameraButton")
         self.camera_busy_spinner: Spinner = self.findChild(QWidget, "cameraBusySpinner")
+        self.camera_state_label: QLabel = self.findChild(QLabel, "cameraStateLabel")
+        self.camera_state_icon: QLabel = self.findChild(QLabel, "cameraStateIcon")
 
-        self.photo_viewer: PhotoViewer = self.findChild(QWidget, "photoViewer")
-        self.preview_list: QListWidget = self.findChild(QListWidget, "previewList")
         self.session_controls: QWidget = self.findChild(QWidget, "sessionControls")
-        self.capture_view: QToolBox = self.findChild(QToolBox, "captureView")
-        self.camera_control_frame: QFrame = self.findChild(QFrame, "cameraControlFrame")
         self.session_name_edit: QLineEdit = self.findChild(QLineEdit, "sessionNameEdit")
+        self.start_session_button: QPushButton = self.findChild(QPushButton, "startSessionButton")
+        self.close_session_button: QPushButton = self.findChild(QPushButton, "closeSessionButton")
 
+
+        self.capture_view: QToolBox = self.findChild(QToolBox, "captureView")
+        self.previewImageBrowser: PhotoBrowser = self.findChild(QWidget, "previewImageBrowser")
+
+        self.camera_control_frame: QFrame = self.findChild(QFrame, "cameraControlFrame")
         self.f_number_select: QComboBox = self.findChild(QComboBox, "fNumberSelect")
         self.shutter_speed_select: QComboBox = self.findChild(QComboBox, "shutterSpeedSelect")
 
-        self.camera_state_label: QLabel = self.findChild(QLabel, "cameraStateLabel")
-        self.camera_state_icon: QLabel = self.findChild(QLabel, "cameraStateIcon")
 
         self.set_camera_connection_busy(True)
         self.set_camera_state(CameraStates.WaitingForCamera())
         self.session = None
+        self.capture_mode = CaptureMode.Preview
 
-        capture_image_test_button.clicked.connect(self.test)
         self.start_session_button.clicked.connect(
             lambda: self.create_session(self.session_name_edit.text())
         )
@@ -167,7 +181,6 @@ class GUI(QMainWindow):
                 True if len(text) > 0 else False
             ))
 
-        self.preview_list.currentItemChanged.connect(self.on_select_preview_image_item)
 
         self.thread = QThread()
         self.camera_worker.moveToThread(self.thread)
@@ -191,6 +204,17 @@ class GUI(QMainWindow):
         self.camera_worker.commands.find_camera.emit()
         self.show()
 
+    def on_capture_mode_changed(self):
+        print(self.capture_mode)
+
+    def open_settings(self):
+        dialog = SettingsDialog(self)
+        dialog.setModal(True)
+        if dialog.exec():
+            print("ok")
+        else:
+            print("not ok")
+
     def set_camera_connection_busy(self, busy: bool = True):
         self.connect_camera_button.setEnabled(not busy)
         self.disconnect_camera_button.setEnabled(not busy)
@@ -210,6 +234,8 @@ class GUI(QMainWindow):
     def create_session(self, name):
         print("Create" + name)
         self.session = Session(name)
+        self.previewImageBrowser.open_directory("/tmp/test")
+
 
     def close_session(self):
         self.session = None
@@ -232,58 +258,26 @@ class GUI(QMainWindow):
 
     def on_config_update(self, config: gp.CameraWidget):
         self.config_hookup_select(config, "f-number", self.f_number_select)
-        self.config_hookup_select(config, "shutterspeed2", self.shutter_speed_select)
+        self.config_hookup_select(config, "shutterspeed", self.shutter_speed_select)
 
-    def test(self):
-        self.camera_worker.commands.capture_test_image.emit(
-            "%s_test_%s.jpg" % (self.session.name, str(self.preview_counter).zfill(2)))
+
 
     def on_preview_image_captured(self, path):
-
-        if not os.path.isfile(path):
-            mbox = QMessageBox()
-            mbox.setText("Datei %s wurde nicht gespeichert" % path)
-            return
-
-        worker = LoadImageWorker(path)
-        worker.signals.finished.connect(self.add_preview_image_item)
-        worker.signals.finished.connect(self.show_image)
-        self.threadpool.start(worker)
-
         self.preview_counter += 1
 
-    def add_preview_image_item(self, load_image_result: LoadImageWorkerResult):
-        list_item = QListWidgetItem()
-        file_name = Path(load_image_result.path).name
-        list_item.setData(Qt.ItemDataRole.UserRole, load_image_result.path)
-        list_item.setData(Qt.ItemDataRole.DecorationRole,
-                          load_image_result.pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio))
-
-        exposure_time = load_image_result.exif["ExposureTime"].real
-        f_number = load_image_result.exif["FNumber"]
-        list_item.setText("%s\nf/%s | %s" % (file_name, f_number, exposure_time))
-
-        self.preview_list.addItem(list_item)
-        self.preview_list.blockSignals(True)
-        self.preview_list.setCurrentItem(list_item)
-        self.preview_list.blockSignals(False)
-
-    def on_select_preview_image_item(self, item: QListWidgetItem):
-        print("SELECTED")
-        path = item.data(Qt.ItemDataRole.UserRole)
-        worker = LoadImageWorker(path)
-        worker.signals.finished.connect(self.show_image)
-
-        self.threadpool.start(worker)
-
-        print(path)
-
-    def show_image(self, load_image_result: LoadImageWorkerResult):
-        self.photo_viewer.setPhoto(load_image_result.pixmap)
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = GUI()
+    app.setOrganizationName("CCeH")
+    app.setOrganizationDomain("cceh.uni-koeln.de")
+    app.setApplicationName("Byzanz RTI")
+    print(app.thread())
+
+    settings = QSettings()
+    if not "workingDirectory" in settings.allKeys():
+        settings.setValue("workingDirectory", QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation))
+
+    win = RTICaptureMainWindow()
     win.show()
     sys.exit(app.exec())

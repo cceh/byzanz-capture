@@ -1,13 +1,14 @@
+from pathlib import Path
+
 from PIL import Image
 from PIL.ExifTags import TAGS
-from PIL.Image import Exif
-from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, pyqtSlot, QElapsedTimer
 from PyQt6.QtGui import QPixmap, QImage
 
 
 class LoadImageWorkerResult:
-    def __init__(self, pixmap, exif, path):
-        self.pixmap: QPixmap = pixmap
+    def __init__(self, image, exif, path):
+        self.image: QImage = image
         self.exif: dict = exif
         self.path: str = path
 
@@ -15,8 +16,6 @@ class LoadImageWorkerSignals(QObject):
     finished = pyqtSignal(LoadImageWorkerResult)
 
 class LoadImageWorker(QRunnable):
-
-
     def __init__(self, path):
         self.path = path
         super(LoadImageWorker, self).__init__()
@@ -26,19 +25,25 @@ class LoadImageWorker(QRunnable):
     @pyqtSlot()
     def run(self):
         print("LoadImageWorker started")
+        timer = QElapsedTimer()
+        timer.start()
         image = Image.open(self.path)
-        image.load()
-        w, h = image.size
+        try:
+            image.load()
 
-        image_data = image.tobytes('raw', 'RGB')
+            w, h = image.size
 
-        q_image = QImage(image_data, w, h, QImage.Format.Format_RGB888)
+            image_data = image.tobytes('raw', 'RGB')
 
-        if not q_image:
-            return
+            q_image = QImage(image_data, w, h, QImage.Format.Format_RGB888)
 
-        pixmap = QPixmap.fromImage(q_image)
-        self.signals.finished.emit(LoadImageWorkerResult(pixmap, self.get_exif_dict(image), self.path))
+            if not q_image:
+                return
+
+            self.signals.finished.emit(LoadImageWorkerResult(q_image, self.get_exif_dict(image), self.path))
+            print("Loading image %s image took %d ms" % (Path(self.path).name, timer.elapsed()))
+        except:
+            pass # TODO: Image File Error Handling
 
     def get_exif_dict(self, image: Image) -> dict:
         exif_dict = dict()
