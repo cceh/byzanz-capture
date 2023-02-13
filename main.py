@@ -95,6 +95,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_control_frame: QFrame = self.findChild(QFrame, "cameraControlFrame")
         self.f_number_select: QComboBox = self.findChild(QComboBox, "fNumberSelect")
         self.shutter_speed_select: QComboBox = self.findChild(QComboBox, "shutterSpeedSelect")
+        self.crop_select: QComboBox = self.findChild(QComboBox, "cropSelect")
 
         self.start_session_button.clicked.connect(
             lambda: self.create_session(self.session_name_edit.text())
@@ -241,7 +242,8 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.commands.connect_camera.emit()
 
     def on_camera_disconnected(self, camera_name):
-        self.set_camera_state(CameraStates.Disconnected(camera_name=camera_name))
+        self.set_camera_state(CameraStates.WaitingForCamera)
+        self.camera_worker.commands.find_camera.emit()
 
     def create_session(self, name):
         print("Create" + name)
@@ -268,6 +270,7 @@ class RTICaptureMainWindow(QMainWindow):
             pass
 
         cfg = config.get_child_by_name(config_name)
+        combo_box.clear()
         for idx, choice in enumerate(cfg.get_choices()):
             combo_box.addItem(choice)
             if choice == cfg.get_value():
@@ -279,7 +282,8 @@ class RTICaptureMainWindow(QMainWindow):
 
     def on_config_update(self, config: gp.CameraWidget):
         self.config_hookup_select(config, "f-number", self.f_number_select)
-        self.config_hookup_select(config, "shutterspeed", self.shutter_speed_select)
+        self.config_hookup_select(config, "shutterspeed2", self.shutter_speed_select)
+        self.config_hookup_select(config, "d030", self.crop_select)
 
     def capture_image(self):
         capture_req: CaptureImagesRequest
@@ -292,8 +296,8 @@ class RTICaptureMainWindow(QMainWindow):
         else:
             filename_template = self.session.name.replace(" ", "_") + "_${num}${extension}"
             file_path_template = os.path.join(self.session.images_dir, filename_template)
-            capture_req = CaptureImagesRequest(file_path_template, num_images=60, expect_files=1)
-            self.capture_progress_bar.setMaximum(59)
+            capture_req = CaptureImagesRequest(file_path_template, num_images=60, expect_files=2)
+            self.capture_progress_bar.setMaximum(119)
             self.capture_progress_bar.setValue(0)
             self.camera_worker.events.received_image.connect(
                 lambda: self.capture_progress_bar.setValue(self.capture_progress_bar.value() + 1)

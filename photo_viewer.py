@@ -1,6 +1,7 @@
 import math
 
 from PyQt6 import QtWidgets, QtCore, QtGui
+from PyQt6.QtGui import QResizeEvent
 
 
 class PhotoViewer(QtWidgets.QGraphicsView):

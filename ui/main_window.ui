@@ -438,7 +438,7 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>390</height>
+         <height>415</height>
         </rect>
        </property>
        <property name="font">
@@ -465,7 +465,7 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>390</height>
+         <height>415</height>
         </rect>
        </property>
        <property name="font">
@@ -558,6 +558,13 @@
         </spacer>
        </item>
        <item>
+        <widget class="QComboBox" name="cropSelect">
+         <property name="sizeAdjustPolicy">
+          <enum>QComboBox::AdjustToContents</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QComboBox" name="shutterSpeedSelect">
          <property name="maxVisibleItems">
           <number>10</number>
@@ -599,7 +606,7 @@
      <x>0</x>
      <y>0</y>
      <width>1443</width>
-     <height>24</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuHALLO">

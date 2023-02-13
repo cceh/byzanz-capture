@@ -123,9 +123,21 @@ class CameraWorker(QObject):
                 cfg.get_child_by_name("manufacturer").get_value()
             )
         self.events.camera_connected.emit(self.camera_name)
+        while self.camera:
+            try:
+                self.empty_event_queue(100)
+            except gp.GPhoto2Error as err:
+                print(err)
+                self.__disconnect_camera()
+            finally:
+                QApplication.processEvents()
 
     def __disconnect_camera(self):
-        self.camera.exit()
+        try:
+            self.camera.exit()
+        except gp.GPhoto2Error:
+            pass
+
         del self.camera
         self.events.camera_disconnected.emit(self.camera_name, True)
         self.camera_name = None
@@ -160,7 +172,6 @@ class CameraWorker(QObject):
             return "Unknown Event"
 
     def empty_event_queue(self, timeout=100, target_file_path_template=None):
-        print("Empty event queue!")
         typ, data = self.camera.wait_for_event(timeout)
         while typ != gp.GP_EVENT_TIMEOUT:
 
@@ -223,21 +234,16 @@ class CameraWorker(QObject):
 
                 self.captureComplete = False
                 self.camera.trigger_capture()
-                print(3)
                 while not self.captureComplete:
                     try:
-                        print(4)
                         QApplication.processEvents()
-                        print(5)
                         target_path = capture_req.file_path_template if not self.shouldCancel else None
-                        print(6)
                         self.empty_event_queue(target_file_path_template=target_path, timeout=100)
-                        print(7)
                     except gp.GPhoto2Error as err:
                         print(err)
 
                 print("Curr. files: %i" % self.filesCounter)
-                remaining = capture_req.num_images - self.filesCounter
+                remaining = capture_req.num_images - self.filesCounter / capture_req.expect_files
 
                 burst = remaining / capture_req.expect_files
                 with self.__open_config("write") as cfg:
@@ -285,7 +291,7 @@ class CameraWorker(QObject):
     def __try_set_config(self, config: CameraWidget, name: str, value) -> None:
         try:
             config_widget = config.get_child_by_name(name)
-            # config_widget.set_value(value)
+            config_widget.set_value(value)
         except gp.GPhoto2Error:
             print("Config '%s' not supported by camera." % name)
 

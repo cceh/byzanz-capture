@@ -3,8 +3,8 @@ from os import listdir, path
 from pathlib import Path
 
 from PyQt6.QtCore import QFileSystemWatcher, Qt, QThreadPool
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem
+from PyQt6.QtGui import QPixmap, QResizeEvent
+from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QVBoxLayout, QGroupBox
 from PyQt6.uic import loadUi
 
 from load_image_worker import LoadImageWorker, LoadImageWorkerResult
@@ -28,14 +28,15 @@ class PhotoBrowser(QWidget):
 
         self.photo_viewer: PhotoViewer = self.findChild(QWidget, "photoViewer")
         self.image_file_list: QListWidget = self.findChild(QListWidget, "imageFileList")
+        self.viewer_container: QWidget = self.findChild(QWidget, "viewerContainer")
 
         self.__fileSystemWatcher.directoryChanged.connect(self.__load_directory)
 
         self.image_file_list.currentItemChanged.connect(self.__on_select_image_file)
-        self.layout
-        self.spinner = Spinner(self.photo_viewer)
-        self.spinner.setFixedSize(100, 100)
-        self.spinner.isAnimated = True
+
+        self.spinner = Spinner(self.viewer_container, Spinner.m_light_color)
+        self.spinner.isAnimated = False
+        self.__center_spinner_over_photo_viewer()
 
 
     def open_directory(self, dir_path):
@@ -53,6 +54,8 @@ class PhotoBrowser(QWidget):
         self.image_file_list.clear()
         self.__threadpool.clear()
 
+    def resizeEvent(self, event: QResizeEvent):
+        self.__center_spinner_over_photo_viewer()
 
     def __load_directory(self):
         new_files = [f for f in listdir(self.__currentPath) if mimetypes.guess_type(f)[0] == "image/jpeg"]
@@ -70,9 +73,14 @@ class PhotoBrowser(QWidget):
 
     def __load_image(self, file_name: str, on_finished_slot):
         worker = LoadImageWorker(path.join(self.__currentPath, file_name), True, 200)
-        worker.signals.finished.connect(on_finished_slot)
+        worker.signals.finished.connect(lambda result: self.__on_image_loaded(result, on_finished_slot))
 
+        self.spinner.startAnimation()
         self.__threadpool.start(worker)
+
+    def __on_image_loaded(self, result: LoadImageWorkerResult, on_finished_slot):
+        self.spinner.stopAnimation()
+        on_finished_slot(result)
 
     def __on_select_image_file(self, item: QListWidgetItem):
         if item:
@@ -100,3 +108,8 @@ class PhotoBrowser(QWidget):
         # self.image_file_list.currentItemChanged.disconnect()
         # self.preview_list.setCurrentItem(list_item)
         # self.image_file_list.currentItemChanged.connect(self.__on_select_image_file)
+
+    def __center_spinner_over_photo_viewer(self):
+        spinner_x = (self.viewer_container.width() - 80) / 2
+        spinner_y = (self.viewer_container.height() - 80) / 2
+        self.spinner.setGeometry(int(spinner_x), int(spinner_y), 80, 80)

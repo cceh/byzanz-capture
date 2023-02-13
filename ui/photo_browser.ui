@@ -64,7 +64,28 @@
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_7">
       <item>
-       <widget class="PhotoViewer" name="photoViewer"/>
+       <widget class="QWidget" name="viewerContainer" native="true">
+        <layout class="QHBoxLayout" name="horizontalLayout_3">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="PhotoViewer" name="photoViewer"/>
+         </item>
+        </layout>
+       </widget>
       </item>
      </layout>
     </widget>

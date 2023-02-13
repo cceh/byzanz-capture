@@ -25,7 +25,7 @@ class Spinner(QtWidgets.QWidget):
     m_delay = None
     m_displayedWhenStopped = None
     m_color = None
-    m_light_color = QtGui.QColor(170, 170, 170)
+    m_light_color = QtGui.QColor(230, 230, 230)
     m_dark_color = QtGui.QColor(40, 40, 40)
 
     @property
@@ -36,7 +36,7 @@ class Spinner(QtWidgets.QWidget):
         self.startAnimation() if animated else self.stopAnimation()
 
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, color=m_dark_color):
         # Call parent class constructor first
         super(Spinner, self).__init__(parent)
 
@@ -45,7 +45,7 @@ class Spinner(QtWidgets.QWidget):
         self.m_timerId = -1
         self.m_delay = 5/60*1000
         self.m_displayedWhenStopped = False
-        self.m_color = self.m_dark_color
+        self.m_color = color
 
         self.update_dark_mode()
 
