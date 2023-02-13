@@ -12,7 +12,7 @@ from PyQt6.QtCore import QThread, Qt, QThreadPool, QFileSystemWatcher, QSettings
 from PyQt6.QtGui import QPixmap, QImageReader
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QMessageBox, QPushButton, QWidget, QListWidget, QListWidgetItem, QFrame, QLineEdit,
-    QComboBox, QLabel, QToolBox, QGroupBox
+    QComboBox, QLabel, QToolBox, QGroupBox, QProgressBar
 )
 from PyQt6.uic import loadUi
 
@@ -41,7 +41,6 @@ class CameraStates:
 
     class Disconnected(NamedTuple):
         camera_name: str
-        manual: bool = False
 
     class Disconnecting: pass
 
@@ -67,77 +66,6 @@ class RTICaptureMainWindow(QMainWindow):
 
     __session: Session
 
-    @property
-    def capture_mode(self) -> CaptureMode:
-        return CaptureMode(self.capture_view.currentIndex())
-
-    @capture_mode.setter
-    def capture_mode(self, mode: CaptureMode):
-        self.capture_view.setCurrentIndex(mode.value)
-
-    @property
-    def session(self):
-        return self.__session
-
-    @session.setter
-    def session(self, _session):
-        self.__session = _session
-        is_session = self.session is not None
-        self.capture_view.setEnabled(is_session)
-        self.camera_control_frame.setEnabled(is_session)
-        self.session_name_edit.setEnabled(not is_session)
-        self.start_session_button.setVisible(not is_session)
-        self.close_session_button.setVisible(is_session)
-
-        if _session:
-            self.session_name_edit.setText(self.session.name)
-        else:
-            self.session_name_edit.clear()
-            self.session_name_edit.setFocus()
-
-    __camera_state: CameraStates.StateType
-
-    @property
-    def camera_state(self):
-        return self.__camera_state
-
-    def set_camera_state(self, state: CameraStates.StateType):
-        print(state)
-
-        match state:
-            case CameraStates.WaitingForCamera():
-                self.set_camera_connection_busy(True)
-                self.camera_state_label.setText("Suche Kamera...")
-                self.camera_state_icon.setPixmap(QPixmap("ui/camera_waiting.png"))
-                self.disconnect_camera_button.setVisible(True)
-                self.connect_camera_button.setVisible(True)
-
-            case CameraStates.Disconnected():
-                self.set_camera_connection_busy(False)
-                self.camera_state_label.setText("Kamera getrennt<br><b>%s</b>" % state.camera_name)
-                self.camera_state_icon.setPixmap(QPixmap("ui/camera_not_ok.png"))
-                self.disconnect_camera_button.setVisible(False)
-                self.connect_camera_button.setVisible(True)
-            case CameraStates.Disconnected(manual=False):
-                self.camera_worker.commands.connect_camera.emit()
-
-            case CameraStates.Connecting():
-                self.set_camera_connection_busy(True)
-                self.camera_state_label.setText("Verbinde Kamera...")
-
-            case CameraStates.Connected():
-                self.set_camera_connection_busy(False)
-                self.camera_state_label.setText("Kamera verbunden<br><b>%s</b>" % state.camera_name)
-                self.camera_state_icon.setPixmap(QPixmap("ui/camera_ok.png"))
-                self.disconnect_camera_button.setVisible(True)
-                self.disconnect_camera_button.setEnabled(True)
-                self.connect_camera_button.setVisible(False)
-
-            case CameraStates.Disconnecting():
-                self.set_camera_connection_busy(True)
-                self.camera_state_label.setText("Trenne Kamera...")
-
-
 
 
     def __init__(self, parent=None):
@@ -162,14 +90,11 @@ class RTICaptureMainWindow(QMainWindow):
         self.capture_button: QPushButton = self.findChild(QPushButton, "captureButton")
         self.cancel_capture_button: QPushButton = self.findChild(QPushButton, "cancelCaptureButton")
 
+        self.capture_progress_bar: QProgressBar = self.findChild(QProgressBar, "captureProgressBar")
+
         self.camera_control_frame: QFrame = self.findChild(QFrame, "cameraControlFrame")
         self.f_number_select: QComboBox = self.findChild(QComboBox, "fNumberSelect")
         self.shutter_speed_select: QComboBox = self.findChild(QComboBox, "shutterSpeedSelect")
-
-        self.set_camera_connection_busy(True)
-        self.set_camera_state(CameraStates.WaitingForCamera())
-        self.session = None
-        self.capture_mode = CaptureMode.Preview
 
         self.start_session_button.clicked.connect(
             lambda: self.create_session(self.session_name_edit.text())
@@ -184,29 +109,106 @@ class RTICaptureMainWindow(QMainWindow):
                 True if len(text) > 0 else False
             ))
 
+        self.cancel_capture_button.setVisible(False)
+
+        self.set_camera_state(CameraStates.WaitingForCamera())
+        self.set_camera_connection_busy(True)
+        self.capture_mode = CaptureMode.Preview
+        self.set_session(None)
+
+
         self.camera_thread = QThread()
         self.camera_worker.moveToThread(self.camera_thread)
         self.camera_thread.start()
 
-        # self.camera_worker.events.image_captured.connect(self.show_image)
+        # self.camera_worker.events.capture_finished.connect(self.show_image)
 
-        self.camera_worker.events.image_captured.connect(self.on_image_captured)
+        self.camera_worker.events.capture_finished.connect(self.on_capture_finished)
 
         self.camera_worker.events.config_updated.connect(self.on_config_update)
-        self.camera_worker.events.camera_found.connect(
-            lambda camera_name:
-            self.set_camera_state(CameraStates.Disconnected(camera_name=camera_name))
-        )
+        self.camera_worker.events.camera_found.connect(self.on_camera_found)
+        self.camera_worker.events.camera_disconnected.connect(self.on_camera_disconnected)
         self.camera_worker.events.camera_connected.connect(
             lambda camera_name:
             self.set_camera_state(CameraStates.Connected(camera_name=camera_name))
         )
-        self.camera_worker.events.camera_disconnected.connect(self.on_camera_disconnected)
 
         self.camera_worker.initialize()
 
         self.camera_worker.commands.find_camera.emit()
         self.show()
+
+    @property
+    def capture_mode(self) -> CaptureMode:
+        return CaptureMode(self.capture_view.currentIndex())
+
+    @capture_mode.setter
+    def capture_mode(self, mode: CaptureMode):
+        self.capture_view.setCurrentIndex(mode.value)
+
+    def get_camera_state(self):
+        return self.camera_state
+
+    def set_camera_state(self, state: CameraStates.StateType):
+        self.camera_state = state
+
+        match state:
+            case CameraStates.WaitingForCamera():
+                self.set_camera_connection_busy(True)
+                self.camera_state_label.setText("Suche Kamera...")
+                self.camera_state_icon.setPixmap(QPixmap("ui/camera_waiting.png"))
+                self.disconnect_camera_button.setVisible(True)
+                self.connect_camera_button.setVisible(True)
+
+            case CameraStates.Disconnected():
+                self.set_camera_connection_busy(False)
+                self.camera_state_label.setText("Kamera getrennt<br><b>%s</b>" % state.camera_name)
+                self.camera_state_icon.setPixmap(QPixmap("ui/camera_not_ok.png"))
+                self.disconnect_camera_button.setVisible(False)
+                self.connect_camera_button.setVisible(True)
+                self.camera_control_frame.setEnabled(False)
+
+
+            case CameraStates.Connecting():
+                self.set_camera_connection_busy(True)
+                self.camera_state_label.setText("Verbinde Kamera...")
+
+            case CameraStates.Connected():
+                self.set_camera_connection_busy(False)
+                self.camera_state_label.setText("Kamera verbunden<br><b>%s</b>" % state.camera_name)
+                self.camera_state_icon.setPixmap(QPixmap("ui/camera_ok.png"))
+                self.disconnect_camera_button.setVisible(True)
+                self.disconnect_camera_button.setEnabled(True)
+                self.connect_camera_button.setVisible(False)
+                self.camera_control_frame.setEnabled(True if self.session else False)
+
+            case CameraStates.Disconnecting():
+                self.set_camera_connection_busy(True)
+                self.camera_state_label.setText("Trenne Kamera...")
+
+    camera_state: CameraStates.StateType
+
+    @property
+    def session(self):
+        return self.__session
+
+    def set_session(self, _session):
+        self.__session = _session
+        is_session = self.session is not None
+        self.capture_view.setEnabled(is_session)
+        self.session_name_edit.setEnabled(not is_session)
+        self.start_session_button.setVisible(not is_session)
+        self.close_session_button.setVisible(is_session)
+
+        self.camera_control_frame.setEnabled(is_session and isinstance(self.get_camera_state(), CameraStates.Connected))
+
+        if _session:
+            self.session_name_edit.setText(self.session.name)
+        else:
+            self.session_name_edit.clear()
+            self.session_name_edit.setFocus()
+            self.camera_control_frame.setEnabled(False)
+
 
     def on_capture_mode_changed(self):
         print(self.capture_mode)
@@ -232,14 +234,19 @@ class RTICaptureMainWindow(QMainWindow):
 
     def disconnect_camera(self):
         self.set_camera_state(CameraStates.Disconnecting())
-        self.camera_worker.commands.disconnect_camera.emit(True)
+        self.camera_worker.commands.disconnect_camera.emit()
 
-    def on_camera_disconnected(self, camera_name, manual):
-        self.set_camera_state(CameraStates.Disconnected(camera_name=camera_name, manual=manual))
+    def on_camera_found(self, camera_name):
+        self.set_camera_state(CameraStates.Disconnected(camera_name=camera_name))
+        self.camera_worker.commands.connect_camera.emit()
+
+    def on_camera_disconnected(self, camera_name):
+        self.set_camera_state(CameraStates.Disconnected(camera_name=camera_name))
 
     def create_session(self, name):
         print("Create" + name)
-        self.session = Session(name, QSettings().value("workingDirectory"))
+        session = Session(name, QSettings().value("workingDirectory"))
+        self.set_session(session)
 
         os.makedirs(self.session.session_dir, exist_ok=True)
         os.makedirs(self.session.preview_dir, exist_ok=True)
@@ -249,7 +256,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.rtiImageBrowser.open_directory(self.session.images_dir)
 
     def close_session(self):
-        self.session = None
+        self.previewImageBrowser.close_directory()
+        self.rtiImageBrowser.close_directory()
+        self.set_session(None)
+        self.camera_control_frame.setEnabled(False)
 
     def config_hookup_select(self, config: gp.CameraWidget, config_name, combo_box: QComboBox):
         try:
@@ -269,7 +279,7 @@ class RTICaptureMainWindow(QMainWindow):
 
     def on_config_update(self, config: gp.CameraWidget):
         self.config_hookup_select(config, "f-number", self.f_number_select)
-        self.config_hookup_select(config, "shutterspeed2", self.shutter_speed_select)
+        self.config_hookup_select(config, "shutterspeed", self.shutter_speed_select)
 
     def capture_image(self):
         capture_req: CaptureImagesRequest
@@ -282,26 +292,45 @@ class RTICaptureMainWindow(QMainWindow):
         else:
             filename_template = self.session.name.replace(" ", "_") + "_${num}${extension}"
             file_path_template = os.path.join(self.session.images_dir, filename_template)
-            capture_req = CaptureImagesRequest(file_path_template, num_images=60)
+            capture_req = CaptureImagesRequest(file_path_template, num_images=60, expect_files=1)
+            self.capture_progress_bar.setMaximum(59)
+            self.capture_progress_bar.setValue(0)
+            self.camera_worker.events.received_image.connect(
+                lambda: self.capture_progress_bar.setValue(self.capture_progress_bar.value() + 1)
+            )
 
         capture_req.signal.moveToThread(self.camera_thread)
         self.camera_worker.commands.capture_images.emit(capture_req)
         self.capture_button.setVisible(False)
         self.cancel_capture_button.setVisible(True)
+        self.cancel_capture_button.setEnabled(True)
+        self.session_controls.setEnabled(False)
+        self.disconnect_camera_button.setEnabled(False)
+
 
         capture_req.signal.canceled.connect(self.on_capture_cancelled)
 
-    def on_image_captured(self):
+    def on_capture_finished(self):
         if self.capture_mode == CaptureMode.Preview:
             self.preview_counter += 1
+        else:
+            self.camera_worker.events.received_image.disconnect()
 
         self.cancel_capture_button.setVisible(False)
         self.capture_button.setVisible(True)
+        self.session_controls.setEnabled(True)
+        self.disconnect_camera_button.setEnabled(True)
+
+
 
     def on_capture_cancelled(self):
         print("CANCELLED")
         self.capture_button.setVisible(True)
         self.cancel_capture_button.setVisible(False)
+        self.session_controls.setEnabled(True)
+        self.disconnect_camera_button.setEnabled(True)
+
+
 
     def cancel_capture(self):
         self.cancel_capture_button.setEnabled(False)

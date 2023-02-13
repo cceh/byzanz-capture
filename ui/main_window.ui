@@ -52,6 +52,97 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
+           <property name="palette">
+            <palette>
+             <active>
+              <colorrole role="BrightText">
+               <brush brushstyle="SolidPattern">
+                <color alpha="255">
+                 <red>71</red>
+                 <green>22</green>
+                 <blue>18</blue>
+                </color>
+               </brush>
+              </colorrole>
+              <colorrole role="AlternateBase">
+               <brush brushstyle="SolidPattern">
+                <color alpha="255">
+                 <red>168</red>
+                 <green>22</green>
+                 <blue>3</blue>
+                </color>
+               </brush>
+              </colorrole>
+              <colorrole role="PlaceholderText">
+               <brush brushstyle="SolidPattern">
+                <color alpha="64">
+                 <red>255</red>
+                 <green>16</green>
+                 <blue>0</blue>
+                </color>
+               </brush>
+              </colorrole>
+             </active>
+             <inactive>
+              <colorrole role="BrightText">
+               <brush brushstyle="SolidPattern">
+                <color alpha="255">
+                 <red>55</red>
+                 <green>55</green>
+                 <blue>55</blue>
+                </color>
+               </brush>
+              </colorrole>
+              <colorrole role="AlternateBase">
+               <brush brushstyle="SolidPattern">
+                <color alpha="255">
+                 <red>152</red>
+                 <green>152</green>
+                 <blue>152</blue>
+                </color>
+               </brush>
+              </colorrole>
+              <colorrole role="PlaceholderText">
+               <brush brushstyle="SolidPattern">
+                <color alpha="63">
+                 <red>255</red>
+                 <green>255</green>
+                 <blue>255</blue>
+                </color>
+               </brush>
+              </colorrole>
+             </inactive>
+             <disabled>
+              <colorrole role="BrightText">
+               <brush brushstyle="SolidPattern">
+                <color alpha="255">
+                 <red>71</red>
+                 <green>22</green>
+                 <blue>18</blue>
+                </color>
+               </brush>
+              </colorrole>
+              <colorrole role="AlternateBase">
+               <brush brushstyle="SolidPattern">
+                <color alpha="255">
+                 <red>152</red>
+                 <green>152</green>
+                 <blue>152</blue>
+                </color>
+               </brush>
+              </colorrole>
+              <colorrole role="PlaceholderText">
+               <brush brushstyle="SolidPattern">
+                <color alpha="63">
+                 <red>255</red>
+                 <green>255</green>
+                 <blue>255</blue>
+                </color>
+               </brush>
+              </colorrole>
+             </disabled>
+            </palette>
+           </property>
            <property name="font">
             <font>
              <pointsize>30</pointsize>
@@ -177,6 +268,9 @@
            </property>
            <property name="wordWrap">
             <bool>true</bool>
+           </property>
+           <property name="buddy">
+            <cstring>cameraStateLabel</cstring>
            </property>
           </widget>
          </item>
@@ -344,12 +438,12 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>415</height>
+         <height>390</height>
         </rect>
        </property>
        <property name="font">
         <font>
-         <pointsize>20</pointsize>
+         <pointsize>13</pointsize>
          <bold>true</bold>
         </font>
        </property>
@@ -371,24 +465,62 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>415</height>
+         <height>390</height>
         </rect>
        </property>
        <property name="font">
         <font>
-         <pointsize>20</pointsize>
-         <bold>true</bold>
+         <pointsize>13</pointsize>
+         <bold>false</bold>
         </font>
        </property>
        <property name="cursor">
         <cursorShape>ArrowCursor</cursorShape>
        </property>
        <attribute name="label">
-        <string>Page 2</string>
+        <string>Schritt 2: RTI-Serie aufnehmen</string>
        </attribute>
-       <layout class="QHBoxLayout" name="horizontalLayout_3">
+       <layout class="QVBoxLayout" name="verticalLayout">
         <item>
-         <widget class="PhotoBrowser" name="rtiImageBrowser" native="true"/>
+         <widget class="PhotoBrowser" name="rtiImageBrowser" native="true">
+          <property name="font">
+           <font>
+            <pointsize>13</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QFrame" name="frame">
+          <property name="font">
+           <font>
+            <pointsize>13</pointsize>
+            <bold>false</bold>
+           </font>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::StyledPanel</enum>
+          </property>
+          <property name="frameShadow">
+           <enum>QFrame::Raised</enum>
+          </property>
+          <layout class="QHBoxLayout" name="horizontalLayout_3">
+           <item>
+            <widget class="QProgressBar" name="captureProgressBar">
+             <property name="font">
+              <font>
+               <pointsize>13</pointsize>
+               <bold>false</bold>
+              </font>
+             </property>
+             <property name="value">
+              <number>24</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
         </item>
        </layout>
       </widget>
@@ -426,13 +558,6 @@
         </spacer>
        </item>
        <item>
-        <widget class="QPushButton" name="cancelCaptureButton">
-         <property name="text">
-          <string>Aufnahme abbrechen</string>
-         </property>
-        </widget>
-       </item>
-       <item>
         <widget class="QComboBox" name="shutterSpeedSelect">
          <property name="maxVisibleItems">
           <number>10</number>
@@ -456,6 +581,13 @@
          </property>
         </widget>
        </item>
+       <item>
+        <widget class="QPushButton" name="cancelCaptureButton">
+         <property name="text">
+          <string>Aufnahme abbrechen</string>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>
@@ -467,7 +599,7 @@
      <x>0</x>
      <y>0</y>
      <width>1443</width>
-     <height>22</height>
+     <height>24</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuHALLO">
@@ -516,13 +648,29 @@
    </hints>
   </connection>
   <connection>
+   <sender>settingsButton</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>open_settings()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>1202</x>
+     <y>82</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>1205</x>
+     <y>-3</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
    <sender>captureButton</sender>
    <signal>clicked()</signal>
    <receiver>MainWindow</receiver>
    <slot>capture_image()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>1326</x>
+     <x>1154</x>
      <y>687</y>
     </hint>
     <hint type="destinationlabel">
@@ -532,18 +680,18 @@
    </hints>
   </connection>
   <connection>
-   <sender>settingsButton</sender>
-   <signal>clicked()</signal>
-   <receiver>MainWindow</receiver>
-   <slot>open_settings()</slot>
+   <sender>sessionNameEdit</sender>
+   <signal>returnPressed()</signal>
+   <receiver>startSessionButton</receiver>
+   <slot>click()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>1170</x>
-     <y>102</y>
+     <x>236</x>
+     <y>96</y>
     </hint>
     <hint type="destinationlabel">
-     <x>1205</x>
-     <y>-3</y>
+     <x>311</x>
+     <y>95</y>
     </hint>
    </hints>
   </connection>
@@ -554,12 +702,12 @@
    <slot>cancel_capture()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>933</x>
-     <y>696</y>
+     <x>1292</x>
+     <y>684</y>
     </hint>
     <hint type="destinationlabel">
-     <x>754</x>
-     <y>725</y>
+     <x>1400</x>
+     <y>720</y>
     </hint>
    </hints>
   </connection>

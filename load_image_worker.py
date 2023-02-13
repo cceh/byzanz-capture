@@ -2,24 +2,27 @@ from pathlib import Path
 
 from PIL import Image
 from PIL.ExifTags import TAGS
-from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, pyqtSlot, QElapsedTimer
+from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, pyqtSlot, QElapsedTimer, Qt
 from PyQt6.QtGui import QPixmap, QImage
 
 
 class LoadImageWorkerResult:
-    def __init__(self, image, exif, path):
+    def __init__(self, image, exif, path, thumbnail):
         self.image: QImage = image
         self.exif: dict = exif
         self.path: str = path
+        self.thumbnail: QImage = thumbnail
 
 class LoadImageWorkerSignals(QObject):
     finished = pyqtSignal(LoadImageWorkerResult)
 
 class LoadImageWorker(QRunnable):
-    def __init__(self, path):
+    def __init__(self, path, include_thumbnail=None, thumbnail_size=200):
         self.path = path
-        super(LoadImageWorker, self).__init__()
+        self.include_thumbnail = include_thumbnail
+        self.thumbnail_size = thumbnail_size
 
+        super(LoadImageWorker, self).__init__()
         self.signals = LoadImageWorkerSignals()
 
     @pyqtSlot()
@@ -30,17 +33,25 @@ class LoadImageWorker(QRunnable):
         image = Image.open(self.path)
         try:
             image.load()
-
             w, h = image.size
-
             image_data = image.tobytes('raw', 'RGB')
-
             q_image = QImage(image_data, w, h, QImage.Format.Format_RGB888)
 
             if not q_image:
                 return
 
-            self.signals.finished.emit(LoadImageWorkerResult(q_image, self.get_exif_dict(image), self.path))
+            thumbnail_q_image = None
+            if self.include_thumbnail:
+                # thumbnail = image.copy()
+                # thumbnail.thumbnail((self.thumbnail_size, self.thumbnail_size))
+                # thumb_w, thumb_h = thumbnail.size
+                # thumb_data = image.tobytes('raw', 'RGB')
+                # thumbnail_q_image = QImage(thumb_data, thumb_w, thumb_h, QImage.Format.Format_RGB888)
+                thumbnail_q_image = q_image.scaled(self.thumbnail_size, self.thumbnail_size, Qt.AspectRatioMode.KeepAspectRatio)
+
+            self.signals.finished.emit(
+                LoadImageWorkerResult(q_image, self.get_exif_dict(image), self.path, thumbnail_q_image)
+            )
             print("Loading image %s image took %d ms" % (Path(self.path).name, timer.elapsed()))
         except:
             pass # TODO: Image File Error Handling
