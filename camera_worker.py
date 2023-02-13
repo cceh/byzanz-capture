@@ -13,6 +13,38 @@ import gphoto2 as gp
 from PyQt6.QtCore import QThread, pyqtSignal, QObject, QElapsedTimer, QThreadPool, QRunnable, pyqtSlot, QEventLoop
 from PyQt6.QtWidgets import QApplication
 from gphoto2 import CameraWidget
+class CameraStates:
+    class Waiting: pass
+
+    class Disconnected(NamedTuple):
+        camera_name: str
+
+    class Connecting: pass
+
+    class Disconnecting: pass
+
+    class Ready(NamedTuple):
+        camera_name: str
+
+    class CaptureStarted: pass
+
+    class CaptureInProgress(NamedTuple):
+        num_captured: int
+        num_amount: int
+
+    class CaptureFinished(NamedTuple):
+        num_captured: int
+
+    class CaptureCanceled: pass
+
+    class CaptureError(NamedTuple):
+        error: str
+
+    class IOError(NamedTuple):
+        error: str
+
+    class ConnectionError(NamedTuple):
+        error: str
 
 
 class CaptureImagesRequest(NamedTuple):
@@ -28,6 +60,7 @@ class CaptureImagesRequest(NamedTuple):
     #    super(CaptureImagesRequest, self).__init__(parent)
     #    self.file_path_template = file_path_template
     #    self.num_images = num_images
+
 
 class CameraCommands(QObject):
     capture_images = pyqtSignal(CaptureImagesRequest)
@@ -45,9 +78,6 @@ class CameraEvents(QObject):
     camera_found = pyqtSignal(str)
     camera_connected = pyqtSignal(str)
     camera_disconnected = pyqtSignal(str, bool)
-
-
-
 
 
 class CameraWorker(QObject):
@@ -182,12 +212,12 @@ class CameraWorker(QObject):
                 print("New file: %s" % cam_file_path)
                 basename, extension = os.path.splitext(data.name)
 
-                if target_file_path_template is not None:
+                if target_file_path_template is not None and self.shouldCancel is False:
                     tpl = Template(target_file_path_template)
                     file_target_path = tpl.substitute(
                         basename=basename,
                         extension=extension,
-                        num=str(self.filesCounter).zfill(3)
+                        num=str(self.filesCounter + 1).zfill(3)
                     )
                     cam_file = self.camera.file_get(
                         data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
@@ -206,7 +236,6 @@ class CameraWorker(QObject):
             # try to grab another event
             typ, data = self.camera.wait_for_event(1)
 
-
     def captureImages(self, capture_req: CaptureImagesRequest):
         timer = QElapsedTimer()
         try:
@@ -221,7 +250,6 @@ class CameraWorker(QObject):
                 # TODO: set format to nef+fine
                 self.__try_set_config(cfg, "viewfinder", 1)
                 self.__try_set_config(cfg, "burstnumber", capture_req.num_images)
-
 
             remaining = capture_req.num_images * capture_req.expect_files
             while remaining > 0:
