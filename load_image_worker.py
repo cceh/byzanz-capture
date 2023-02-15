@@ -42,11 +42,6 @@ class LoadImageWorker(QRunnable):
 
             thumbnail_q_image = None
             if self.include_thumbnail:
-                # thumbnail = image.copy()
-                # thumbnail.thumbnail((self.thumbnail_size, self.thumbnail_size))
-                # thumb_w, thumb_h = thumbnail.size
-                # thumb_data = image.tobytes('raw', 'RGB')
-                # thumbnail_q_image = QImage(thumb_data, thumb_w, thumb_h, QImage.Format.Format_RGB888)
                 thumbnail_q_image = q_image.scaled(self.thumbnail_size, self.thumbnail_size, Qt.AspectRatioMode.KeepAspectRatio)
 
             self.signals.finished.emit(

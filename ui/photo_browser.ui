@@ -23,7 +23,7 @@
       </size>
      </property>
      <property name="title">
-      <string>Testaufnahmen</string>
+      <string>Bilder</string>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_2">
       <item>
@@ -39,6 +39,9 @@
         </property>
         <property name="resizeMode">
          <enum>QListView::Adjust</enum>
+        </property>
+        <property name="layoutMode">
+         <enum>QListView::Batched</enum>
         </property>
         <property name="viewMode">
          <enum>QListView::IconMode</enum>

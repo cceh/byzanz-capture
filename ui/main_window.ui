@@ -43,105 +43,11 @@
         <layout class="QHBoxLayout" name="horizontalLayout_10">
          <item>
           <widget class="QLineEdit" name="sessionNameEdit">
-           <property name="enabled">
-            <bool>true</bool>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
-           </property>
-           <property name="palette">
-            <palette>
-             <active>
-              <colorrole role="BrightText">
-               <brush brushstyle="SolidPattern">
-                <color alpha="255">
-                 <red>71</red>
-                 <green>22</green>
-                 <blue>18</blue>
-                </color>
-               </brush>
-              </colorrole>
-              <colorrole role="AlternateBase">
-               <brush brushstyle="SolidPattern">
-                <color alpha="255">
-                 <red>168</red>
-                 <green>22</green>
-                 <blue>3</blue>
-                </color>
-               </brush>
-              </colorrole>
-              <colorrole role="PlaceholderText">
-               <brush brushstyle="SolidPattern">
-                <color alpha="64">
-                 <red>255</red>
-                 <green>16</green>
-                 <blue>0</blue>
-                </color>
-               </brush>
-              </colorrole>
-             </active>
-             <inactive>
-              <colorrole role="BrightText">
-               <brush brushstyle="SolidPattern">
-                <color alpha="255">
-                 <red>55</red>
-                 <green>55</green>
-                 <blue>55</blue>
-                </color>
-               </brush>
-              </colorrole>
-              <colorrole role="AlternateBase">
-               <brush brushstyle="SolidPattern">
-                <color alpha="255">
-                 <red>152</red>
-                 <green>152</green>
-                 <blue>152</blue>
-                </color>
-               </brush>
-              </colorrole>
-              <colorrole role="PlaceholderText">
-               <brush brushstyle="SolidPattern">
-                <color alpha="63">
-                 <red>255</red>
-                 <green>255</green>
-                 <blue>255</blue>
-                </color>
-               </brush>
-              </colorrole>
-             </inactive>
-             <disabled>
-              <colorrole role="BrightText">
-               <brush brushstyle="SolidPattern">
-                <color alpha="255">
-                 <red>71</red>
-                 <green>22</green>
-                 <blue>18</blue>
-                </color>
-               </brush>
-              </colorrole>
-              <colorrole role="AlternateBase">
-               <brush brushstyle="SolidPattern">
-                <color alpha="255">
-                 <red>152</red>
-                 <green>152</green>
-                 <blue>152</blue>
-                </color>
-               </brush>
-              </colorrole>
-              <colorrole role="PlaceholderText">
-               <brush brushstyle="SolidPattern">
-                <color alpha="63">
-                 <red>255</red>
-                 <green>255</green>
-                 <blue>255</blue>
-                </color>
-               </brush>
-              </colorrole>
-             </disabled>
-            </palette>
            </property>
            <property name="font">
             <font>
@@ -149,8 +55,14 @@
              <bold>true</bold>
             </font>
            </property>
-           <property name="frame">
-            <bool>false</bool>
+           <property name="styleSheet">
+            <string notr="true">QLineEdit:disabled {
+  color: palette(text);
+  background: palette(window);
+}</string>
+           </property>
+           <property name="text">
+            <string/>
            </property>
            <property name="readOnly">
             <bool>false</bool>
@@ -170,7 +82,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>../../../.designer/backup/start_session.svg</normaloff>../../../.designer/backup/start_session.svg</iconset>
+             <normaloff>start_session.svg</normaloff>start_session.svg</iconset>
            </property>
            <property name="iconSize">
             <size>
@@ -191,11 +103,24 @@
            </property>
           </widget>
          </item>
+         <item>
+          <widget class="QToolButton" name="sessionMenuButton">
+           <property name="toolTip">
+            <string>Bestehende Sitzung öffnen</string>
+           </property>
+           <property name="text">
+            <string>...</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="Spinner" name="sessionLoadingSpinner" native="true"/>
+         </item>
         </layout>
        </widget>
       </item>
       <item>
-       <widget class="QGroupBox" name="groupBox_3">
+       <widget class="QGroupBox" name="connectionControls">
         <property name="styleSheet">
          <string notr="true"/>
         </property>
@@ -438,7 +363,7 @@
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>415</height>
+         <height>390</height>
         </rect>
        </property>
        <property name="font">
@@ -455,17 +380,21 @@
        </attribute>
        <layout class="QHBoxLayout" name="horizontalLayout_2">
         <item>
-         <widget class="PhotoBrowser" name="previewImageBrowser" native="true"/>
+         <widget class="PhotoBrowser" name="previewImageBrowser" native="true">
+          <property name="toolTipDuration">
+           <number>0</number>
+          </property>
+         </widget>
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="RTIPage">
+      <widget class="QWidget" name="rtiPage">
        <property name="geometry">
         <rect>
          <x>0</x>
          <y>0</y>
          <width>1403</width>
-         <height>415</height>
+         <height>390</height>
         </rect>
        </property>
        <property name="font">
@@ -527,7 +456,7 @@
      </widget>
     </item>
     <item>
-     <widget class="QFrame" name="cameraControlFrame">
+     <widget class="QFrame" name="cameraControls">
       <property name="enabled">
        <bool>false</bool>
       </property>
@@ -584,7 +513,10 @@
        <item>
         <widget class="QPushButton" name="captureButton">
          <property name="text">
-          <string>Testaufnahme auslösen</string>
+          <string>Aufnahme starten</string>
+         </property>
+         <property name="shortcut">
+          <string>Space</string>
          </property>
         </widget>
        </item>
@@ -606,7 +538,7 @@
      <x>0</x>
      <y>0</y>
      <width>1443</width>
-     <height>22</height>
+     <height>24</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuHALLO">
@@ -629,6 +561,9 @@
    <class>PhotoBrowser</class>
    <extends>QWidget</extends>
    <header>photo_browser</header>
+   <slots>
+    <signal>directory_loaded(QString)</signal>
+   </slots>
   </customwidget>
  </customwidgets>
  <tabstops>
@@ -693,12 +628,12 @@
    <slot>click()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>236</x>
-     <y>96</y>
+     <x>217</x>
+     <y>95</y>
     </hint>
     <hint type="destinationlabel">
-     <x>430</x>
-     <y>102</y>
+     <x>352</x>
+     <y>103</y>
     </hint>
    </hints>
   </connection>
@@ -757,8 +692,8 @@
    <slot>create_session()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>417</x>
-     <y>96</y>
+     <x>352</x>
+     <y>103</y>
     </hint>
     <hint type="destinationlabel">
      <x>416</x>
@@ -782,6 +717,54 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>previewImageBrowser</sender>
+   <signal>directory_loaded(QString)</signal>
+   <receiver>MainWindow</receiver>
+   <slot>session_directory_loaded(QString)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>1259</x>
+     <y>357</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>1156</x>
+     <y>140</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>sessionMenuButton</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>show_session_menu()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>543</x>
+     <y>92</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>323</x>
+     <y>31</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>rtiImageBrowser</sender>
+   <signal>directory_loaded(QString)</signal>
+   <receiver>MainWindow</receiver>
+   <slot>session_directory_loaded(QString)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>653</x>
+     <y>311</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>610</x>
+     <y>141</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>open_settings()</slot>
@@ -792,5 +775,7 @@
   <slot>disconnect_camera()</slot>
   <slot>close_session()</slot>
   <slot>create_session()</slot>
+  <slot>session_directory_loaded(QString)</slot>
+  <slot>show_session_menu()</slot>
  </slots>
 </ui>

@@ -7,44 +7,80 @@ import time
 import logging
 
 from string import Template
-from typing import NamedTuple, Literal, Generator
+from typing import NamedTuple, Literal, Generator, Type, Union
 
 import gphoto2 as gp
-from PyQt6.QtCore import QThread, pyqtSignal, QObject, QElapsedTimer, QThreadPool, QRunnable, pyqtSlot, QEventLoop
+from PyQt6.QtCore import QThread, pyqtSignal, QObject, QElapsedTimer, QThreadPool, QRunnable, pyqtSlot, QEventLoop, \
+    QCoreApplication
 from PyQt6.QtWidgets import QApplication
 from gphoto2 import CameraWidget
+
+
 class CameraStates:
-    class Waiting: pass
+    class Waiting:
+        pass
 
-    class Disconnected(NamedTuple):
-        camera_name: str
+    class Found:
+        def __init__(self, camera_name: str):
+            super().__init__()
+            self.camera_name = camera_name
 
-    class Connecting: pass
+    class Disconnected:
+        def __init__(self, camera_name: str, auto_reconnect: bool = True):
+            super().__init__()
+            self.auto_reconnect = auto_reconnect
+            self.camera_name = camera_name
 
-    class Disconnecting: pass
+    class Connecting:
+        pass
 
-    class Ready(NamedTuple):
-        camera_name: str
+    class Disconnecting:
+        pass
 
-    class CaptureStarted: pass
+    class Ready:
+        def __init__(self, camera_name: str):
+            super().__init__()
+            self.camera_name = camera_name
 
-    class CaptureInProgress(NamedTuple):
-        num_captured: int
-        num_amount: int
+    class CaptureStarted:
+        pass
 
-    class CaptureFinished(NamedTuple):
-        num_captured: int
+    class CaptureInProgress:
+        def __init__(self, num_captured: int, num_amount: int):
+            super().__init__()
+            self.num_captured = num_captured
+            self.num_amount = num_amount
 
-    class CaptureCanceled: pass
+    class CaptureFinished:
+        def __init__(self, num_captured: int):
+            super().__init__()
+            self.num_captured = num_captured
 
-    class CaptureError(NamedTuple):
-        error: str
+    class CaptureCanceled:
+        pass
 
-    class IOError(NamedTuple):
-        error: str
+    class CaptureError:
+        def __init__(self, error: str):
+            super().__init__()
+            self.error = error
 
-    class ConnectionError(NamedTuple):
-        error: str
+    class IOError:
+        def __init__(self, error: str):
+            super().__init__()
+            self.error = error
+
+    class ConnectionError:
+        def __init__(self, error: gp.GPhoto2Error):
+            super().__init__()
+            self.error = error
+
+
+    StateType = Union[
+        Waiting, Found, Disconnected, Connecting, Disconnecting, Ready, CaptureStarted, CaptureInProgress,
+        CaptureFinished, CaptureCanceled, CaptureError, IOError, ConnectionError
+    ]
+
+
 
 
 class CaptureImagesRequest(NamedTuple):
@@ -81,34 +117,22 @@ class CameraEvents(QObject):
 
 
 class CameraWorker(QObject):
-    commands = CameraCommands()
-    events = CameraEvents()
-
-    camera: gp.Camera = None
-    camera_name: str = None
-
-    filesCounter = 0
-    captureComplete = False
-
-    shouldCancel = False
-
-    class Worker(QRunnable):
-        class Signals:
-            finished = pyqtSignal()
-
-        def __init__(self, camera: gp.Camera, timeout=200, target_file_path_template=None):
-            super(CameraWorker.Worker, self).__init__()
-            self.camera = camera
-            self.timeout = timeout
-            self.target_file_path_template = target_file_path_template
-            self.filesCounter = 0
-
-        @pyqtSlot()
-        def run(self):
-            self.camera.trigger_capture()
+    state_changed = pyqtSignal(object)
 
     def __init__(self, parent=None):
         super(CameraWorker, self).__init__(parent)
+
+        self.__state = None
+        self.commands = CameraCommands()
+        self.events = CameraEvents()
+
+        self.camera: gp.Camera = None
+        self.camera_name: str = None
+
+        self.filesCounter = 0
+        self.captureComplete = False
+
+        self.shouldCancel = False
         # self.input_queue = input_queue
         # self.daemon = True
 
@@ -118,22 +142,29 @@ class CameraWorker(QObject):
         self.commands.capture_images.connect(self.captureImages)
         self.commands.find_camera.connect(self.__find_camera)
         self.commands.connect_camera.connect(self.__connect_camera)
-        self.commands.disconnect_camera.connect(self.__disconnect_camera)
+        self.commands.disconnect_camera.connect(lambda: self.__disconnect_camera(False))
         self.commands.set_config.connect(self.__set_config)
         self.commands.cancel.connect(self.__cancel)
 
-        self.threadpool = QThreadPool()
+        self.__set_state(CameraStates.Waiting())
 
         logging.basicConfig(
             format='%(levelname)s: %(name)s: %(message)s', level=logging.INFO)
-        self.callback_obj = gp.check_result(gp.use_python_logging(mapping={
-            gp.GP_LOG_ERROR: logging.INFO,
-            gp.GP_LOG_DEBUG: logging.DEBUG,
-            gp.GP_LOG_VERBOSE: logging.DEBUG - 3,
-            gp.GP_LOG_DATA: logging.DEBUG - 6}))
-        print(self.callback_obj)
+        # self.callback_obj = gp.check_result(gp.use_python_logging(mapping={
+        #     gp.GP_LOG_ERROR: logging.INFO,
+        #     gp.GP_LOG_DEBUG: logging.DEBUG,
+        #     gp.GP_LOG_VERBOSE: logging.DEBUG - 3,
+        #     gp.GP_LOG_DATA: logging.DEBUG - 6}))
+
+
+
+    def __set_state(self, state: CameraStates.StateType):
+        self.__state = state
+        print("Set camera state: " + state.__class__.__name__)
+        self.state_changed.emit(state)
 
     def __find_camera(self):
+        self.__set_state(CameraStates.Waiting())
         camera_list = None
         while not camera_list:
             print("Waiting fort camera...")
@@ -141,9 +172,11 @@ class CameraWorker(QObject):
             sleep(1)
 
         name, _ = camera_list[0]
-        self.events.camera_found.emit(name)
+        self.__set_state(CameraStates.Found(camera_name=name))
+        # self.events.camera_found.emit(name)
 
     def __connect_camera(self):
+        self.__set_state(CameraStates.Connecting())
         self.camera = gp.Camera()
         self.camera.init()
         with self.__open_config("read") as cfg:
@@ -152,24 +185,29 @@ class CameraWorker(QObject):
                 cfg.get_child_by_name("cameramodel").get_value(),
                 cfg.get_child_by_name("manufacturer").get_value()
             )
-        self.events.camera_connected.emit(self.camera_name)
+        # self.events.camera_connected.emit(self.camera_name)
+        self.__set_state(CameraStates.Ready(self.camera_name))
+
         while self.camera:
             try:
-                self.empty_event_queue(100)
+                self.empty_event_queue(1000)
             except gp.GPhoto2Error as err:
                 print(err)
-                self.__disconnect_camera()
+                # self.__disconnect_camera()
+                self.__set_state(CameraStates.ConnectionError(error=err))
             finally:
                 QApplication.processEvents()
 
-    def __disconnect_camera(self):
+    def __disconnect_camera(self, auto_reconnect = True):
+        self.__set_state(CameraStates.Disconnecting())
         try:
             self.camera.exit()
         except gp.GPhoto2Error:
             pass
 
-        del self.camera
-        self.events.camera_disconnected.emit(self.camera_name, True)
+        self.camera = None
+        # self.events.camera_disconnected.emit(self.camera_name, True)
+        self.__set_state(CameraStates.Disconnected(camera_name=self.camera_name, auto_reconnect=auto_reconnect))
         self.camera_name = None
 
     def __set_config(self, name, value):
@@ -203,9 +241,10 @@ class CameraWorker(QObject):
 
     def empty_event_queue(self, timeout=100, target_file_path_template=None):
         typ, data = self.camera.wait_for_event(timeout)
+
         while typ != gp.GP_EVENT_TIMEOUT:
 
-            print("Event: %s, data: %s" % (self.event_text(typ), data))
+            # print("Event: %s, data: %s" % (self.event_text(typ), data))
 
             if typ == gp.GP_EVENT_FILE_ADDED:
                 cam_file_path = os.path.join(data.folder, data.name)
@@ -223,7 +262,12 @@ class CameraWorker(QObject):
                         data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
                     print("Image is being saved to {}".format(file_target_path))
                     cam_file.save(file_target_path)
-                    self.events.received_image.emit()
+                    # self.events.received_image.emit()
+                    if isinstance(self.__state, CameraStates.CaptureInProgress):
+                        # TPODO set num amount
+                        self.__set_state(CameraStates.CaptureInProgress(
+                            num_captured=self.filesCounter, num_amount=0
+                        ))
 
                 self.camera.file_delete(data.folder, data.name)
                 self.filesCounter += 1
@@ -244,6 +288,10 @@ class CameraWorker(QObject):
             self.filesCounter = 0
             self.captureComplete = False
 
+            self.__set_state(CameraStates.CaptureInProgress(
+                num_captured=0, num_amount=capture_req.num_images
+            ))
+
             with self.__open_config("write") as cfg:
                 self.__try_set_config(cfg, "capturetarget", "Internal RAM")
                 self.__try_set_config(cfg, "recordingmedia", "SDRAM")
@@ -253,9 +301,7 @@ class CameraWorker(QObject):
 
             remaining = capture_req.num_images * capture_req.expect_files
             while remaining > 0:
-                print(1)
                 QApplication.processEvents()
-                print(2)
                 if self.shouldCancel:
                     print("Capture cancelled")
                     break
@@ -285,12 +331,15 @@ class CameraWorker(QObject):
             print("Took %d ms" % timer.elapsed())
 
             if not self.shouldCancel:
-                self.events.capture_finished.emit()
-                capture_req.signal.finished.emit()
+                self.__set_state(CameraStates.CaptureFinished(num_captured=self.filesCounter))
+                # self.events.capture_finished.emit()
+                # capture_req.signal.finished.emit()
             else:
-                capture_req.signal.canceled.emit()
+                self.__state(CameraStates.CaptureCanceled())
+                # capture_req.signal.canceled.emit()
 
         except Exception as err:
+            print(err)
             raise err
             pass  # TODO: ERROR HANDULNG
         finally:
@@ -302,6 +351,8 @@ class CameraWorker(QObject):
                         print("Viewfinder 0")
                         self.__try_set_config(cfg, "viewfinder", 0)
                         self.__try_set_config(cfg, "burstnumber", 1)
+                    self.empty_event_queue()
+                    self.__set_state(CameraStates.Ready(self.camera_name))
                 except:
                     raise err
 

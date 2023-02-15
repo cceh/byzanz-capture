@@ -1,6 +1,7 @@
 import math
 
 from PyQt6 import QtWidgets, QtCore, QtGui
+from PyQt6.QtCore import QRect, QRectF
 from PyQt6.QtGui import QResizeEvent
 
 
@@ -77,17 +78,33 @@ class PhotoViewer(QtWidgets.QGraphicsView):
 
     def zoomPlus(self):
         if self.hasPhoto():
+            if self._zoomfactor >= 1.0:
+                return
             factor = self.ZOOMFACT # 1.25
             self._zoomfactor = self._zoomfactor * self.ZOOMFACT
             self._zoom += 1
+            print(self._zoom)
             self.scale(factor, factor)
             # self.parent.updateStatusBar()
             self.setDragState()
 
     def zoomMinus(self):
         if self.hasPhoto():
+            rect = QtCore.QRectF(self._photo.pixmap().rect())
+            # self.scale(1 / unity.width(), 1 / unity.height())
+            viewrect = self.viewport().rect()
+            scenerect = self.transform().mapRect(rect)
+            max_factor = min(viewrect.width() / scenerect.width(),
+                         viewrect.height() / scenerect.height())
+            print(max_factor)
             factor = 1.0/self.ZOOMFACT #0.8
+            print(factor)
+
+            if factor <= max_factor * 0.8:
+                return
+
             self._zoomfactor = self._zoomfactor / self.ZOOMFACT
+            print(self._zoomfactor)
             self._zoom -= 1
             self.scale(factor, factor)
             # self.parent.updateStatusBar()
