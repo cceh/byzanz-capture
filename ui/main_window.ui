@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1443</width>
-    <height>758</height>
+    <width>1738</width>
+    <height>1208</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -336,9 +336,6 @@
     </item>
     <item>
      <widget class="QToolBox" name="captureView">
-      <property name="enabled">
-       <bool>false</bool>
-      </property>
       <property name="font">
        <font>
         <pointsize>20</pointsize>
@@ -355,15 +352,15 @@
        <enum>QFrame::Plain</enum>
       </property>
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="previewPage">
        <property name="geometry">
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>1403</width>
-         <height>390</height>
+         <width>1698</width>
+         <height>854</height>
         </rect>
        </property>
        <property name="font">
@@ -393,8 +390,8 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>1403</width>
-         <height>390</height>
+         <width>1698</width>
+         <height>854</height>
         </rect>
        </property>
        <property name="font">
@@ -420,37 +417,6 @@
           </property>
          </widget>
         </item>
-        <item>
-         <widget class="QFrame" name="frame">
-          <property name="font">
-           <font>
-            <pointsize>13</pointsize>
-            <bold>false</bold>
-           </font>
-          </property>
-          <property name="frameShape">
-           <enum>QFrame::StyledPanel</enum>
-          </property>
-          <property name="frameShadow">
-           <enum>QFrame::Raised</enum>
-          </property>
-          <layout class="QHBoxLayout" name="horizontalLayout_3">
-           <item>
-            <widget class="QProgressBar" name="captureProgressBar">
-             <property name="font">
-              <font>
-               <pointsize>13</pointsize>
-               <bold>false</bold>
-              </font>
-             </property>
-             <property name="value">
-              <number>24</number>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
        </layout>
       </widget>
      </widget>
@@ -474,17 +440,53 @@
       </property>
       <layout class="QHBoxLayout" name="horizontalLayout_11">
        <item>
-        <spacer name="horizontalSpacer">
+        <widget class="QWidget" name="widget_2" native="true">
+         <layout class="QHBoxLayout" name="horizontalLayout_6">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="label">
+            <property name="text">
+             <string>RTI-Fortschritt:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QProgressBar" name="captureProgressBar">
+            <property name="font">
+             <font>
+              <pointsize>13</pointsize>
+              <bold>false</bold>
+             </font>
+            </property>
+            <property name="value">
+             <number>24</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="captureStatusLabel">
+            <property name="text">
+             <string>Aufnahme-Status</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="Line" name="line_4">
          <property name="orientation">
-          <enum>Qt::Horizontal</enum>
+          <enum>Qt::Vertical</enum>
          </property>
-         <property name="sizeHint" stdset="0">
-          <size>
-           <width>40</width>
-           <height>20</height>
-          </size>
-         </property>
-        </spacer>
+        </widget>
        </item>
        <item>
         <widget class="QComboBox" name="cropSelect">
@@ -507,6 +509,13 @@
         <widget class="QComboBox" name="fNumberSelect">
          <property name="sizeAdjustPolicy">
           <enum>QComboBox::AdjustToContents</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="Line" name="line_5">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
          </property>
         </widget>
        </item>
@@ -537,7 +546,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1443</width>
+     <width>1738</width>
      <height>24</height>
     </rect>
    </property>

@@ -6,12 +6,13 @@ from pathlib import Path
 
 import gphoto2 as gp
 from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSlot, QCoreApplication, Qt
-from PyQt6.QtGui import QPixmap, QAction, QIcon
+from PyQt6.QtGui import QPixmap, QAction, QIcon, QPixmapCache
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
-    QComboBox, QLabel, QToolBox, QProgressBar, QFileDialog, QMenu, QAbstractButton, QInputDialog, QMessageBox
+    QComboBox, QLabel, QToolBox, QProgressBar, QFileDialog, QMenu, QAbstractButton, QInputDialog, QMessageBox, QStyle
 )
 from PyQt6.uic import loadUi
+from send2trash import send2trash
 
 from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates
 from open_session_dialog import OpenSessionDialog
@@ -71,18 +72,20 @@ class RTICaptureMainWindow(QMainWindow):
         self.cancel_capture_button: QPushButton = self.findChild(QPushButton, "cancelCaptureButton")
 
         self.capture_progress_bar: QProgressBar = self.findChild(QProgressBar, "captureProgressBar")
+        self.capture_status_label: QLabel = self.findChild(QLabel, "captureStatusLabel")
 
         self.camera_controls: QFrame = self.findChild(QFrame, "cameraControls")
         self.f_number_select: QComboBox = self.findChild(QComboBox, "fNumberSelect")
         self.shutter_speed_select: QComboBox = self.findChild(QComboBox, "shutterSpeedSelect")
         self.crop_select: QComboBox = self.findChild(QComboBox, "cropSelect")
 
-        self.session_menu = menu = QMenu(self)
+        self.session_menu = QMenu(self)
         self.open_session_action = QAction('Vorherige Sitzung öffnen...', self)
         self.open_session_action.triggered.connect(self.open_existing_session_directory)
         self.rename_session_action = QAction('Sitzung umbenennen...', self)
         self.rename_session_action.triggered.connect(self.rename_current_session)
         self.session_menu.addActions([self.open_session_action, self.rename_session_action])
+
 
         self.session_name_edit.textChanged.connect(
             lambda text: self.start_session_button.setEnabled(
@@ -113,6 +116,7 @@ class RTICaptureMainWindow(QMainWindow):
     @capture_mode.setter
     def capture_mode(self, mode: CaptureMode):
         self.capture_view.setCurrentIndex(mode.value)
+        self.update_ui()
 
     def get_camera_state(self):
         return self.camera_state
@@ -135,6 +139,10 @@ class RTICaptureMainWindow(QMainWindow):
 
             case CameraStates.Connecting():
                 pass
+
+            case CameraStates.ConnectionError():
+                print("CONNECTION ERROR")
+                print(state.error)
 
             case CameraStates.Ready():
                 pass
@@ -173,8 +181,10 @@ class RTICaptureMainWindow(QMainWindow):
         print("loaded " + (self.session.name if has_session else "nix") + (" ja" if session_loaded else " nein"))
 
         self.session_loading_spinner.isAnimated = has_session and not session_loaded
-
         self.capture_view.setEnabled(has_session)
+
+        self.capture_progress_bar.setMaximum(60)
+        self.capture_progress_bar.setValue(self.rtiImageBrowser.num_files() if session_loaded else 0)
 
         if has_session:
             self.session_name_edit.setText(self.session.name)
@@ -190,6 +200,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_busy_spinner.isAnimated = True
 
                 self.camera_controls.setEnabled(False)
+                self.capture_status_label.setText(None)
 
             case CameraStates.Found():
                 pass
@@ -208,6 +219,10 @@ class RTICaptureMainWindow(QMainWindow):
                 self.connect_camera_button.setEnabled(False)
                 self.camera_busy_spinner.isAnimated = True
 
+            case CameraStates.ConnectionError():
+                pass
+
+
             case CameraStates.Ready():
                 self.camera_state_label.setText("Kamera verbunden<br><b>%s</b>" % camera_state.camera_name)
                 self.camera_state_icon.setPixmap(QPixmap("ui/camera_ok.png"))
@@ -218,7 +233,6 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_busy_spinner.isAnimated = False
 
                 self.camera_controls.setEnabled(True if session_loaded else False)
-                # self.camera_controls.setEnabled(True)
 
 
             case CameraStates.Disconnecting():
@@ -236,16 +250,38 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_button.setVisible(False)
                 self.cancel_capture_button.setVisible(True)
                 self.cancel_capture_button.setEnabled(True)
+                self.capture_status_label.setStyleSheet(None)
+                self.capture_status_label.setText(None)
 
-                if self.capture_mode == CaptureMode.Preview:
-                    self.rtiPage.setEnabled(False)
-                else:
-                    self.previewPage.setEnabled(True)
+                # if self.capture_mode == CaptureMode.Preview:
+                #     self.rtiPage.setEnabled(False)
+                # else:
+                #     self.previewPage.setEnabled(False)
 
-            case CameraStates.CaptureFinished() | CameraStates.CaptureCanceled():
+                #self.capture_status_label.setText("Aufnahme läuft")
+                self.capture_progress_bar.setMaximum(camera_state.capture_request.num_images)
+                self.capture_progress_bar.setValue(camera_state.num_captured)
+                print(camera_state.num_captured, " / ", camera_state.capture_request.num_images)
+
+            case CameraStates.CaptureCanceled():
+                self.capture_status_label.setText("Aufnahme abgebrochen!")
+                self.capture_status_label.setStyleSheet("color: red;")
+
                 self.session_controls.setEnabled(True)
                 self.cancel_capture_button.setVisible(False)
                 self.capture_button.setVisible(True)
+
+            case CameraStates.CaptureError():
+                self.capture_status_label.setText("Fehler: %s", str(camera_state.error))
+                self.capture_status_label.setStyleSheet("color: red;")
+
+            case CameraStates.CaptureFinished():
+                self.capture_status_label.setText("Fertig!")
+
+                self.session_controls.setEnabled(True)
+                self.cancel_capture_button.setVisible(False)
+                self.capture_button.setVisible(True)
+
 
     @property
     def session(self) -> Session:
@@ -281,6 +317,7 @@ class RTICaptureMainWindow(QMainWindow):
             qsettings = QSettings()
             for name, value in dialog.settings.items():
                 qsettings.setValue(name, value)
+                QPixmapCache.setCacheLimit(int(settings.value("maxPixmapCache")) * 1024)
         else:
             print("not ok")
 
@@ -396,12 +433,24 @@ class RTICaptureMainWindow(QMainWindow):
     def capture_image(self):
         capture_req: CaptureImagesRequest
 
+        # Capture Previews
         if self.capture_mode == CaptureMode.Preview:
             filename_template = self.session.name.replace(" ", "_") + "_test_" + str(self.session.preview_count + 1) + "${extension}"
             file_path_template = os.path.join(self.session.preview_dir, filename_template)
             capture_req = CaptureImagesRequest(file_path_template, num_images=1)
 
+        # Capture RTI Series
         else:
+            if self.rtiImageBrowser.num_files() > 0:
+                message_box = QMessageBox(QMessageBox.Icon.Warning, "RTI-Serie aufnehmen", "Vorhandene Aufnahmen werden gelöscht.")
+                message_box.addButton(QPushButton(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton), "Abbrechen"), QMessageBox.ButtonRole.NoRole)
+                message_box.addButton(QPushButton(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOkButton), "Fortfahren"), QMessageBox.ButtonRole.YesRole)
+                if not message_box.exec():
+                    return
+
+            existing_files = [os.path.join(self.session.images_dir, f) for f in os.listdir(self.session.images_dir)]
+            send2trash(existing_files)
+
             filename_template = self.session.name.replace(" ", "_") + "_${num}${extension}"
             file_path_template = os.path.join(self.session.images_dir, filename_template)
             capture_req = CaptureImagesRequest(file_path_template, num_images=60, expect_files=1)
@@ -453,6 +502,11 @@ if __name__ == "__main__":
     if "workingDirectory" not in settings.allKeys():
         settings.setValue("workingDirectory",
                           QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation))
+
+    if "maxPixmapCache" not in settings.allKeys():
+        settings.setValue("maxPixmapCache", 1024)
+
+    QPixmapCache.setCacheLimit(int(settings.value("maxPixmapCache")) * 1024)
 
     win = RTICaptureMainWindow()
     win.show()

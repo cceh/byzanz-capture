@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>622</width>
-    <height>311</height>
+    <width>600</width>
+    <height>155</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -44,12 +44,20 @@
       <item row="0" column="0">
        <widget class="QLabel" name="label">
         <property name="text">
-         <string>Arbeitsverzeichnis</string>
+         <string>Arbeitsverzeichnis:</string>
         </property>
        </widget>
       </item>
       <item row="0" column="1">
        <widget class="QLineEdit" name="workingDirectoryInput">
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QLineEdit::icon {
+    background-color: red;
+}</string>
+        </property>
         <property name="text">
          <string>/tmp</string>
         </property>
@@ -58,10 +66,17 @@
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
-       <widget class="QPushButton" name="pushButton">
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_2">
         <property name="text">
-         <string>auswählen</string>
+         <string>Max. Pixmap-Cache (in MB):</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QSpinBox" name="maxPixmapCacheInput">
+        <property name="maximum">
+         <number>9999</number>
         </property>
        </widget>
       </item>
@@ -89,12 +104,12 @@
    <slot>accept()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>257</x>
-     <y>301</y>
+     <x>269</x>
+     <y>150</y>
     </hint>
     <hint type="destinationlabel">
      <x>157</x>
-     <y>274</y>
+     <y>154</y>
     </hint>
    </hints>
   </connection>
@@ -105,28 +120,12 @@
    <slot>reject()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>325</x>
-     <y>301</y>
+     <x>337</x>
+     <y>150</y>
     </hint>
     <hint type="destinationlabel">
      <x>286</x>
-     <y>274</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>pushButton</sender>
-   <signal>clicked()</signal>
-   <receiver>Dialog</receiver>
-   <slot>choose_working_directory()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>286</x>
-     <y>241</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>41</x>
-     <y>4</y>
+     <y>154</y>
     </hint>
    </hints>
   </connection>

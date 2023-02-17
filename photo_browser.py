@@ -7,7 +7,7 @@ from typing import Callable, Optional
 
 from PyQt6.QtCore import QFileSystemWatcher, Qt, QThreadPool, pyqtSignal, QRunnable, QItemSelectionModel, QMutex, \
     QMutexLocker
-from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache
+from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
 from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QVBoxLayout, QGroupBox
 from PyQt6.uic import loadUi
 
@@ -68,9 +68,6 @@ class PhotoBrowser(QWidget):
 
         self.__mutex = QMutex()
 
-        QPixmapCache.setCacheLimit(1024*1024)
-
-
     def open_directory(self, dir_path):
         if self.__currentPath:
             self.close_directory()
@@ -121,7 +118,15 @@ class PhotoBrowser(QWidget):
                 self.__load_image(f, self.__add_image_item)
 
         for f in removed_files:
-            pass
+            for i in range(self.image_file_list.count()):
+                item = self.image_file_list.item(i)
+                if isinstance(item, ImageFileListItem):
+                    if item.file_name == f:
+                        self.image_file_list.takeItem(i)
+                        del item
+
+
+
 
         self.__currentFileSet = new_fileset
 
@@ -145,6 +150,7 @@ class PhotoBrowser(QWidget):
         self.__threadpool.start(worker)
 
     def __on_image_loaded(self, result: LoadImageWorkerResult, on_finished_callback: Callable):
+        QPixmapCache.insert(result.path, QPixmap.fromImage(result.image))
         on_finished_callback(result)
 
         self.__num_images_to_load -= 1
@@ -161,6 +167,7 @@ class PhotoBrowser(QWidget):
                 print("cache hit")
                 self.photo_viewer.setPhoto(cached_image)
             else:
+                print("cache miss")
                 self.__load_image(file_path, lambda result: self.photo_viewer.setPhoto(QPixmap.fromImage(result.image)))
         else:
             self.photo_viewer.setPhoto(None)
@@ -185,10 +192,9 @@ class PhotoBrowser(QWidget):
                 self.image_file_list.setCurrentItem(list_item)
                 self.image_file_list.currentItemChanged.connect(self.__on_select_image_file)
 
-        pixmap = QPixmap.fromImage(image_worker_result.image)
-        self.photo_viewer.setPhoto(QPixmap.fromImage(image_worker_result.image))
-        cached = QPixmapCache.insert(image_worker_result.path, pixmap)
-        print("cached" if cached else "Not")
+        image_path = image_worker_result.path
+        pixmap: QPixmap = QPixmapCache.find(image_path) or QPixmap.fromImage(image_worker_result.image)
+        self.photo_viewer.setPhoto(pixmap)
 
 
 
