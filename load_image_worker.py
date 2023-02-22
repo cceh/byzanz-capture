@@ -3,7 +3,7 @@ from pathlib import Path
 from PIL import Image
 from PIL.ExifTags import TAGS
 from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, pyqtSlot, QElapsedTimer, Qt
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtGui import QImage
 
 
 class LoadImageWorkerResult:
@@ -30,8 +30,8 @@ class LoadImageWorker(QRunnable):
         print("LoadImageWorker started")
         timer = QElapsedTimer()
         timer.start()
-        image = Image.open(self.path)
         try:
+            image = Image.open(self.path)
             image.load()
             w, h = image.size
             image_data = image.tobytes('raw', 'RGB')

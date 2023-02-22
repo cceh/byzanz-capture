@@ -99,7 +99,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>../../../.designer/backup/check-circle.svg</normaloff>../../../.designer/backup/check-circle.svg</iconset>
+             <normaloff>check-circle.svg</normaloff>check-circle.svg</iconset>
            </property>
           </widget>
          </item>
@@ -164,7 +164,7 @@
             <string/>
            </property>
            <property name="pixmap">
-            <pixmap>../../../.designer/backup/camera_waiting.png</pixmap>
+            <pixmap>camera_waiting.png</pixmap>
            </property>
            <property name="scaledContents">
             <bool>true</bool>
@@ -213,7 +213,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>../../../.designer/backup/disconnect-camera.svg</normaloff>../../../.designer/backup/disconnect-camera.svg</iconset>
+             <normaloff>disconnect-camera.svg</normaloff>disconnect-camera.svg</iconset>
            </property>
           </widget>
          </item>
@@ -224,7 +224,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>../../../.designer/backup/camera-change.svg</normaloff>../../../.designer/backup/camera-change.svg</iconset>
+             <normaloff>camera-change.svg</normaloff>camera-change.svg</iconset>
            </property>
           </widget>
          </item>
@@ -258,7 +258,7 @@
            </property>
            <property name="icon">
             <iconset>
-             <normaloff>../../../.designer/backup/settings.svg</normaloff>../../../.designer/backup/settings.svg</iconset>
+             <normaloff>settings.svg</normaloff>settings.svg</iconset>
            </property>
           </widget>
          </item>
@@ -360,7 +360,7 @@
          <x>0</x>
          <y>0</y>
          <width>1698</width>
-         <height>854</height>
+         <height>880</height>
         </rect>
        </property>
        <property name="font">
@@ -391,7 +391,7 @@
          <x>0</x>
          <y>0</y>
          <width>1698</width>
-         <height>854</height>
+         <height>880</height>
         </rect>
        </property>
        <property name="font">
@@ -451,6 +451,9 @@
           <property name="rightMargin">
            <number>0</number>
           </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
           <item>
            <widget class="QLabel" name="label">
             <property name="text">
@@ -489,27 +492,48 @@
         </widget>
        </item>
        <item>
-        <widget class="QComboBox" name="cropSelect">
-         <property name="sizeAdjustPolicy">
-          <enum>QComboBox::AdjustToContents</enum>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QComboBox" name="shutterSpeedSelect">
-         <property name="maxVisibleItems">
-          <number>10</number>
-         </property>
-         <property name="sizeAdjustPolicy">
-          <enum>QComboBox::AdjustToContents</enum>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QComboBox" name="fNumberSelect">
-         <property name="sizeAdjustPolicy">
-          <enum>QComboBox::AdjustToContents</enum>
-         </property>
+        <widget class="QWidget" name="cameraConfigControls" native="true">
+         <layout class="QHBoxLayout" name="horizontalLayout_3">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QComboBox" name="cropSelect">
+            <property name="sizeAdjustPolicy">
+             <enum>QComboBox::AdjustToContents</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="shutterSpeedSelect">
+            <property name="maxVisibleItems">
+             <number>10</number>
+            </property>
+            <property name="sizeAdjustPolicy">
+             <enum>QComboBox::AdjustToContents</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="fNumberSelect">
+            <property name="sizeAdjustPolicy">
+             <enum>QComboBox::AdjustToContents</enum>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </widget>
        </item>
        <item>
@@ -547,7 +571,7 @@
      <x>0</x>
      <y>0</y>
      <width>1738</width>
-     <height>24</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuHALLO">

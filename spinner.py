@@ -8,7 +8,7 @@ Attribution-NonCommercial-NoDerivs 2.0 UK: England & Wales License.
 
 # external packages
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import Qt, QRect, QRectF
+from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter
 
 #from .dark_mode_support import isDarkWindow

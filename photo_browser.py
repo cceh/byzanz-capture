@@ -5,15 +5,16 @@ from os import listdir
 from pathlib import Path
 from typing import Callable, Optional
 
-from PyQt6.QtCore import QFileSystemWatcher, Qt, QThreadPool, pyqtSignal, QRunnable, QItemSelectionModel, QMutex, \
+from PyQt6.QtCore import QFileSystemWatcher, Qt, QThreadPool, pyqtSignal, QMutex, \
     QMutexLocker
-from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
-from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QVBoxLayout, QGroupBox
+from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache
+from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem
 from PyQt6.uic import loadUi
 
-from load_image_worker import LoadImageWorker, LoadImageWorkerResult, LoadImageWorkerSignals
+from load_image_worker import LoadImageWorker, LoadImageWorkerResult
 from photo_viewer import PhotoViewer
 from spinner import Spinner
+
 
 def get_file_index(file_path) -> Optional[int]:
     basename = os.path.splitext(file_path)[0]
@@ -47,7 +48,7 @@ class PhotoBrowser(QWidget):
 
         self.__fileSystemWatcher = QFileSystemWatcher()
         self.__threadpool = QThreadPool()
-        # self.__threadpool.setMaxThreadCount()
+        self.__threadpool.setMaxThreadCount(4)
         self.__num_images_to_load = 0
 
         self.__currentPath: str = None
@@ -82,7 +83,7 @@ class PhotoBrowser(QWidget):
         self.__currentFileSet.clear()
         self.__threadpool.clear()
         self.__threadpool.waitForDone()
-        self.__num_images_to_load = 0;
+        self.__num_images_to_load = 0
         self.image_file_list.clear()
         QPixmapCache.clear()
 
