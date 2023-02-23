@@ -91,6 +91,9 @@ class PhotoBrowser(QWidget):
     def num_files(self) -> int:
         return self.image_file_list.count()
 
+    def files(self):
+        return [self.image_file_list.item(row).path for row in range(self.image_file_list.count())]
+
     def last_index(self) -> int:
         image_count = self.image_file_list.count()
         if image_count > 0:
@@ -196,6 +199,8 @@ class PhotoBrowser(QWidget):
         image_path = image_worker_result.path
         pixmap: QPixmap = QPixmapCache.find(image_path) or QPixmap.fromImage(image_worker_result.image)
         self.photo_viewer.setPhoto(pixmap)
+        if self.image_file_list.indexFromItem(list_item).row() == 0:
+            self.photo_viewer.fitInView()
 
 
 

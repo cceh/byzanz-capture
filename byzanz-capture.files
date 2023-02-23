@@ -20,6 +20,7 @@ ui/check-circle.svg
 ui/disconnect-camera.svg
 ui/image_files_widget.ui
 ui/main_window.ui
+ui/press-buttons-dialog.ui
 ui/reset_session.svg
 ui/setting.png
 ui/setting_16.png

@@ -18,6 +18,7 @@ class CaptureImagesRequest(NamedTuple):
     max_burst: int = 1
     skip: int = 0
     manual_trigger: bool = False
+    image_quality: str | None = None
 
 
 class CameraStates:
@@ -253,7 +254,6 @@ class CameraWorker(QObject):
                         data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
                     print("Image is being saved to {}".format(file_target_path))
                     cam_file.save(file_target_path)
-                    # self.events.received_image.emit()
                     if isinstance(self.__state, CameraStates.CaptureInProgress):
                         current_capture_req = self.__state.capture_request
                         if self.filesCounter % current_capture_req.expect_files == 0:
@@ -288,16 +288,18 @@ class CameraWorker(QObject):
             with self.__open_config("write") as cfg:
                 self.__try_set_config(cfg, "capturetarget", "Internal RAM")
                 self.__try_set_config(cfg, "recordingmedia", "SDRAM")
-                # TODO: set format to nef+fine
-                # self.__try_set_config(cfg, "viewfinder", 1)
+                self.__try_set_config(cfg, "viewfinder", 1)
+                if capture_req.image_quality:
+                    self.__try_set_config(cfg, "imagequality", capture_req.image_quality)
 
             # TODO: enable again when trigger works
-            # sleep(1)
+            sleep(1)
             remaining = capture_req.num_images * capture_req.expect_files
             while remaining > 0 and not self.shouldCancel:
                 burst = min(capture_req.max_burst, int(remaining / capture_req.expect_files))
-                # with self.__open_config("write") as cfg:
-                #    self.__try_set_config(cfg, "burstnumber", burst)
+                if not capture_req.manual_trigger:
+                    with self.__open_config("write") as cfg:
+                       self.__try_set_config(cfg, "burstnumber", burst)
 
                 QApplication.processEvents()
 
@@ -311,10 +313,11 @@ class CameraWorker(QObject):
                 print("Curr. files: %i" % self.filesCounter)
                 remaining = capture_req.num_images * capture_req.expect_files - self.filesCounter
 
-                # burst = remaining / capture_req.expect_files
-                # with self.__open_config("write") as cfg:
-                #     self.__try_set_config(cfg, "burstnumber", burst)
-                #     print("Burst number set to %i" % burst)
+                burst = remaining / capture_req.expect_files
+                if not capture_req.manual_trigger:
+                    with self.__open_config("write") as cfg:
+                        self.__try_set_config(cfg, "burstnumber", burst)
+                        print("Burst number set to %i" % burst)
 
                 print("Remaining: %s" % str(remaining))
 
@@ -336,11 +339,12 @@ class CameraWorker(QObject):
             # If camera is still there, try to reset Camera to a default state
             if self.camera:
                 try:
-                    # with self.__open_config("write") as cfg:
-                        # print("Viewfinder 0")
+                    with self.__open_config("write") as cfg:
+                        print("Viewfinder 0")
                         # TODO: enable again when trigger works
-                        # self.__try_set_config(cfg, "viewfinder", 0)
-                        # self.__try_set_config(cfg, "burstnumber", 1)
+                        self.__try_set_config(cfg, "viewfinder", 0)
+                        if not capture_req.manual_trigger:
+                            self.__try_set_config(cfg, "burstnumber", 1)
                     self.empty_event_queue()
                     self.__set_state(CameraStates.Ready(self.camera_name))
                 except gp.GPhoto2Error as err:
