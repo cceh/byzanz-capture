@@ -355,12 +355,6 @@
          <height>902</height>
         </rect>
        </property>
-       <property name="font">
-        <font>
-         <pointsize>13</pointsize>
-         <bold>true</bold>
-        </font>
-       </property>
        <property name="cursor">
         <cursorShape>ArrowCursor</cursorShape>
        </property>
@@ -371,7 +365,82 @@
        <attribute name="label">
         <string>Schritt 1: Vorschaubilder aufnehmen</string>
        </attribute>
-       <layout class="QHBoxLayout" name="horizontalLayout_2">
+       <layout class="QVBoxLayout" name="verticalLayout_2">
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QFrame" name="liveViewControls">
+          <property name="frameShape">
+           <enum>QFrame::StyledPanel</enum>
+          </property>
+          <property name="frameShadow">
+           <enum>QFrame::Raised</enum>
+          </property>
+          <layout class="QHBoxLayout" name="horizontalLayout_2">
+           <item>
+            <widget class="QPushButton" name="toggleLiveViewButton">
+             <property name="text">
+              <string>Live-Vorschau</string>
+             </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>live_preview.svg</normaloff>live_preview.svg</iconset>
+             </property>
+             <property name="checkable">
+              <bool>true</bool>
+             </property>
+             <property name="checked">
+              <bool>false</bool>
+             </property>
+             <property name="flat">
+              <bool>false</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="line_3">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_2">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="autofocusButton">
+             <property name="text">
+              <string>Fokus</string>
+             </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>focus.svg</normaloff>focus.svg</iconset>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
         <item>
          <widget class="PhotoBrowser" name="previewImageBrowser" native="true">
           <property name="toolTipDuration">
@@ -389,12 +458,6 @@
          <width>1698</width>
          <height>902</height>
         </rect>
-       </property>
-       <property name="font">
-        <font>
-         <pointsize>13</pointsize>
-         <bold>false</bold>
-        </font>
        </property>
        <property name="cursor">
         <cursorShape>ArrowCursor</cursorShape>
@@ -853,8 +916,8 @@
    <slot>session_directory_loaded(QString)</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>1259</x>
-     <y>357</y>
+     <x>1278</x>
+     <y>962</y>
     </hint>
     <hint type="destinationlabel">
      <x>1156</x>
@@ -894,6 +957,38 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>toggleLiveViewButton</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>MainWindow</receiver>
+   <slot>enable_live_view(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>332</x>
+     <y>394</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>15</x>
+     <y>80</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>autofocusButton</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>trigger_autofocus()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>1256</x>
+     <y>391</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>13</x>
+     <y>170</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>open_settings()</slot>
@@ -906,5 +1001,7 @@
   <slot>create_session()</slot>
   <slot>session_directory_loaded(QString)</slot>
   <slot>show_session_menu()</slot>
+  <slot>enable_live_view(bool)</slot>
+  <slot>trigger_autofocus()</slot>
  </slots>
 </ui>

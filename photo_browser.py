@@ -7,7 +7,7 @@ from typing import Callable, Optional
 
 from PyQt6.QtCore import QFileSystemWatcher, Qt, QThreadPool, pyqtSignal, QMutex, \
     QMutexLocker
-from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache
+from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
 from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem
 from PyQt6.uic import loadUi
 
@@ -103,6 +103,10 @@ class PhotoBrowser(QWidget):
 
     def resizeEvent(self, event: QResizeEvent):
         self.__center_spinner_over_photo_viewer()
+
+    def show_preview(self, image: QImage):
+        self.photo_viewer.setPhoto(QPixmap.fromImage(image))
+        self.photo_viewer.fitInView()
 
     def __load_directory(self):
         new_files = [f for f in listdir(self.__currentPath)

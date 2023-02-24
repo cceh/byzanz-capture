@@ -4,6 +4,7 @@ from enum import Enum
 from pathlib import Path
 
 import gphoto2 as gp
+from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import QThread, QSettings, QStandardPaths
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon
 from PyQt6.QtWidgets import (
@@ -62,6 +63,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.session_loading_spinner: Spinner = self.findChild(QWidget, "sessionLoadingSpinner")
         self.session_menu_button: QAbstractButton = self.findChild(QWidget, "sessionMenuButton")
 
+        self.live_view_controls: QWidget = self.findChild(QWidget, "liveViewControls")
+        self.toggle_live_view_button: QPushButton = self.findChild(QPushButton, "toggleLiveViewButton")
+        self.autofocus_button: QPushButton = self.findChild(QPushButton, "autofocusButton")
+
         self.capture_view: QToolBox = self.findChild(QToolBox, "captureView")
         self.rtiPage: QWidget = self.findChild(QWidget, "rtiPage")
         self.previewPage: QWidget = self.findChild(QWidget, "previewPage")
@@ -104,6 +109,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_thread.start()
         self.camera_worker.state_changed.connect(self.set_camera_state)
         self.camera_worker.events.config_updated.connect(self.on_config_update)
+        self.camera_worker.preview_image.connect(lambda image: self.previewImageBrowser.show_preview(ImageQt(image)))
         self.camera_worker.initialize()
 
         self.camera_worker.commands.find_camera.emit()
@@ -145,6 +151,12 @@ class RTICaptureMainWindow(QMainWindow):
                 print(state.error)
 
             case CameraStates.Ready():
+                pass
+
+            case CameraStates.LiveViewStarted():
+                pass
+
+            case CameraStates.LiveViewStopped():
                 pass
 
             case CameraStates.Disconnecting():
@@ -210,6 +222,8 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_busy_spinner.isAnimated = True
                 self.capture_status_label.setText("")
 
+                self.live_view_controls.setEnabled(False)
+
                 self.camera_controls.setEnabled(False)
                 self.camera_config_controls.setEnabled(False)
                 self.capture_button.setText("Nicht verbunden")
@@ -227,6 +241,11 @@ class RTICaptureMainWindow(QMainWindow):
                 self.connect_camera_button.setVisible(True)
                 self.disconnect_camera_button.setVisible(False)
                 self.camera_busy_spinner.isAnimated = False
+
+                self.toggle_live_view_button.setChecked(False)
+                self.autofocus_button.setEnabled(False)
+
+
                 self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
                 self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
 
@@ -247,6 +266,10 @@ class RTICaptureMainWindow(QMainWindow):
                 self.connect_camera_button.setVisible(False)
                 self.camera_busy_spinner.isAnimated = False
 
+                self.live_view_controls.setEnabled(True)
+                self.toggle_live_view_button.setChecked(False)
+                self.autofocus_button.setEnabled(False)
+
                 self.camera_controls.setEnabled(True if session_loaded else False)
                 self.camera_config_controls.setEnabled(True)
                 if self.capture_mode == CaptureMode.Preview:
@@ -260,15 +283,26 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_state_label.setText("Trenne Kamera...")
                 self.disconnect_camera_button.setEnabled(False)
                 self.disconnect_camera_button.setVisible(True)
+
+                self.live_view_controls.setEnabled(False)
+
                 self.camera_controls.setEnabled(False)
                 self.camera_config_controls.setEnabled(False)
                 self.capture_button.setText("Nicht verbunden")
+
+            case CameraStates.LiveViewStarted():
+                self.camera_config_controls.setEnabled(False)
+                self.autofocus_button.setEnabled(True)
 
             case CameraStates.CaptureInProgress():
                 # if prev
                 # disable combo boxes
                 self.session_controls.setEnabled(False)
                 self.disconnect_camera_button.setEnabled(False)
+
+                self.live_view_controls.setEnabled(False)
+                self.toggle_live_view_button.setChecked(False)
+
 
                 self.capture_button.setVisible(False)
                 self.cancel_capture_button.setVisible(True)
@@ -340,6 +374,8 @@ class RTICaptureMainWindow(QMainWindow):
 
     def on_capture_mode_changed(self):
         print(self.capture_mode)
+        if self.capture_mode == CaptureMode.RTI and self.camera_state == CameraStates.LiveViewStarted:
+            self.camera_worker.commands.live_view.emit(False)
         self.update_ui()
 
     def open_settings(self):
@@ -474,10 +510,16 @@ class RTICaptureMainWindow(QMainWindow):
         self.config_hookup_select(config, "shutterspeed2", self.shutter_speed_select)
         self.config_hookup_select(config, "d030", self.crop_select, {
             "0": "Voll",
-            "1": "Mittel",
-            "2": "Klein",
+            "1": "Klein",
+            "2": "Mittel",
             "3": "Mittel 2"
         })
+
+    def enable_live_view(self, enable: bool):
+        self.camera_worker.commands.live_view.emit(enable)
+
+    def trigger_autofocus(self):
+        self.camera_worker.commands.trigger_autofocus.emit()
 
     def capture_image(self):
         capture_req: CaptureImagesRequest

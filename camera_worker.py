@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 from contextlib import contextmanager
@@ -6,7 +7,8 @@ from time import sleep
 from typing import NamedTuple, Literal, Generator, Union
 
 import gphoto2 as gp
-from PyQt6.QtCore import pyqtSignal, QObject, QElapsedTimer
+from PIL import Image
+from PyQt6.QtCore import pyqtSignal, QObject, QElapsedTimer, QTimer
 from PyQt6.QtWidgets import QApplication
 from gphoto2 import CameraWidget
 
@@ -48,6 +50,12 @@ class CameraStates:
             super().__init__()
             self.camera_name = camera_name
 
+    class LiveViewStarted:
+        pass
+
+    class LiveViewStopped:
+        pass
+
     class CaptureInProgress:
         def __init__(self, capture_request: CaptureImagesRequest, num_captured: int):
             super().__init__()
@@ -86,7 +94,7 @@ class CameraStates:
 
     StateType = Union[
         Waiting, Found, Disconnected, Connecting, Disconnecting, Ready, CaptureInProgress,
-        CaptureFinished, CaptureCanceled, CaptureError, IOError, ConnectionError
+        CaptureFinished, CaptureCanceled, CaptureError, IOError, ConnectionError, LiveViewStarted, LiveViewStopped
     ]
 
 
@@ -99,6 +107,8 @@ class CameraCommands(QObject):
     reconnect_camera = pyqtSignal()
     set_config = pyqtSignal(str, str)
     cancel = pyqtSignal()
+    live_view = pyqtSignal(bool)
+    trigger_autofocus = pyqtSignal()
 
 
 class CameraEvents(QObject):
@@ -106,6 +116,7 @@ class CameraEvents(QObject):
 
 class CameraWorker(QObject):
     state_changed = pyqtSignal(object)
+    preview_image = pyqtSignal(Image.Image)
 
     def __init__(self, parent=None):
         super(CameraWorker, self).__init__(parent)
@@ -122,8 +133,15 @@ class CameraWorker(QObject):
         self.captureComplete = False
 
         self.shouldCancel = False
+        self.liveView = False
+        self.liveViewTimer: QTimer = None
+
+        # self.thread().started.connect(self.initialize)
+
 
     def initialize(self):
+        self.liveViewTimer = QTimer()
+
         self.commands.capture_images.connect(self.captureImages)
         self.commands.find_camera.connect(self.__find_camera)
         self.commands.connect_camera.connect(self.__connect_camera)
@@ -131,6 +149,8 @@ class CameraWorker(QObject):
         self.commands.reconnect_camera.connect(lambda: self.__disconnect_camera(True))
         self.commands.set_config.connect(self.__set_config)
         self.commands.cancel.connect(self.__cancel)
+        self.commands.live_view.connect(lambda active: self.__start_live_view() if active else self.__stop_live_view())
+        self.commands.trigger_autofocus.connect(self.__trigger_autofocus)
 
         self.__set_state(CameraStates.Waiting())
 
@@ -141,6 +161,7 @@ class CameraWorker(QObject):
         #     gp.GP_LOG_DEBUG: logging.DEBUG,
         #     gp.GP_LOG_VERBOSE: logging.DEBUG - 3,
         #     gp.GP_LOG_DATA: logging.DEBUG - 6}))
+
 
 
 
@@ -175,11 +196,39 @@ class CameraWorker(QObject):
                 )
             self.__set_state(CameraStates.Ready(self.camera_name))
 
+            self.liveViewTimer = QTimer()
+            self.liveViewTimer.timeout.connect(lambda: print("timeout"))
+            self.liveViewTimer.start(1000)
+
+            # live_view_on = False
+            # while self.camera:
+            #     try:
+            #         live_view_changed = self.liveView != live_view_on
+            #         if live_view_changed:
+            #             live_view_on = self.liveView
+            #             self.__init_live_view() if live_view_on else self.__deinit_live_view()
+            #             if live_view_on:
+            #                 self.__set_state(CameraStates.LiveViewStarted())
+            #             else:
+            #                 self.__set_state(CameraStates.Ready(self.camera_name))
+            #
+            #         if live_view_on:
+            #             self.__live_view_capture_preview()
+            #             self.thread().msleep(100)
+            #         else:
+            #             self.empty_event_queue(1)
+            #     finally:
+            #         pass
+
             while self.camera:
                 try:
-                    self.empty_event_queue(1000)
+                    if self.liveView:
+                        self.__live_view_capture_preview()
+                        self.thread().msleep(100)
+                    else:
+                        self.empty_event_queue(1)
                 finally:
-                    QApplication.processEvents()
+                    pass
 
         except gp.GPhoto2Error as err:
             self.__set_state(CameraStates.ConnectionError(error=err))
@@ -190,6 +239,7 @@ class CameraWorker(QObject):
 
     def __disconnect_camera(self, auto_reconnect = True):
         self.__set_state(CameraStates.Disconnecting())
+
         try:
             self.camera.exit()
         except gp.GPhoto2Error:
@@ -273,7 +323,63 @@ class CameraWorker(QObject):
             # try to grab another event
             typ, data = self.camera.wait_for_event(1)
 
+    def __start_live_view(self):
+        self.liveView = True
+
+    def __init_live_view(self):
+        with self.__open_config("write") as cfg:
+            self.__try_set_config(cfg, "capturetarget", "Internal RAM")
+            self.__try_set_config(cfg, "recordingmedia", "SDRAM")
+            self.__try_set_config(cfg, "viewfinder", 1)
+            self.__try_set_config(cfg, "liveviewsize", "VGA")
+
+        # self.liveView = True
+        #
+        # camera_busy = True
+        # while camera_busy:
+        #     try:
+        #
+        #         camera_busy = False
+        #
+        #     except gp.GPhoto2Error as err:
+        #         if err.code == -110:
+        #             pass
+        #
+        # while self.liveView:
+        #     self.__live_view_capture_preview()
+        #     QApplication.processEvents()
+        #     sleep(0.1)
+
+
+    def __live_view_capture_preview(self):
+        try:
+            camera_file = self.camera.capture_preview()
+            file_data = camera_file.get_data_and_size()
+            image = Image.open(io.BytesIO(file_data))
+            self.preview_image.emit(image)
+        except Exception as err:
+            print(err)
+            self.__stop_live_view()
+
+    def __stop_live_view(self):
+        self.liveView = False
+
+    def __deinit_live_view(self):
+        with self.__open_config("write") as cfg:
+            self.__try_set_config(cfg, "viewfinder", 0)
+            self.__try_set_config(cfg, "autofocusdrive", 0)
+
+    def __trigger_autofocus(self):
+        with self.__open_config("write") as cfg:
+            lightmeter = cfg.get_child_by_name("lightmeter").get_value()
+            if lightmeter <= -5:
+                print("Not enough light for autofocus: " + str(lightmeter))
+                return
+            self.__try_set_config(cfg, "autofocusdrive", 1)
+
     def captureImages(self, capture_req: CaptureImagesRequest):
+        self.__stop_live_view()
+
         timer = QElapsedTimer()
         try:
             timer.start()
@@ -301,14 +407,14 @@ class CameraWorker(QObject):
                     with self.__open_config("write") as cfg:
                        self.__try_set_config(cfg, "burstnumber", burst)
 
-                QApplication.processEvents()
+                # QApplication.processEvents()
 
                 self.captureComplete = False
                 if not capture_req.manual_trigger:
                     self.camera.trigger_capture()
                 while not self.captureComplete and not self.shouldCancel:
                     self.empty_event_queue(timeout=100)
-                    QApplication.processEvents()
+                    # QApplication.processEvents()
 
                 print("Curr. files: %i" % self.filesCounter)
                 remaining = capture_req.num_images * capture_req.expect_files - self.filesCounter
@@ -352,10 +458,13 @@ class CameraWorker(QObject):
 
     @contextmanager
     def __open_config(self, mode: Literal["read", "write"]) -> Generator[CameraWidget, None, None]:
+        cfg: CameraWidget = None
         try:
-            cfg: CameraWidget = self.camera.get_config()
+            cfg = self.camera.get_config()
+            print(cfg)
             yield cfg
         finally:
+            print(cfg)
             if mode == "write":
                 self.camera.set_config(cfg)
             elif not mode == "read":
