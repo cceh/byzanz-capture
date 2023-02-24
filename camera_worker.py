@@ -196,39 +196,39 @@ class CameraWorker(QObject):
                 )
             self.__set_state(CameraStates.Ready(self.camera_name))
 
-            self.liveViewTimer = QTimer()
-            self.liveViewTimer.timeout.connect(lambda: print("timeout"))
-            self.liveViewTimer.start(1000)
+            # self.liveViewTimer = QTimer()
+            # self.liveViewTimer.timeout.connect(lambda: print("timeout"))
+            # self.liveViewTimer.start(1000)
 
-            # live_view_on = False
+            live_view_on = False
+            while self.camera:
+                try:
+                    live_view_changed = self.liveView != live_view_on
+                    if live_view_changed:
+                        live_view_on = self.liveView
+                        self.__init_live_view() if live_view_on else self.__deinit_live_view()
+                        if live_view_on:
+                            self.__set_state(CameraStates.LiveViewStarted())
+                        else:
+                            self.__set_state(CameraStates.Ready(self.camera_name))
+
+                    if live_view_on:
+                        self.__live_view_capture_preview()
+                        self.thread().msleep(100)
+                    else:
+                        self.empty_event_queue(1)
+                finally:
+                    QApplication.processEvents()
+
             # while self.camera:
             #     try:
-            #         live_view_changed = self.liveView != live_view_on
-            #         if live_view_changed:
-            #             live_view_on = self.liveView
-            #             self.__init_live_view() if live_view_on else self.__deinit_live_view()
-            #             if live_view_on:
-            #                 self.__set_state(CameraStates.LiveViewStarted())
-            #             else:
-            #                 self.__set_state(CameraStates.Ready(self.camera_name))
-            #
-            #         if live_view_on:
+            #         if self.liveView:
             #             self.__live_view_capture_preview()
             #             self.thread().msleep(100)
             #         else:
             #             self.empty_event_queue(1)
             #     finally:
             #         pass
-
-            while self.camera:
-                try:
-                    if self.liveView:
-                        self.__live_view_capture_preview()
-                        self.thread().msleep(100)
-                    else:
-                        self.empty_event_queue(1)
-                finally:
-                    pass
 
         except gp.GPhoto2Error as err:
             self.__set_state(CameraStates.ConnectionError(error=err))
@@ -407,14 +407,14 @@ class CameraWorker(QObject):
                     with self.__open_config("write") as cfg:
                        self.__try_set_config(cfg, "burstnumber", burst)
 
-                # QApplication.processEvents()
+                QApplication.processEvents()
 
                 self.captureComplete = False
                 if not capture_req.manual_trigger:
                     self.camera.trigger_capture()
                 while not self.captureComplete and not self.shouldCancel:
                     self.empty_event_queue(timeout=100)
-                    # QApplication.processEvents()
+                    QApplication.processEvents()
 
                 print("Curr. files: %i" % self.filesCounter)
                 remaining = capture_req.num_images * capture_req.expect_files - self.filesCounter
