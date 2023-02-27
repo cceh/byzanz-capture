@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from enum import Enum
@@ -5,7 +6,7 @@ from pathlib import Path
 
 import gphoto2 as gp
 from PIL.ImageQt import ImageQt
-from PyQt6.QtCore import QThread, QSettings, QStandardPaths
+from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
@@ -40,9 +41,12 @@ class CaptureMode(Enum):
 
 
 class RTICaptureMainWindow(QMainWindow):
+    find_camera = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        self.__logger = logging.getLogger(self.__class__.__name__)
 
         self.camera_worker = CameraWorker()
         self.__session: Session = None
@@ -106,14 +110,14 @@ class RTICaptureMainWindow(QMainWindow):
 
         self.camera_thread = QThread()
         self.camera_worker.moveToThread(self.camera_thread)
-        self.camera_thread.start()
         self.camera_worker.state_changed.connect(self.set_camera_state)
         self.camera_worker.events.config_updated.connect(self.on_config_update)
-        self.camera_worker.preview_image.connect(lambda image: self.previewImageBrowser.show_preview(ImageQt(image)))
-        self.camera_worker.initialize()
+        self.camera_worker.preview_image.connect(lambda image: self.previewImageBrowser.show_preview(ImageQt(image.image)))
+        self.camera_worker.initialized.connect(lambda: self.camera_worker.commands.find_camera.emit())
+        self.camera_thread.started.connect(self.camera_worker.initialize)
+        self.camera_thread.start()
 
-        self.camera_worker.commands.find_camera.emit()
-        self.show()
+
 
     @property
     def capture_mode(self) -> CaptureMode:
@@ -128,7 +132,7 @@ class RTICaptureMainWindow(QMainWindow):
         return self.camera_state
 
     def set_camera_state(self, state: CameraStates.StateType):
-        print("Handle camera state:" + state.__class__.__name__)
+        self.__logger.debug("Handle camera state:" + state.__class__.__name__)
         self.camera_state = state
         self.update_ui()
 
@@ -147,8 +151,7 @@ class RTICaptureMainWindow(QMainWindow):
                 pass
 
             case CameraStates.ConnectionError():
-                print("CONNECTION ERROR")
-                print(state.error)
+                self.__logger.error(state.error)
 
             case CameraStates.Ready():
                 pass
@@ -319,7 +322,7 @@ class RTICaptureMainWindow(QMainWindow):
 
                 self.capture_progress_bar.setMaximum(camera_state.capture_request.num_images)
                 self.capture_progress_bar.setValue(camera_state.num_captured)
-                print(camera_state.num_captured, " / ", camera_state.capture_request.num_images)
+                # print(camera_state.num_captured, " / ", camera_state.capture_request.num_images)
 
             case CameraStates.CaptureCanceled():
                 self.capture_status_label.setText("Aufnahme abgebrochen!")
@@ -474,13 +477,13 @@ class RTICaptureMainWindow(QMainWindow):
         file_names = [os.path.basename(file_path) for file_path in self.rtiImageBrowser.files()]
         num_files = len(file_names)
         if num_files != 60:
-            print("Wrong number of files, not writing LP file.")
+            logging.warning("Wrong number of files, not writing LP file.")
             return
 
         lp_template_path = "cceh-dome-template.lp"
         lp_output_path = os.path.join(self.session.images_dir, self.session.name + ".lp")
         with open(lp_template_path, 'r') as lp_template_file, open(lp_output_path, 'w') as lp_output_file:
-            print("Writing LP file: " + lp_output_path)
+            logging.info("Writing LP file: " + lp_output_path)
             lp_output_file.write(str(num_files) + "\n")
             for i, input_line in enumerate(lp_template_file):
                 output_line = file_names[i] + " " + input_line
@@ -563,18 +566,20 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.commands.capture_images.emit(capture_req)
 
     def on_capture_cancelled(self):
-        print("CANCELLED")
+        logging.info("Capture cancelled")
 
     def cancel_capture(self):
         self.cancel_capture_button.setEnabled(False)
         self.camera_worker.commands.cancel.emit()
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        format='%(levelname)s: %(name)s: %(message)s', level=logging.DEBUG)
+
     app = QApplication(sys.argv)
     app.setOrganizationName("CCeH")
     app.setOrganizationDomain("cceh.uni-koeln.de")
     app.setApplicationName("Byzanz RTI")
-    print(app.thread())
 
     settings = QSettings()
     if "workingDirectory" not in settings.allKeys():
