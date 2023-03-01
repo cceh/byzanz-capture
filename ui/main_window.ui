@@ -567,6 +567,24 @@
             </widget>
            </item>
            <item>
+            <widget class="QPushButton" name="autofocusButton">
+             <property name="text">
+              <string>Fokus</string>
+             </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>focus.svg</normaloff>focus.svg</iconset>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="line_3">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
             <widget class="QPushButton" name="toggleLiveViewButton">
              <property name="text">
               <string>Live-Vorschau</string>
@@ -583,24 +601,6 @@
              </property>
              <property name="flat">
               <bool>false</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="Line" name="line_3">
-             <property name="orientation">
-              <enum>Qt::Vertical</enum>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="autofocusButton">
-             <property name="text">
-              <string>Fokus</string>
-             </property>
-             <property name="icon">
-              <iconset>
-               <normaloff>focus.svg</normaloff>focus.svg</iconset>
              </property>
             </widget>
            </item>

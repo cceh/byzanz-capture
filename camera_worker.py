@@ -263,6 +263,11 @@ class CameraWorker(QObject):
         self.__set_state(CameraStates.Ready(self.camera_name))
 
         while self.camera:
+            if self.thread().isInterruptionRequested():
+                self.__disconnect_camera()
+                self.thread().exit()
+                return
+
             try:
                 if isinstance(self.__state, CameraStates.LiveViewActive):
                     self.__live_view_capture_preview()
@@ -325,7 +330,7 @@ class CameraWorker(QObject):
                 self.__logger.info("New file: %s" % cam_file_path)
                 basename, extension = os.path.splitext(data.name)
 
-                if isinstance(self.__state, CameraStates.CaptureInProgress) and self.shouldCancel is False:
+                if isinstance(self.__state, CameraStates.CaptureInProgress) and not self.shouldCancel and not self.thread().isInterruptionRequested():
                     tpl = Template(self.__state.capture_request.file_path_template)
                     file_target_path = tpl.substitute(
                         basename=basename,
@@ -453,7 +458,7 @@ class CameraWorker(QObject):
             self.thread().sleep(1)
 
             remaining = capture_req.num_images * capture_req.expect_files
-            while remaining > 0 and not self.shouldCancel:
+            while remaining > 0 and not self.shouldCancel and not self.thread().isInterruptionRequested():
                 burst = min(capture_req.max_burst, int(remaining / capture_req.expect_files))
                 if not capture_req.manual_trigger:
                     with self.__open_config("write") as cfg:
@@ -462,7 +467,7 @@ class CameraWorker(QObject):
                 self.captureComplete = False
                 if not capture_req.manual_trigger:
                     self.camera.trigger_capture()
-                while not self.captureComplete and not self.shouldCancel:
+                while not self.captureComplete and not self.shouldCancel and not self.thread().isInterruptionRequested():
                     self.empty_event_queue(timeout=100)
                     QApplication.processEvents()
 

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import gphoto2 as gp
 from PIL.ImageQt import ImageQt
-from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal
-from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon
+from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt
+from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
     QComboBox, QLabel, QToolBox, QProgressBar, QMenu, QAbstractButton, QInputDialog, QMessageBox, QStyle, QDialog,
@@ -699,6 +699,14 @@ class RTICaptureMainWindow(QMainWindow):
     def cancel_capture(self):
         self.cancel_capture_button.setEnabled(False)
         self.camera_worker.commands.cancel.emit()
+
+    def closeEvent(self, event: QCloseEvent):
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.camera_thread.requestInterruption()
+        self.camera_thread.exit()
+        self.camera_thread.wait()
+        super().closeEvent(event)
+
 
 if __name__ == "__main__":
     logging.basicConfig(
