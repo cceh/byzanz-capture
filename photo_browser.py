@@ -104,7 +104,19 @@ class PhotoBrowser(QWidget):
     def resizeEvent(self, event: QResizeEvent):
         self.__center_spinner_over_photo_viewer()
 
-    def show_preview(self, image: QImage):
+    def show_preview(self, image: QImage | None):
+        if not image:
+            self.photo_viewer.setPhoto(None)
+            self.image_file_list.setEnabled(True)
+
+            # re-show the previously selected image
+            selected_image_index = self.image_file_list.currentIndex()
+            if selected_image_index:
+                item = self.image_file_list.item(selected_image_index.row())
+                self.__on_select_image_file(item)
+            return
+
+        self.image_file_list.setEnabled(False)
         self.photo_viewer.setPhoto(QPixmap.fromImage(image))
         self.photo_viewer.fitInView()
 

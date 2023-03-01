@@ -1,6 +1,7 @@
 import math
 
 from PyQt6 import QtWidgets, QtCore, QtGui
+from PyQt6.QtGui import QPixmap
 
 
 class PhotoViewer(QtWidgets.QGraphicsView):
@@ -56,13 +57,17 @@ class PhotoViewer(QtWidgets.QGraphicsView):
                 if (self.isMouseOver): # should be true on wheel, regardless
                     self.setDragState()
 
-    def setPhoto(self, pixmap=None):
+    def setPhoto(self, pixmap: QPixmap | None):
         if pixmap and not pixmap.isNull():
             self._empty = False
+            previous_pixmap = self._photo.pixmap()
             self._photo.setPixmap(pixmap)
+            if not previous_pixmap or previous_pixmap.isNull() or not previous_pixmap.size() == pixmap.size():
+                self.fitInView()
         else:
             self._empty = True
             self._photo.setPixmap(QtGui.QPixmap())
+            self.resetZoom()
 
     def resetZoom(self):
         if self.hasPhoto():
@@ -81,7 +86,6 @@ class PhotoViewer(QtWidgets.QGraphicsView):
             factor = self.ZOOMFACT # 1.25
             self._zoomfactor = self._zoomfactor * self.ZOOMFACT
             self._zoom += 1
-            print(self._zoom)
             self.scale(factor, factor)
             # self.parent.updateStatusBar()
             self.setDragState()

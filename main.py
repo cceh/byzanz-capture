@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -10,16 +11,18 @@ from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
-    QComboBox, QLabel, QToolBox, QProgressBar, QMenu, QAbstractButton, QInputDialog, QMessageBox, QStyle, QDialog
+    QComboBox, QLabel, QToolBox, QProgressBar, QMenu, QAbstractButton, QInputDialog, QMessageBox, QStyle, QDialog,
+    QLCDNumber
 )
 from PyQt6.uic import loadUi
 from send2trash import send2trash
 
-from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates
+from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest
 from open_session_dialog import OpenSessionDialog
 from photo_browser import PhotoBrowser
 from settings_dialog import SettingsDialog
 from spinner import Spinner
+from camera_config_dialog import CameraConfigDialog
 
 
 class Session:
@@ -46,11 +49,12 @@ class RTICaptureMainWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.__logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
 
         self.camera_worker = CameraWorker()
         self.__session: Session = None
         self.camera_state: CameraStates.StateType = None
+        self.cam_config_dialog: CameraConfigDialog = None
 
         # Set up UI and find controls
         loadUi('ui/main_window.ui', self)
@@ -70,6 +74,9 @@ class RTICaptureMainWindow(QMainWindow):
         self.live_view_controls: QWidget = self.findChild(QWidget, "liveViewControls")
         self.toggle_live_view_button: QPushButton = self.findChild(QPushButton, "toggleLiveViewButton")
         self.autofocus_button: QPushButton = self.findChild(QPushButton, "autofocusButton")
+        self.light_lcd_number: QLCDNumber = self.findChild(QLCDNumber, "lightLCDNumber")
+        self.light_lcd_frame: QFrame = self.findChild(QFrame, "lightLCDFrame")
+        self.live_view_error_label: QLabel = self.findChild(QLabel, "liveviewErrorLabel")
 
         self.capture_view: QToolBox = self.findChild(QToolBox, "captureView")
         self.rtiPage: QWidget = self.findChild(QWidget, "rtiPage")
@@ -90,12 +97,25 @@ class RTICaptureMainWindow(QMainWindow):
         self.crop_select: QComboBox = self.findChild(QComboBox, "cropSelect")
         self.iso_select: QComboBox = self.findChild(QComboBox, "isoSelect")
 
+        self.settings_button: QPushButton = self.findChild(QPushButton, "settingsButton")
+
         self.session_menu = QMenu(self)
         self.open_session_action = QAction('Vorherige Sitzung öffnen...', self)
         self.open_session_action.triggered.connect(self.open_existing_session_directory)
+        self.open_session_action.setIcon(QIcon("ui/open.svg"))
         self.rename_session_action = QAction('Sitzung umbenennen...', self)
         self.rename_session_action.triggered.connect(self.rename_current_session)
+        self.rename_session_action.setIcon(QIcon("ui/rename.svg"))
         self.session_menu.addActions([self.open_session_action, self.rename_session_action])
+
+        self.settings_menu = QMenu(self)
+        self.open_program_settings_action = QAction('Allgemeine Einstellungen')
+        self.open_program_settings_action.triggered.connect(self.open_settings)
+        self.open_program_settings_action.setIcon(QIcon("ui/general_settings.svg"))
+        self.open_advanced_cam_config_action = QAction('Erweiterte Kamerakonfiguration')
+        self.open_advanced_cam_config_action.triggered.connect(self.open_advanced_capture_settings)
+        self.open_advanced_cam_config_action.setIcon(QIcon("ui/cam_settings.svg"))
+        self.settings_menu.addActions([self.open_program_settings_action, self.open_advanced_cam_config_action])
 
         self.session_name_edit.textChanged.connect(
             lambda text: self.start_session_button.setEnabled(
@@ -112,6 +132,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.moveToThread(self.camera_thread)
         self.camera_worker.state_changed.connect(self.set_camera_state)
         self.camera_worker.events.config_updated.connect(self.on_config_update)
+        self.camera_worker.property_changed.connect(self.on_property_change)
         self.camera_worker.preview_image.connect(lambda image: self.previewImageBrowser.show_preview(ImageQt(image.image)))
         self.camera_worker.initialized.connect(lambda: self.camera_worker.commands.find_camera.emit())
         self.camera_thread.started.connect(self.camera_worker.initialize)
@@ -132,7 +153,7 @@ class RTICaptureMainWindow(QMainWindow):
         return self.camera_state
 
     def set_camera_state(self, state: CameraStates.StateType):
-        self.__logger.debug("Handle camera state:" + state.__class__.__name__)
+        self.logger.debug("Handle camera state:" + state.__class__.__name__)
         self.camera_state = state
         self.update_ui()
 
@@ -150,8 +171,12 @@ class RTICaptureMainWindow(QMainWindow):
             case CameraStates.Connecting():
                 pass
 
+            case CameraStates.Disconnecting():
+                if self.cam_config_dialog:
+                    self.cam_config_dialog.reject()
+
             case CameraStates.ConnectionError():
-                self.__logger.error(state.error)
+                self.logger.error(state.error)
 
             case CameraStates.Ready():
                 pass
@@ -171,8 +196,9 @@ class RTICaptureMainWindow(QMainWindow):
             case CameraStates.CaptureFinished():
                 if self.capture_mode == CaptureMode.Preview:
                     self.session.preview_count += 1
-
-                self.write_lp()
+                else:
+                    self.write_lp()
+                    self.dump_camera_config()
 
             case CameraStates.CaptureCanceled():
                 pass
@@ -219,13 +245,17 @@ class RTICaptureMainWindow(QMainWindow):
             case CameraStates.Waiting():
                 self.camera_state_label.setText("Suche Kamera...")
                 self.camera_state_icon.setPixmap(QPixmap("ui/camera_waiting.png"))
+                self.open_advanced_cam_config_action.setEnabled(False)
 
                 self.connect_camera_button.setEnabled(False)
                 self.disconnect_camera_button.setVisible(False)
                 self.camera_busy_spinner.isAnimated = True
-                self.capture_status_label.setText("")
+                self.capture_status_label.setText(None)
 
                 self.live_view_controls.setEnabled(False)
+                self.light_lcd_frame.setEnabled(False)
+                self.light_lcd_number.display(None)
+                self.live_view_error_label.setText(None)
 
                 self.camera_controls.setEnabled(False)
                 self.camera_config_controls.setEnabled(False)
@@ -264,6 +294,8 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_state_label.setText("Kamera verbunden<br><b>%s</b>" % camera_state.camera_name)
                 self.camera_state_icon.setPixmap(QPixmap("ui/camera_ok.png"))
 
+                self.open_advanced_cam_config_action.setEnabled(True)
+
                 self.disconnect_camera_button.setEnabled(True)
                 self.disconnect_camera_button.setVisible(True)
                 self.connect_camera_button.setVisible(False)
@@ -286,6 +318,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_state_label.setText("Trenne Kamera...")
                 self.disconnect_camera_button.setEnabled(False)
                 self.disconnect_camera_button.setVisible(True)
+                self.open_advanced_cam_config_action.setEnabled(False)
 
                 self.live_view_controls.setEnabled(False)
 
@@ -296,6 +329,28 @@ class RTICaptureMainWindow(QMainWindow):
             case CameraStates.LiveViewStarted():
                 self.camera_config_controls.setEnabled(False)
                 self.autofocus_button.setEnabled(True)
+                self.light_lcd_frame.setEnabled(True)
+                self.update_lightmeter(camera_state.current_lightmeter_value)
+
+            case CameraStates.LiveViewActive():
+                pass
+
+            case CameraStates.FocusStarted():
+                self.autofocus_button.setEnabled(False)
+
+            case CameraStates.FocusFinished():
+                self.autofocus_button.setEnabled(True)
+                if not camera_state.success:
+                    self.live_view_error_label.setText("Konnte nicht fokussieren. Zu dunkel?")
+                else:
+                    self.live_view_error_label.setText(None)
+
+            case CameraStates.LiveViewStopped():
+                self.previewImageBrowser.show_preview(None)
+                self.light_lcd_number.display(None)
+                self.light_lcd_frame.setEnabled(False)
+                self.live_view_error_label.setText(None)
+
 
             case CameraStates.CaptureInProgress():
                 # if prev
@@ -377,7 +432,7 @@ class RTICaptureMainWindow(QMainWindow):
 
     def on_capture_mode_changed(self):
         print(self.capture_mode)
-        if self.capture_mode == CaptureMode.RTI and self.camera_state == CameraStates.LiveViewStarted:
+        if self.capture_mode == CaptureMode.RTI and isinstance(self.camera_state, CameraStates.LiveViewActive):
             self.camera_worker.commands.live_view.emit(False)
         self.update_ui()
 
@@ -389,6 +444,18 @@ class RTICaptureMainWindow(QMainWindow):
             for name, value in dialog.settings.items():
                 q_settings.setValue(name, value)
                 QPixmapCache.setCacheLimit(int(settings.value("maxPixmapCache")) * 1024)
+
+    def open_advanced_capture_settings(self):
+        def open_dialog(cfg: gp.CameraWidget):
+            self.cam_config_dialog = CameraConfigDialog(cfg, self)
+            if self.cam_config_dialog.exec():
+                self.camera_worker.commands.set_config.emit(cfg)
+                print(cfg.__dict__)
+            self.cam_config_dialog = None
+
+        req = ConfigRequest()
+        req.signal.got_config.connect(open_dialog)
+        self.camera_worker.commands.get_config.emit(req)
 
     def set_camera_connection_busy(self, busy: bool = True):
         self.connect_camera_button.setEnabled(not busy)
@@ -434,8 +501,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.set_session(None)
 
     def show_session_menu(self):
-        self.write_lp()
         self.session_menu.exec(self.session_menu_button.mapToGlobal(self.session_menu_button.rect().bottomLeft()))
+
+    def show_settings_menu(self):
+        self.settings_menu.exec(self.settings_button.mapToGlobal(self.session_menu_button.rect().bottomLeft()))
 
     def open_existing_session_directory(self):
         working_dir = QSettings().value("workingDirectory")
@@ -489,6 +558,51 @@ class RTICaptureMainWindow(QMainWindow):
                 output_line = file_names[i] + " " + input_line
                 lp_output_file.write(output_line)
 
+    def dump_camera_config(self):
+        output_path = os.path.join(self.session.images_dir, "camera_config.json")
+        self.logger.info(f"Writing camera configuration dump: {output_path}")
+
+        if not self.session:
+            return
+        def on_got_config(cfg: gp.CameraWidget):
+            cfg_dict = {}
+
+            def traverse_widget(widget, widget_dict):
+                widget_type = widget.get_type()
+
+                if widget_type == gp.GP_WIDGET_SECTION or widget_type == gp.GP_WIDGET_WINDOW:
+                    # If the widget is a section, traverse its children
+                    child_count = widget.count_children()
+                    for i in range(child_count):
+                        child = widget.get_child(i)
+                        child_dict = {}
+                        traverse_widget(child, child_dict)
+                        widget_dict[child.get_name()] = child_dict
+                else:
+                    try:
+                        widget_dict['value'] = widget.get_value()
+                    except gp.GPhoto2Error as err:
+                        if err.code == -2:
+                            self.logger.warning(f"Could not get config value for {cfg.get_label()} ({cfg.get_name()}).")
+
+                widget_dict['label'] = widget.get_label()
+
+                return widget_dict
+
+            traverse_widget(cfg, cfg_dict)
+
+            try:
+                with open(output_path, "w") as output_file:
+                    json.dump(cfg_dict, output_file, indent=4)
+            except Exception as e:
+                self.logger.error(f"Could not write camera config dump to {output_path}:")
+                self.logger.exception(e)
+
+
+        req = ConfigRequest()
+        req.signal.got_config.connect(on_got_config)
+        self.camera_worker.commands.get_config.emit(req)
+
 
     def config_hookup_select(self, config: gp.CameraWidget, config_name, combo_box: QComboBox, value_map: dict = None):
         try:
@@ -503,7 +617,7 @@ class RTICaptureMainWindow(QMainWindow):
             if choice == cfg.get_value():
                 combo_box.setCurrentIndex(idx)
 
-        combo_box.currentIndexChanged.connect(lambda: self.camera_worker.commands.set_config.emit(
+        combo_box.currentIndexChanged.connect(lambda: self.camera_worker.commands.set_single_config.emit(
             config_name, combo_box.currentData()
         ))
 
@@ -517,6 +631,18 @@ class RTICaptureMainWindow(QMainWindow):
             "2": "Mittel",
             "3": "Mittel 2"
         })
+
+    def on_property_change(self, event: PropertyChangeEvent):
+        match event.property_name:
+            case "lightmeter":
+                if isinstance(self.camera_state, CameraStates.LiveViewActive):
+                    self.update_lightmeter(event.value)
+
+    def update_lightmeter(self, value):
+        if isinstance(value, float):
+            self.light_lcd_number.display(int(value))
+        else:
+            self.light_lcd_number.display(None)
 
     def enable_live_view(self, enable: bool):
         self.camera_worker.commands.live_view.emit(enable)
@@ -552,6 +678,8 @@ class RTICaptureMainWindow(QMainWindow):
             loadUi("ui/press-buttons-dialog.ui", press_buttons_dialog)
             if not press_buttons_dialog.exec():
                 return
+
+            
 
             existing_files = [os.path.join(self.session.images_dir, f) for f in os.listdir(self.session.images_dir)]
             send2trash(existing_files)
