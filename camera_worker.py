@@ -238,7 +238,7 @@ class CameraWorker(QObject):
     def __find_camera(self):
         self.__set_state(CameraStates.Waiting())
         camera_list = None
-        while not camera_list:
+        while not camera_list and not self.thread().isInterruptionRequested():
             self.__logger.info("Waiting for camera...")
             camera_list = list(gp.Camera.autodetect())
             sleep(1)

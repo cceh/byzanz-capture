@@ -2,4 +2,4 @@
 Type=Application
 Name=Byzanz-RTI
 Exec=/home/dch/byzanz-capture/byzanz-capture.sh
-
+StartupWMClass=Byzanz RTI
