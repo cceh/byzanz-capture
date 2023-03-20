@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.uic import loadUi
 from send2trash import send2trash
 
+from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest
+# from bt_controller_controller import BtControllerController
 from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest
 from open_session_dialog import OpenSessionDialog
 from photo_browser import PhotoBrowser
@@ -138,6 +140,14 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_thread.started.connect(self.camera_worker.initialize)
         self.camera_thread.start()
 
+        self.bt_thread = QThread()
+        self.bt_worker = BtControllerController()
+        self.bt_worker.moveToThread(self.bt_thread)
+        self.bt_thread.started.connect(self.bt_worker.run)
+        self.bt_thread.start()
+
+
+
 
 
     @property
@@ -182,9 +192,17 @@ class RTICaptureMainWindow(QMainWindow):
                 pass
 
             case CameraStates.LiveViewStarted():
+                request = BtControllerRequest(BtControllerCommand.BT_CMD_PILOT_LIGHT_ON)
+                request.signals.success.connect(lambda: print("BT Success!"))
+                request.signals.error.connect(lambda: print("BT Error!"))
+                self.bt_worker.send_command.emit(request)
                 pass
 
             case CameraStates.LiveViewStopped():
+                request = BtControllerRequest(BtControllerCommand.BT_CMD_LED_OFF)
+                request.signals.success.connect(lambda: print("BT Success!"))
+                request.signals.error.connect(lambda: print("BT Error!"))
+                self.bt_worker.send_command.emit(request)
                 pass
 
             case CameraStates.Disconnecting():
@@ -206,6 +224,7 @@ class RTICaptureMainWindow(QMainWindow):
     def update_ui(self):
         # variables on which the UI state depends
         camera_state = self.camera_state
+
         has_session = self.session is not None
         session_loaded = has_session \
                          and self.session.preview_dir_loaded \
@@ -674,13 +693,6 @@ class RTICaptureMainWindow(QMainWindow):
                 if not message_box.exec():
                     return
 
-            press_buttons_dialog = QDialog()
-            loadUi("ui/press-buttons-dialog.ui", press_buttons_dialog)
-            if not press_buttons_dialog.exec():
-                return
-
-            
-
             existing_files = [os.path.join(self.session.images_dir, f) for f in os.listdir(self.session.images_dir)]
             send2trash(existing_files)
 
@@ -691,7 +703,20 @@ class RTICaptureMainWindow(QMainWindow):
             self.capture_progress_bar.setMaximum(119)
             self.capture_progress_bar.setValue(0)
 
-        self.camera_worker.commands.capture_images.emit(capture_req)
+        def start_capture(show_button_message: bool):
+            if self.capture_mode == CaptureMode.RTI and show_button_message:
+                press_buttons_dialog = QDialog()
+                loadUi("ui/press-buttons-dialog.ui", press_buttons_dialog)
+                if not press_buttons_dialog.exec():
+                    return
+
+            self.camera_worker.commands.capture_images.emit(capture_req)
+
+        request = BtControllerRequest(BtControllerCommand.BT_CMD_SET_LED, 0)
+        request.signals.success.connect(lambda: start_capture(False))
+        request.signals.error.connect(lambda: start_capture(True))
+        self.bt_worker.send_command.emit(request)
+
 
     def on_capture_cancelled(self):
         logging.info("Capture cancelled")
@@ -704,13 +729,15 @@ class RTICaptureMainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.camera_thread.requestInterruption()
         self.camera_thread.exit()
+        self.bt_thread.exit()
         self.camera_thread.wait()
+        self.bt_thread.wait()
         super().closeEvent(event)
 
 
 if __name__ == "__main__":
     logging.basicConfig(
-        format='%(levelname)s: %(name)s: %(message)s', level=logging.DEBUG)
+        format='%(levelname)s: %(name)s: %(message)s', level=logging.INFO)
 
     app = QApplication(sys.argv)
     app.setOrganizationName("CCeH")
