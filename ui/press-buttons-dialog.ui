@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>418</width>
-    <height>396</height>
+    <height>424</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -34,7 +34,7 @@
 p, li { white-space: pre-wrap; }
 hr { height: 1px; border-width: 0; }
 &lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'Ubuntu'; font-size:11pt; font-weight:400; font-style:normal;&quot;&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;• Erst &lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700; color:#c01c28;&quot;&gt;ROT&lt;/span&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;&lt;br /&gt;• Dann lange &lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700; color:#26a269;&quot;&gt;GRÜN&lt;/span&gt; (bis das Lämpchen ausgeht)&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;• Erst den &lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700; color:#c01c28;&quot;&gt;ROTEN&lt;/span&gt; &lt;span style=&quot; font-size:14pt;&quot;&gt;Knopf drücken&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
     </widget>
    </item>
@@ -66,7 +66,7 @@ hr { height: 1px; border-width: 0; }
    <item>
     <widget class="QLabel" name="label_3">
      <property name="text">
-      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;• Erst &lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700;&quot;&gt;danach&lt;/span&gt;&lt;span style=&quot; font-size:14pt;&quot;/&gt;&lt;span style=&quot; font-size:14pt; font-style:italic;&quot;&gt;OK&lt;/span&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt; drücken!&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;• &lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700;&quot;&gt;Danach &lt;/span&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;auf&lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700;&quot;/&gt;&lt;span style=&quot; font-size:14pt; font-style:italic;&quot;&gt;OK&lt;/span&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt; klicken!&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
     </widget>
    </item>

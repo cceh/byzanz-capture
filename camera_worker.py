@@ -100,6 +100,9 @@ class CameraStates:
             self.elapsed_time = elapsed_time
             self.capture_request = capture_request
 
+    class CaptureCancelling:
+        pass
+
     class CaptureCanceled:
         def __init__(self, capture_request: CaptureImagesRequest, elapsed_time: int):
             super().__init__()
@@ -124,7 +127,7 @@ class CameraStates:
 
     StateType = Union[
         Waiting, Found, Disconnected, Connecting, Disconnecting, Ready, CaptureInProgress,
-        CaptureFinished, CaptureCanceled, CaptureError, IOError, ConnectionError, LiveViewStarted, LiveViewStopped,
+        CaptureFinished, CaptureCanceled, CaptureCancelling, CaptureError, IOError, ConnectionError, LiveViewStarted, LiveViewStopped,
         LiveViewActive, FocusStarted, FocusFinished
     ]
 
@@ -257,8 +260,8 @@ class CameraWorker(QObject):
         with self.__open_config("read") as cfg:
             self.events.config_updated.emit(cfg)
             self.camera_name = "%s %s" % (
-                cfg.get_child_by_name("cameramodel").get_value(),
-                cfg.get_child_by_name("manufacturer").get_value()
+                cfg.get_child_by_name("manufacturer").get_value(),
+                cfg.get_child_by_name("cameramodel").get_value()
             )
         self.__set_state(CameraStates.Ready(self.camera_name))
 
@@ -318,12 +321,14 @@ class CameraWorker(QObject):
 
     def __cancel(self):
         self.shouldCancel = True
+        self.__set_state(CameraStates.CaptureCancelling())
 
     def empty_event_queue(self, timeout=100):
         event_type, data = self.camera.wait_for_event(timeout)
 
         while event_type != gp.GP_EVENT_TIMEOUT:
             self.__logger.debug("Event: %s, data: %s" % (EVENT_DESCRIPTIONS.get(event_type, "Unknown"), data))
+            QApplication.processEvents()
 
             if event_type == gp.GP_EVENT_FILE_ADDED:
                 cam_file_path = os.path.join(data.folder, data.name)
@@ -341,11 +346,12 @@ class CameraWorker(QObject):
                         data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
                     self.__logger.info("Saving to %s" % file_target_path)
                     cam_file.save(file_target_path)
-                    if isinstance(self.__state, CameraStates.CaptureInProgress):
-                        current_capture_req = self.__state.capture_request
-                        if self.filesCounter % current_capture_req.expect_files == 0:
-                            num_captured = int(self.filesCounter / current_capture_req.expect_files)
-                            self.__set_state(CameraStates.CaptureInProgress(self.__state.capture_request, num_captured))
+
+                    current_capture_req = self.__state.capture_request
+                    if self.filesCounter % current_capture_req.expect_files == 0:
+                        num_captured = int(self.filesCounter / current_capture_req.expect_files)
+                        self.__set_state(CameraStates.CaptureInProgress(self.__state.capture_request, num_captured))
+
                     self.filesCounter += 1
                 else:
                     self.__logger.warning(
@@ -467,7 +473,7 @@ class CameraWorker(QObject):
                 self.captureComplete = False
                 if not capture_req.manual_trigger:
                     self.camera.trigger_capture()
-                while not self.captureComplete and not self.shouldCancel and not self.thread().isInterruptionRequested():
+                while not self.captureComplete:
                     self.empty_event_queue(timeout=100)
                     QApplication.processEvents()
 

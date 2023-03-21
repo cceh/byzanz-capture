@@ -11,7 +11,11 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>CCeH Byzanz RTI</string>
+  </property>
+  <property name="windowIcon">
+   <iconset>
+    <normaloff>cceh.png</normaloff>cceh.png</iconset>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout_3">
@@ -157,9 +161,6 @@
              <height>45</height>
             </size>
            </property>
-           <property name="autoFillBackground">
-            <bool>false</bool>
-           </property>
            <property name="text">
             <string/>
            </property>
@@ -168,9 +169,6 @@
            </property>
            <property name="scaledContents">
             <bool>true</bool>
-           </property>
-           <property name="indent">
-            <number>-1</number>
            </property>
           </widget>
          </item>
@@ -196,13 +194,6 @@
            </property>
            <property name="buddy">
             <cstring>cameraStateLabel</cstring>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="Line" name="line_2">
-           <property name="orientation">
-            <enum>Qt::Vertical</enum>
            </property>
           </widget>
          </item>
@@ -239,7 +230,14 @@
           </widget>
          </item>
          <item>
-          <spacer name="horizontalSpacer_3">
+          <widget class="Line" name="line_2">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer">
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
            </property>
@@ -250,6 +248,59 @@
             </size>
            </property>
           </spacer>
+         </item>
+         <item>
+          <widget class="QFrame" name="bluetoothFrame">
+           <property name="frameShape">
+            <enum>QFrame::NoFrame</enum>
+           </property>
+           <property name="frameShadow">
+            <enum>QFrame::Raised</enum>
+           </property>
+           <layout class="QHBoxLayout" name="horizontalLayout_8">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="Spinner" name="bluetoothConnectingSpinner" native="true">
+              <property name="minimumSize">
+               <size>
+                <width>30</width>
+                <height>30</height>
+               </size>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="bluetoothStateLabel">
+              <property name="maximumSize">
+               <size>
+                <width>45</width>
+                <height>45</height>
+               </size>
+              </property>
+              <property name="text">
+               <string/>
+              </property>
+              <property name="pixmap">
+               <pixmap>bluetooth_connected.svg</pixmap>
+              </property>
+              <property name="scaledContents">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
          </item>
          <item>
           <widget class="QPushButton" name="settingsButton">
@@ -352,7 +403,7 @@
          <x>0</x>
          <y>0</y>
          <width>1698</width>
-         <height>902</height>
+         <height>885</height>
         </rect>
        </property>
        <property name="cursor">
@@ -399,6 +450,79 @@
               </size>
              </property>
             </spacer>
+           </item>
+           <item>
+            <widget class="QFrame" name="previewLedFrame">
+             <property name="frameShape">
+              <enum>QFrame::NoFrame</enum>
+             </property>
+             <property name="frameShadow">
+              <enum>QFrame::Raised</enum>
+             </property>
+             <layout class="QHBoxLayout" name="horizontalLayout_9">
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="label_10">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>24</width>
+                  <height>24</height>
+                 </size>
+                </property>
+                <property name="text">
+                 <string/>
+                </property>
+                <property name="pixmap">
+                 <pixmap>lightbulb-on.svg</pixmap>
+                </property>
+                <property name="scaledContents">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="label_9">
+                <property name="text">
+                 <string>LED für Vorschaubild:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="previewLedSelect">
+                <property name="maximumSize">
+                 <size>
+                  <width>50</width>
+                  <height>16777215</height>
+                 </size>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="Line" name="line_6">
+                <property name="orientation">
+                 <enum>Qt::Vertical</enum>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
            </item>
            <item>
             <widget class="QLabel" name="liveviewErrorLabel">
@@ -587,7 +711,7 @@
            <item>
             <widget class="QPushButton" name="toggleLiveViewButton">
              <property name="text">
-              <string>Live-Vorschau</string>
+              <string>Live-Ansicht</string>
              </property>
              <property name="icon">
               <iconset>
@@ -622,7 +746,7 @@
          <x>0</x>
          <y>0</y>
          <width>1698</width>
-         <height>902</height>
+         <height>885</height>
         </rect>
        </property>
        <property name="cursor">

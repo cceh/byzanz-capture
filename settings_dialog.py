@@ -1,6 +1,6 @@
 from PyQt6.QtCore import QSettings, QVariant, Qt
 from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox
+from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox, QCheckBox
 from PyQt6.uic import loadUi
 
 
@@ -38,6 +38,12 @@ class SettingsDialog(QDialog):
         self.max_burst_number_input.setValue(int(q_settings.value("maxBurstNumber")))
         self.max_burst_number_input.textChanged.connect(
             lambda text: self.set("maxBurstNumber", int(text))
+        )
+
+        self.enable_bluetooth_checkbox: QCheckBox = self.findChild(QCheckBox, "enableBluetoothCheckbox")
+        self.enable_bluetooth_checkbox.setChecked(q_settings.value("enableBluetooth", type=bool))
+        self.enable_bluetooth_checkbox.stateChanged.connect(
+            lambda: self.set("enableBluetooth", self.enable_bluetooth_checkbox.isChecked())
         )
 
     def set(self, name: str, value: QVariant):

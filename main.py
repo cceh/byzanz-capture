@@ -1,11 +1,14 @@
+import asyncio.exceptions
 import json
 import logging
 import os
 import sys
+import threading
 from enum import Enum
 from pathlib import Path
 
 import gphoto2 as gp
+import qasync
 from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent
@@ -17,8 +20,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.uic import loadUi
 from send2trash import send2trash
 
-from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest
-# from bt_controller_controller import BtControllerController
+from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest, BtControllerState
 from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest
 from open_session_dialog import OpenSessionDialog
 from photo_browser import PhotoBrowser
@@ -66,6 +68,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_state_label: QLabel = self.findChild(QLabel, "cameraStateLabel")
         self.camera_state_icon: QLabel = self.findChild(QLabel, "cameraStateIcon")
 
+        self.bluetooth_frame: QFrame = self.findChild(QFrame, "bluetoothFrame")
+        self.bluetooth_state_icon: QLabel = self.findChild(QLabel, "bluetoothStateLabel")
+        self.bluetooth_connecting_spinner: Spinner = self.findChild(QWidget, "bluetoothConnectingSpinner")
+
         self.session_controls: QWidget = self.findChild(QWidget, "sessionControls")
         self.session_name_edit: QLineEdit = self.findChild(QLineEdit, "sessionNameEdit")
         self.start_session_button: QPushButton = self.findChild(QPushButton, "startSessionButton")
@@ -80,6 +86,9 @@ class RTICaptureMainWindow(QMainWindow):
         self.light_lcd_frame: QFrame = self.findChild(QFrame, "lightLCDFrame")
         self.live_view_error_label: QLabel = self.findChild(QLabel, "liveviewErrorLabel")
 
+        self.preview_led_select: QComboBox = self.findChild(QComboBox, "previewLedSelect")
+        self.preview_led_frame: QFrame = self.findChild(QFrame, "previewLedFrame")
+        
         self.capture_view: QToolBox = self.findChild(QToolBox, "captureView")
         self.rtiPage: QWidget = self.findChild(QWidget, "rtiPage")
         self.previewPage: QWidget = self.findChild(QWidget, "previewPage")
@@ -126,6 +135,9 @@ class RTICaptureMainWindow(QMainWindow):
 
         self.cancel_capture_button.setVisible(False)
 
+        for i in range(60):
+            self.preview_led_select.addItem(str(i + 1), i)
+
         self.set_camera_connection_busy(True)
         self.capture_mode = CaptureMode.Preview
         self.set_session(None)
@@ -140,15 +152,17 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_thread.started.connect(self.camera_worker.initialize)
         self.camera_thread.start()
 
-        self.bt_thread = QThread()
-        self.bt_worker = BtControllerController()
-        self.bt_worker.moveToThread(self.bt_thread)
-        self.bt_thread.started.connect(self.bt_worker.run)
-        self.bt_thread.start()
+        self.bt_controller: BtControllerController | None = None
+
+        if QSettings().value("enableBluetooth", type=bool):
+            self.init_bluetooth()
+
+        self.update_ui_bluetooth()
 
 
-
-
+    def init_bluetooth(self):
+        self.bt_controller = BtControllerController()
+        self.bt_controller.state_changed.connect(self.update_ui_bluetooth)
 
     @property
     def capture_mode(self) -> CaptureMode:
@@ -192,18 +206,18 @@ class RTICaptureMainWindow(QMainWindow):
                 pass
 
             case CameraStates.LiveViewStarted():
-                request = BtControllerRequest(BtControllerCommand.BT_CMD_PILOT_LIGHT_ON)
-                request.signals.success.connect(lambda: print("BT Success!"))
-                request.signals.error.connect(lambda: print("BT Error!"))
-                self.bt_worker.send_command.emit(request)
-                pass
+                if self.bt_controller and self.bt_controller.state == BtControllerState.CONNECTED:
+                    request = BtControllerRequest(BtControllerCommand.PILOT_LIGHT_ON)
+                    request.signals.success.connect(lambda: print("BT Success!"))
+                    request.signals.error.connect(lambda e: logging.exception(e))
+                    self.bt_controller.send_command(request)
 
             case CameraStates.LiveViewStopped():
-                request = BtControllerRequest(BtControllerCommand.BT_CMD_LED_OFF)
-                request.signals.success.connect(lambda: print("BT Success!"))
-                request.signals.error.connect(lambda: print("BT Error!"))
-                self.bt_worker.send_command.emit(request)
-                pass
+                if self.bt_controller and self.bt_controller.state == BtControllerState.CONNECTED:
+                    request = BtControllerRequest(BtControllerCommand.LED_OFF)
+                    request.signals.success.connect(lambda: print("BT Success!"))
+                    request.signals.error.connect(lambda e: logging.exception(e))
+                    self.bt_controller.send_command(request)
 
             case CameraStates.Disconnecting():
                 pass
@@ -396,7 +410,9 @@ class RTICaptureMainWindow(QMainWindow):
 
                 self.capture_progress_bar.setMaximum(camera_state.capture_request.num_images)
                 self.capture_progress_bar.setValue(camera_state.num_captured)
-                # print(camera_state.num_captured, " / ", camera_state.capture_request.num_images)
+
+            case CameraStates.CaptureCancelling():
+                self.cancel_capture_button.setEnabled(False)
 
             case CameraStates.CaptureCanceled():
                 self.capture_status_label.setText("Aufnahme abgebrochen!")
@@ -426,6 +442,35 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_button.setVisible(True)
                 self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
                 self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
+
+    def update_ui_bluetooth(self):
+        if self.bt_controller is not None:
+            self.bluetooth_frame.setVisible(True)
+            self.preview_led_frame.setVisible(True)
+
+            match self.bt_controller.state:
+                case BtControllerState.DISCONNECTED:
+                    self.bluetooth_state_icon.setPixmap(QPixmap("ui/bluetooth_disconnected.svg"))
+                    self.preview_led_select.setEnabled(False)
+                    self.bluetooth_connecting_spinner.isAnimated = False
+                    self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller getrennt")
+                case BtControllerState.CONNECTING:
+                    self.bluetooth_state_icon.setPixmap(QPixmap("ui/bluetooth_connecting.svg"))
+                    self.bluetooth_connecting_spinner.isAnimated = True
+                    self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller wird aufgebaut...")
+                case BtControllerState.CONNECTED:
+                    self.bluetooth_state_icon.setPixmap(QPixmap("ui/bluetooth_connected.svg"))
+                    self.preview_led_select.setEnabled(True)
+                    self.bluetooth_connecting_spinner.isAnimated = False
+                    self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller aktiv")
+                case BtControllerState.DISCONNECTING:
+                    self.bluetooth_state_icon.setPixmap(QPixmap("ui/bluetooth_connecting.svg"))
+                    self.bluetooth_connecting_spinner.isAnimated = True
+                    self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller wird getrennt...")
+
+        else:
+            self.bluetooth_frame.setVisible(False)
+            self.preview_led_frame.setVisible(False)
 
     @property
     def session(self) -> Session:
@@ -462,7 +507,16 @@ class RTICaptureMainWindow(QMainWindow):
         if dialog.exec():
             for name, value in dialog.settings.items():
                 q_settings.setValue(name, value)
-                QPixmapCache.setCacheLimit(int(settings.value("maxPixmapCache")) * 1024)
+
+            QPixmapCache.setCacheLimit(int(q_settings.value("maxPixmapCache")) * 1024)
+
+            if q_settings.value("enableBluetooth", type=bool) and not self.bt_controller:
+                self.init_bluetooth()
+            elif self.bt_controller:
+                self.bt_controller.bt_disconnect()
+                self.bt_controller = None
+            self.update_ui_bluetooth()
+
 
     def open_advanced_capture_settings(self):
         def open_dialog(cfg: gp.CameraWidget):
@@ -712,10 +766,14 @@ class RTICaptureMainWindow(QMainWindow):
 
             self.camera_worker.commands.capture_images.emit(capture_req)
 
-        request = BtControllerRequest(BtControllerCommand.BT_CMD_SET_LED, 0)
-        request.signals.success.connect(lambda: start_capture(False))
-        request.signals.error.connect(lambda: start_capture(True))
-        self.bt_worker.send_command.emit(request)
+        if self.bt_controller and self.bt_controller.state == BtControllerState.CONNECTED:
+            initial_led = 0 if self.capture_mode == CaptureMode.RTI else self.preview_led_select.currentData()
+            request = BtControllerRequest(BtControllerCommand.SET_LED, initial_led)
+            request.signals.success.connect(lambda: start_capture(False))
+            request.signals.error.connect(lambda: start_capture(True))
+            self.bt_controller.send_command(request)
+        else:
+            start_capture(True)
 
 
     def on_capture_cancelled(self):
@@ -729,13 +787,14 @@ class RTICaptureMainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.camera_thread.requestInterruption()
         self.camera_thread.exit()
-        self.bt_thread.exit()
+        if self.bt_controller:
+            self.bt_controller.bt_disconnect()
         self.camera_thread.wait()
-        self.bt_thread.wait()
         super().closeEvent(event)
 
-
 if __name__ == "__main__":
+    win: RTICaptureMainWindow
+
     logging.basicConfig(
         format='%(levelname)s: %(name)s: %(message)s', level=logging.INFO)
 
@@ -755,8 +814,30 @@ if __name__ == "__main__":
     if "maxBurstNumber" not in settings.allKeys():
         settings.setValue("maxBurstNumber", 60)
 
+    if "enableBluetooth" not in settings.allKeys():
+        settings.setValue("enableBluetooth", False)
+
     QPixmapCache.setCacheLimit(int(settings.value("maxPixmapCache")) * 1024)
 
-    win = RTICaptureMainWindow()
-    win.show()
-    sys.exit(app.exec())
+    loop: qasync.QEventLoop = qasync.QEventLoop(app)
+    asyncio.set_event_loop(loop)
+
+
+    orig_exceptionhook = sys.__excepthook__
+
+
+    with loop:
+        def excepthook(exc_type, exc_value, exc_traceback):
+            logging.exception(msg="Exception", exc_info=(exc_type, exc_value, exc_traceback))
+            if win.bt_controller:
+                    win.bt_controller.bt_disconnect()
+            loop.call_soon(lambda _loop: _loop.stop(), loop)
+
+        sys.excepthook = excepthook
+        threading.excepthook = excepthook
+
+        win = RTICaptureMainWindow()
+        win.show()
+        asyncio.get_running_loop().run_forever()
+
+

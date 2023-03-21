@@ -1,24 +1,31 @@
 import asyncio
 import logging
 from asyncio import Future
-from enum import Enum
+from enum import Enum, auto
 
-import qasync
-from PyQt6.QtCore import QObject, pyqtSignal
-from bleak import BLEDevice, BleakClient, BleakScanner, AdvertisementData, BleakGATTCharacteristic, BleakError
+from PyQt6.QtCore import QObject, pyqtSignal, QEventLoop
+from PyQt6.QtWidgets import QApplication
+from bleak import BleakClient, BleakGATTCharacteristic, BleakError
 
 
 class BtControllerCommand(Enum):
-    BT_CMD_LED_ON = 0x01
-    BT_CMD_LED_OFF = 0x02
-    BT_CMD_SET_LED = 0x03
-    BT_CMD_PILOT_LIGHT_ON = 0x04
+    LED_ON = 0x01
+    LED_OFF = 0x02
+    SET_LED = 0x03
+    PILOT_LIGHT_ON = 0x04
 
 
 class BtControllerResponse(Enum):
-    BT_RESP_OK = 0x01
-    BT_RESP_ERR_INVALID_CMD = 0x10
-    BT_RESP_ERR_INVALID_LED = 0x11
+    OK = 0x01
+    ERR_INVALID_CMD = 0x10
+    ERR_INVALID_LED = 0x11
+
+
+class BtControllerState(Enum):
+    DISCONNECTED = auto()
+    CONNECTING = auto()
+    CONNECTED = auto()
+    DISCONNECTING = auto()
 
 
 class BtControllerRequest:
@@ -36,24 +43,20 @@ class BtControllerController(QObject):
     DEVICE_ADDRESS = "00:0E:0B:10:45:63"
     BLE_CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 
-    send_command = pyqtSignal(BtControllerRequest)
+    state_changed = pyqtSignal(BtControllerState)
 
     def __init__(self, parent=None):
         super(BtControllerController, self).__init__(parent)
         self._logger = logging.getLogger(self.__class__.__name__)
         self._device_address = None
-        self._client: BleakClient | None = None
+        self._client = BleakClient(self.DEVICE_ADDRESS, disconnected_callback=self._disconnect_callback)
         self._queue: asyncio.Queue[tuple[BtControllerResponse, int | None]] = asyncio.Queue()
+        self._state: BtControllerState = BtControllerState.DISCONNECTED
 
         self.keep_connected = True
+        asyncio.create_task(self._connect())
 
-
-    # async def scan_callback(self, device: BLEDevice, _advertisement_data: AdvertisementData):
-    #     if device.address == "00:0E:0B:10:45:63":
-    #         self._device_address = device.address
-    #         self._logger.info(f"Found {self.DEVICE_NAME} with address {self._device_address}.")
-
-    def schedule_command(self, request: BtControllerRequest):
+    def send_command(self, request: BtControllerRequest):
         def done_callback(future: Future):
             try:
                 if future.result() == True:
@@ -61,8 +64,25 @@ class BtControllerController(QObject):
             except Exception as e:
                 request.signals.error.emit(e)
 
-        future = asyncio.run_coroutine_threadsafe(self._send_command(request.command, request.param), asyncio.get_event_loop())
+        future = asyncio.run_coroutine_threadsafe(self._send_command(request.command, request.param), asyncio.get_running_loop())
         future.add_done_callback(done_callback)
+
+    def bt_disconnect(self):
+        self.keep_connected = False
+        self._logger.info("Disconnecting...")
+        self._set_state(BtControllerState.DISCONNECTING)
+        asyncio.run_coroutine_threadsafe(self._client.disconnect(), asyncio.get_running_loop())
+
+        while self._client.is_connected:
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+
+    @property
+    def state(self) -> BtControllerState:
+        return self._state
+
+    def _set_state(self, new_state: BtControllerState):
+        self._state = new_state
+        self.state_changed.emit(new_state)
 
     def _response_callback(self, _sender: BleakGATTCharacteristic, data: bytearray):
         try:
@@ -90,7 +110,7 @@ class BtControllerController(QObject):
             await self._client.write_gatt_char(self.BLE_CHARACTERISTIC_UUID, command_bytes)
             while True:
                 response, param = await self._queue.get()
-                if response == BtControllerResponse.BT_RESP_OK and param == command.value:
+                if response == BtControllerResponse.OK and param == command.value:
                     break
 
             return True
@@ -103,6 +123,7 @@ class BtControllerController(QObject):
             raise TimeoutError(f"Command {command.name} timed out after {timeout} seconds")
 
     def _disconnect_callback(self, _client: BleakClient):
+        self._set_state(BtControllerState.DISCONNECTED)
         self._logger.info("Device disconnected.")
         for task in asyncio.all_tasks():
             task.cancel()
@@ -110,56 +131,17 @@ class BtControllerController(QObject):
         asyncio.create_task(self._connect())
 
     async def _connect(self):
-        self._logger.info("Connecting...")
         while self.keep_connected:
             try:
-                self._client = BleakClient(self.DEVICE_ADDRESS, disconnected_callback=self._disconnect_callback)
+                self._logger.info("Connecting...")
+                self._set_state(BtControllerState.CONNECTING)
                 await self._client.connect()
                 await self._client.start_notify(self.BLE_CHARACTERISTIC_UUID, self._response_callback)
                 self._logger.info("Connected.")
+                self._set_state(BtControllerState.CONNECTED)
                 break
 
             except BleakError as e:
                 self._logger.exception(e)
                 self._logger.info("Retrying connection...")
                 await asyncio.sleep(1)
-
-    async def main(self):
-        self._logger.info("Controller Controller starting")
-
-        # scanner = BleakScanner(self.scan_callback)
-        # while self._device_address is None:
-        #     await scanner.start()
-        #     while self._device_address is None:
-        #         await asyncio.sleep(0.5)
-        #     # device = await scanner.find_device_by_filter(lambda device, _adv_data: device.name == self.DEVICE_NAME)
-        #     # if device:
-        #     #    self._device_address = device.address
-        #
-        # await scanner.stop()
-
-        await self._connect()
-        # while True:
-        #     for i in range(14, 59):
-        #         self._logger.info(i)
-        #
-        #         # await self.send_command(BtControllerCommand.BT_CMD_LED_OFF)
-        #         await self._send_command(BtControllerCommand.BT_CMD_SET_LED, i)
-        #         # await asyncio.sleep(0.5)
-        #         await self._send_command(BtControllerCommand.BT_CMD_LED_ON)
-        #         await asyncio.sleep(0.5)
-        #         await self._send_command(BtControllerCommand.BT_CMD_LED_OFF)
-
-
-    def run(self):
-        self.send_command.connect(self.schedule_command)
-
-        loop = qasync.QEventLoop(self)
-        asyncio.set_event_loop(loop)
-        loop.create_task(self.main())
-        loop.run_forever()
-        # asyncio.run(self.main())
-
-    def exec(self):
-        self.thread().exec()
-
