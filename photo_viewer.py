@@ -1,6 +1,7 @@
 import math
 
 from PyQt6 import QtWidgets, QtCore, QtGui
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 
 
@@ -18,6 +19,7 @@ class PhotoViewer(QtWidgets.QGraphicsView):
         self._scene = QtWidgets.QGraphicsScene(self)
         self._photo = QtWidgets.QGraphicsPixmapItem()
         self._scene.addItem(self._photo)
+        self._mirror_view: QtWidgets.QGraphicsView | None = None
         self.setScene(self._scene)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
@@ -25,6 +27,21 @@ class PhotoViewer(QtWidgets.QGraphicsView):
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(30, 30, 30)))
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+
+    def getScene(self):
+        return self._scene
+
+    def setMirrorView(self, view: QtWidgets.QGraphicsView):
+        self._mirror_view = view
+        if self._mirror_view:
+            self._mirror_view.setScene(self._scene)
+            if self.hasPhoto():
+                self.fitMirrorView()
+
+    def fitMirrorView(self):
+        photo_rect = QtCore.QRectF(self._photo.pixmap().rect())
+        self._mirror_view.setSceneRect(photo_rect)
+        self._mirror_view.fitInView(photo_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     def hasPhoto(self):
         return not self._empty
@@ -68,6 +85,9 @@ class PhotoViewer(QtWidgets.QGraphicsView):
             self._empty = True
             self._photo.setPixmap(QtGui.QPixmap())
             self.resetZoom()
+
+        if self._mirror_view:
+            self.fitMirrorView()
 
     def resetZoom(self):
         if self.hasPhoto():

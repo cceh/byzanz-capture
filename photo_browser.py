@@ -8,7 +8,7 @@ from typing import Callable, Optional
 from PyQt6.QtCore import QFileSystemWatcher, Qt, QThreadPool, pyqtSignal, QMutex, \
     QMutexLocker
 from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
-from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QGraphicsView
 from PyQt6.uic import loadUi
 
 from load_image_worker import LoadImageWorker, LoadImageWorkerResult
@@ -68,6 +68,12 @@ class PhotoBrowser(QWidget):
         self.resize(self.size())
 
         self.__mutex = QMutex()
+
+    def get_scene(self):
+        return self.photo_viewer.getScene()
+
+    def set_mirror_graphics_view(self, view: QGraphicsView):
+        self.photo_viewer.setMirrorView(view)
 
     def open_directory(self, dir_path):
         if self.__currentPath:

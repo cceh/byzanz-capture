@@ -1,3 +1,5 @@
+from typing import Any
+
 from PyQt6.QtCore import QSettings, QVariant, Qt
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox, QCheckBox
@@ -9,7 +11,7 @@ class SettingsDialog(QDialog):
     def __init__(self, q_settings: QSettings, parent=None):
         super(SettingsDialog, self).__init__(parent)
         self.__q_settings = q_settings
-        self.settings: dict[str, QVariant] = dict()
+        self.settings: dict[str, Any] = dict()
 
         loadUi('ui/settings_dialog.ui', self)
 
@@ -44,6 +46,12 @@ class SettingsDialog(QDialog):
         self.enable_bluetooth_checkbox.setChecked(q_settings.value("enableBluetooth", type=bool))
         self.enable_bluetooth_checkbox.stateChanged.connect(
             lambda: self.set("enableBluetooth", self.enable_bluetooth_checkbox.isChecked())
+        )
+
+        self.enable_second_screen_mirror_checkbox: QCheckBox = self.findChild(QCheckBox, "enableSecondScreenMirrorCheckbox")
+        self.enable_second_screen_mirror_checkbox.setChecked(q_settings.value("enableSecondScreenMirror", type=bool))
+        self.enable_second_screen_mirror_checkbox.stateChanged.connect(
+            lambda: self.set("enableSecondScreenMirror", self.enable_second_screen_mirror_checkbox.isChecked())
         )
 
     def set(self, name: str, value: QVariant):

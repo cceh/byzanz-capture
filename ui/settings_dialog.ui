@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>Dialog</class>
- <widget class="QDialog" name="Dialog">
+ <class>Einstellungen</class>
+ <widget class="QDialog" name="Einstellungen">
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>600</width>
-    <height>158</height>
+    <width>618</width>
+    <height>187</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -114,6 +114,13 @@
         </property>
        </widget>
       </item>
+      <item row="4" column="1">
+       <widget class="QCheckBox" name="enableSecondScreenMirrorCheckbox">
+        <property name="text">
+         <string>Bildansicht auf zweitem Bildschirm spiegeln</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
@@ -134,7 +141,7 @@
   <connection>
    <sender>buttonBox</sender>
    <signal>accepted()</signal>
-   <receiver>Dialog</receiver>
+   <receiver>Einstellungen</receiver>
    <slot>accept()</slot>
    <hints>
     <hint type="sourcelabel">
@@ -150,7 +157,7 @@
   <connection>
    <sender>buttonBox</sender>
    <signal>rejected()</signal>
-   <receiver>Dialog</receiver>
+   <receiver>Einstellungen</receiver>
    <slot>reject()</slot>
    <hints>
     <hint type="sourcelabel">

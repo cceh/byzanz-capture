@@ -11,11 +11,11 @@ import gphoto2 as gp
 import qasync
 from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt
-from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent
+from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent, QBrush, QPainter, QCursor
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
     QComboBox, QLabel, QToolBox, QProgressBar, QMenu, QAbstractButton, QInputDialog, QMessageBox, QStyle, QDialog,
-    QLCDNumber
+    QLCDNumber, QGraphicsView, QSizePolicy, QVBoxLayout
 )
 from PyQt6.uic import loadUi
 from send2trash import send2trash
@@ -128,6 +128,9 @@ class RTICaptureMainWindow(QMainWindow):
         self.open_advanced_cam_config_action.setIcon(QIcon("ui/cam_settings.svg"))
         self.settings_menu.addActions([self.open_program_settings_action, self.open_advanced_cam_config_action])
 
+        self.mirror_graphics_view: QGraphicsView | None = None
+        self.second_screen_window: QDialog | None = None
+
         self.session_name_edit.textChanged.connect(
             lambda text: self.start_session_button.setEnabled(
                 True if len(text) > 0 else False
@@ -159,6 +162,43 @@ class RTICaptureMainWindow(QMainWindow):
 
         self.update_ui_bluetooth()
 
+        self.init_mirror_view()
+        QApplication.instance().screenAdded.connect(self.reset_mirror_view)
+        QApplication.instance().screenRemoved.connect(self.reset_mirror_view)
+        QApplication.instance().primaryScreenChanged.connect(self.reset_mirror_view)
+
+
+    def init_mirror_view(self):
+        screens = QApplication.screens()
+        mirror_view_enabled = QSettings().value("enableSecondScreenMirror", type=bool)
+        if mirror_view_enabled and len(screens) > 1:
+            second_screen = screens[1]
+            self.second_screen_window = QDialog()
+            self.second_screen_window.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
+            self.second_screen_window.setWindowTitle("Secondary View")
+            self.second_screen_window.setGeometry(second_screen.availableGeometry())
+            self.second_screen_window.showFullScreen()
+
+            self.mirror_graphics_view = QGraphicsView(self.second_screen_window)
+            self.mirror_graphics_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            self.mirror_graphics_view.setBackgroundBrush(QBrush(QColor(30, 30, 30)))
+            self.mirror_graphics_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+            layout = QVBoxLayout(self.second_screen_window)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.addWidget(self.mirror_graphics_view)
+            self.second_screen_window.setLayout(layout)
+
+        self.update_mirror_view()
+
+    def disable_mirror_view(self):
+        if self.second_screen_window:
+            self.second_screen_window.close()
+            self.second_screen_window = None
+        self.mirror_graphics_view = None
+
+    def reset_mirror_view(self):
+        self.disable_mirror_view()
+        self.init_mirror_view()
 
     def init_bluetooth(self):
         self.bt_controller = BtControllerController()
@@ -495,10 +535,16 @@ class RTICaptureMainWindow(QMainWindow):
         self.rtiImageBrowser.open_directory(self.session.images_dir)
 
     def on_capture_mode_changed(self):
-        print(self.capture_mode)
+        self.update_mirror_view()
         if self.capture_mode == CaptureMode.RTI and isinstance(self.camera_state, CameraStates.LiveViewActive):
             self.camera_worker.commands.live_view.emit(False)
         self.update_ui()
+
+    def update_mirror_view(self):
+        if self.capture_mode == CaptureMode.Preview:
+            self.previewImageBrowser.set_mirror_graphics_view(self.mirror_graphics_view)
+        else:
+            self.rtiImageBrowser.set_mirror_graphics_view(self.mirror_graphics_view)
 
     def open_settings(self):
         q_settings = QSettings()
@@ -507,16 +553,17 @@ class RTICaptureMainWindow(QMainWindow):
         if dialog.exec():
             for name, value in dialog.settings.items():
                 q_settings.setValue(name, value)
-
-            QPixmapCache.setCacheLimit(int(q_settings.value("maxPixmapCache")) * 1024)
-
-            if q_settings.value("enableBluetooth", type=bool) and not self.bt_controller:
-                self.init_bluetooth()
-            elif self.bt_controller:
-                self.bt_controller.bt_disconnect()
-                self.bt_controller = None
-            self.update_ui_bluetooth()
-
+                if name == "maxPixmapCache":
+                    QPixmapCache.setCacheLimit(value * 1024)
+                elif name == "enableBluetooth":
+                    if value is True:
+                        self.init_bluetooth()
+                    elif self.bt_controller:
+                        self.bt_controller.bt_disconnect()
+                        self.bt_controller = None
+                    self.update_ui_bluetooth()
+                elif name == "enableSecondScreenMirror":
+                    self.reset_mirror_view()
 
     def open_advanced_capture_settings(self):
         def open_dialog(cfg: gp.CameraWidget):
@@ -790,6 +837,9 @@ class RTICaptureMainWindow(QMainWindow):
         if self.bt_controller:
             self.bt_controller.bt_disconnect()
         self.camera_thread.wait()
+        if self.second_screen_window:
+            self.second_screen_window.close()
+
         super().closeEvent(event)
 
 if __name__ == "__main__":
@@ -815,7 +865,10 @@ if __name__ == "__main__":
         settings.setValue("maxBurstNumber", 60)
 
     if "enableBluetooth" not in settings.allKeys():
-        settings.setValue("enableBluetooth", False)
+        settings.setValue("enableBluetooth", True)
+
+    if "enableSecondScreenMirror" not in settings.allKeys():
+        settings.setValue("enableSecondScreenMirror", True)
 
     QPixmapCache.setCacheLimit(int(settings.value("maxPixmapCache")) * 1024)
 
@@ -838,6 +891,7 @@ if __name__ == "__main__":
 
         win = RTICaptureMainWindow()
         win.show()
+
         asyncio.get_running_loop().run_forever()
 
 
