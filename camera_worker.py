@@ -33,7 +33,10 @@ class ConfigRequest():
         self.signal = ConfigRequest.Signal()
 
 
-class CaptureImagesRequest(NamedTuple):
+class CaptureImagesRequest():
+    class Signal(QObject):
+        file_received = pyqtSignal(str)
+
     file_path_template: str
     num_images: int
     expect_files: int = 1
@@ -41,6 +44,19 @@ class CaptureImagesRequest(NamedTuple):
     skip: int = 0
     manual_trigger: bool = False
     image_quality: str | None = None
+
+    def __init__(self, file_path_template, num_images, expect_files = 1, max_burst = 1, skip = 0, manual_trigger = False, image_quality = None):
+        self.file_path_template = file_path_template
+        self.num_images = num_images
+        self.expect_files = expect_files
+        self.max_burst = max_burst
+        self.skip = skip
+        self.manual_trigger = manual_trigger
+        self.image_quality = image_quality
+
+        self.signal = CaptureImagesRequest.Signal()
+
+
 
 class LiveViewImage(NamedTuple):
     image: Image.Image
@@ -214,7 +230,7 @@ class CameraWorker(QObject):
             gp.gp_log_add_func(gp.GP_LOG_ERROR, self.__extract_gp2_error_from_log))
 
     def __extract_gp2_error_from_log(self, _level: int, domain: bytes, string: bytes, _data=None):
-        error_str = string.decode()
+        error_str = string
         for ptp_error in NikonPTPError:
             error_suffix = "(%s)" % ptp_error.value
             if error_str.endswith(error_suffix):
@@ -348,6 +364,7 @@ class CameraWorker(QObject):
                     cam_file.save(file_target_path)
 
                     current_capture_req = self.__state.capture_request
+                    current_capture_req.signal.file_received.emit(file_target_path)
                     if self.filesCounter % current_capture_req.expect_files == 0:
                         num_captured = int(self.filesCounter / current_capture_req.expect_files)
                         self.__set_state(CameraStates.CaptureInProgress(self.__state.capture_request, num_captured))

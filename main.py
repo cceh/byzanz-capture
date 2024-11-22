@@ -9,6 +9,7 @@ from pathlib import Path
 
 import gphoto2 as gp
 import qasync
+from qasync import QEventLoop, QThreadExecutor
 from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent, QBrush, QPainter, QCursor
@@ -157,9 +158,6 @@ class RTICaptureMainWindow(QMainWindow):
 
         self.bt_controller: BtControllerController | None = None
 
-        if QSettings().value("enableBluetooth", type=bool):
-            self.init_bluetooth()
-
         self.update_ui_bluetooth()
 
         self.init_mirror_view()
@@ -200,9 +198,11 @@ class RTICaptureMainWindow(QMainWindow):
         self.disable_mirror_view()
         self.init_mirror_view()
 
-    def init_bluetooth(self):
-        self.bt_controller = BtControllerController()
+    async def init_bluetooth(self):
+        if not self.bt_controller:
+            self.bt_controller = BtControllerController()
         self.bt_controller.state_changed.connect(self.update_ui_bluetooth)
+        await self.bt_controller.connect()
 
     @property
     def capture_mode(self) -> CaptureMode:
@@ -556,11 +556,11 @@ class RTICaptureMainWindow(QMainWindow):
                 if name == "maxPixmapCache":
                     QPixmapCache.setCacheLimit(value * 1024)
                 elif name == "enableBluetooth":
+                    event_loop = asyncio.get_running_loop()
                     if value is True:
-                        self.init_bluetooth()
+                        event_loop.create_task(self.init_bluetooth())
                     elif self.bt_controller:
                         self.bt_controller.bt_disconnect()
-                        self.bt_controller = None
                     self.update_ui_bluetooth()
                 elif name == "enableSecondScreenMirror":
                     self.reset_mirror_view()
@@ -804,6 +804,10 @@ class RTICaptureMainWindow(QMainWindow):
             self.capture_progress_bar.setMaximum(119)
             self.capture_progress_bar.setValue(0)
 
+        def on_file_received(path: str):
+            print("Rec: " + path)
+        capture_req.signal.file_received.connect(on_file_received)
+
         def start_capture(show_button_message: bool):
             if self.capture_mode == CaptureMode.RTI and show_button_message:
                 press_buttons_dialog = QDialog()
@@ -834,7 +838,7 @@ class RTICaptureMainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.camera_thread.requestInterruption()
         self.camera_thread.exit()
-        if self.bt_controller:
+        if self.bt_controller and self.bt_controller.state != BtControllerState.DISCONNECTED:
             self.bt_controller.bt_disconnect()
         self.camera_thread.wait()
         if self.second_screen_window:
@@ -875,23 +879,32 @@ if __name__ == "__main__":
     loop: qasync.QEventLoop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
 
+    app_close_event = asyncio.Event()
+    app.aboutToQuit.connect(app_close_event.set)
 
     orig_exceptionhook = sys.__excepthook__
 
+    win = RTICaptureMainWindow()
+    win.show()
+
+    def excepthook(exc_type, exc_value, exc_traceback):
+        logging.exception(msg="Exception", exc_info=(exc_type, exc_value, exc_traceback))
+        if win.bt_controller and win.bt_controller.state != BtControllerState.DISCONNECTED:
+            win.bt_controller.bt_disconnect()
+
+        loop.call_soon(lambda _loop: _loop.stop(), loop)
+
+
+    # sys.excepthook = excepthook
+    # threading.excepthook = excepthook
+
 
     with loop:
-        def excepthook(exc_type, exc_value, exc_traceback):
-            logging.exception(msg="Exception", exc_info=(exc_type, exc_value, exc_traceback))
-            if win.bt_controller:
-                    win.bt_controller.bt_disconnect()
-            loop.call_soon(lambda _loop: _loop.stop(), loop)
+        if QSettings().value("enableBluetooth", type=bool):
+            loop.create_task(win.init_bluetooth())
 
-        sys.excepthook = excepthook
-        threading.excepthook = excepthook
+        loop.run_until_complete(app_close_event.wait())
 
-        win = RTICaptureMainWindow()
-        win.show()
-
-        asyncio.get_running_loop().run_forever()
+        # asyncio.get_running_loop().run_forever()
 
 

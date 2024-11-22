@@ -54,7 +54,9 @@ class BtControllerController(QObject):
         self._state: BtControllerState = BtControllerState.DISCONNECTED
 
         self.keep_connected = True
-        asyncio.create_task(self._connect())
+
+    async def connect(self):
+        await asyncio.create_task(self._connect())
 
     def send_command(self, request: BtControllerRequest):
         def done_callback(future: Future):
@@ -75,6 +77,7 @@ class BtControllerController(QObject):
 
         while self._client.is_connected:
             QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+
 
     @property
     def state(self) -> BtControllerState:

@@ -80,11 +80,15 @@ class PhotoBrowser(QWidget):
             self.close_directory()
 
         self.__currentPath = dir_path
-        self.__fileSystemWatcher.addPath(self.__currentPath)
+        self.start_watching()
         self.__load_directory()
 
+    def start_watching(self):
+        # print("START watching " + self.__currentPath)
+        self.__fileSystemWatcher.addPath(self.__currentPath)
+
     def close_directory(self):
-        self.__fileSystemWatcher.removePath(self.__currentPath)
+        self.stop_watching()
         self.__currentPath = None
         self.__currentFileSet.clear()
         self.__threadpool.clear()
@@ -93,6 +97,9 @@ class PhotoBrowser(QWidget):
         self.image_file_list.clear()
         QPixmapCache.clear()
 
+    def stop_watching(self):
+        # print("STOP watching " + self.__currentPath)
+        self.__fileSystemWatcher.removePath(self.__currentPath)
 
     def num_files(self) -> int:
         return self.image_file_list.count()
@@ -127,6 +134,7 @@ class PhotoBrowser(QWidget):
         self.photo_viewer.fitInView()
 
     def __load_directory(self):
+        print("Load directory: " + self.__currentPath)
         new_files = [f for f in listdir(self.__currentPath)
                      if mimetypes.guess_type(f)[0] == "image/jpeg" and get_file_index(f) is not None]
 
@@ -138,8 +146,8 @@ class PhotoBrowser(QWidget):
             self.directory_loaded.emit(self.__currentPath)
 
         if added_files:
-            self.__threadpool.waitForDone()
-            self.__fileSystemWatcher.removePath(self.__currentPath)
+            # self.__threadpool.waitForDone()
+            # self.stop_watching()
             for f in added_files:
                 self.__load_image(f, self.__add_image_item)
 
@@ -157,7 +165,7 @@ class PhotoBrowser(QWidget):
         self.__currentFileSet = new_fileset
 
     def __on_directory_loaded(self):
-        self.__fileSystemWatcher.addPath(self.__currentPath)
+        # self.start_watching()
         self.directory_loaded.emit(self.__currentPath)
         # image_count = self.image_file_list.count()
         # if image_count > 0:
