@@ -900,7 +900,7 @@ if __name__ == "__main__":
 
 
     with loop:
-        if QSettings().value("enableBluetooth", type=bool):
+        if BtControllerController.BLEAK_AVAILABLE and QSettings().value("enableBluetooth", type=bool):
             loop.create_task(win.init_bluetooth())
 
         loop.run_until_complete(app_close_event.wait())
