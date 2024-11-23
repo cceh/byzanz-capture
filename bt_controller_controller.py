@@ -6,12 +6,7 @@ from enum import Enum, auto
 from PyQt6.QtCore import QObject, pyqtSignal, QEventLoop
 from PyQt6.QtWidgets import QApplication
 
-try:
-    from bleak import BleakClient, BleakGATTCharacteristic, BleakError
-    BLEAK_AVAILABLE = True
-except ImportError:
-    # 'bleak' is not installed; set BLEAK_AVAILABLE to False
-    BLEAK_AVAILABLE = False
+from bleak import BleakClient, BleakGATTCharacteristic, BleakError
 
 class BtControllerCommand(Enum):
     LED_ON = 0x01
@@ -44,8 +39,6 @@ class BtControllerRequest:
         self.signals = BtControllerRequest.Signals()
 
 class BtControllerController(QObject):
-
-    BLEAK_AVAILABLE = BLEAK_AVAILABLE
 
     DEVICE_NAME = "CCeH Dome Controller"
     DEVICE_ADDRESS = "00:0E:0B:10:45:63"
