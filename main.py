@@ -21,7 +21,13 @@ from PyQt6.QtWidgets import (
 from PyQt6.uic import loadUi
 from send2trash import send2trash
 
-from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest, BtControllerState
+
+try:
+    from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest, BtControllerState
+    BT_AVAILABLE = True
+except:
+    BT_AVAILABLE = False
+
 from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest
 from open_session_dialog import OpenSessionDialog
 from photo_browser import PhotoBrowser
@@ -900,8 +906,10 @@ if __name__ == "__main__":
 
 
     with loop:
-        if BtControllerController.BLEAK_AVAILABLE and QSettings().value("enableBluetooth", type=bool):
+        if BT_AVAILABLE and QSettings().value("enableBluetooth", type=bool):
             loop.create_task(win.init_bluetooth())
+        else:
+            logging.info("Bluetooth not available. Is bleak installed?")
 
         loop.run_until_complete(app_close_event.wait())
 
