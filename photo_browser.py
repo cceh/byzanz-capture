@@ -15,6 +15,8 @@ from load_image_worker import LoadImageWorker, LoadImageWorkerResult
 from photo_viewer import PhotoViewer
 from spinner import Spinner
 
+from helpers import get_ui_path
+
 
 def get_file_index(file_path) -> Optional[int]:
     basename = os.path.splitext(file_path)[0]
@@ -44,7 +46,7 @@ class PhotoBrowser(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        loadUi('ui/photo_browser.ui', self)
+        loadUi(get_ui_path('ui/photo_browser.ui'), self)
 
         self.__fileSystemWatcher = QFileSystemWatcher()
         self.__threadpool = QThreadPool()
