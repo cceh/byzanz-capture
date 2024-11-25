@@ -22,7 +22,7 @@ class SettingsDialog(QDialog):
             lambda text: self.set("workingDirectory", text)
         )
 
-        open_action = QAction("Arbeitsverzeichnis wählen", self)
+        open_action = QAction(self.tr("Arbeitsverzeichnis wählen"), self)
         open_action.setIcon(QIcon(get_ui_path("ui/folder-open.svg")))
         open_action.triggered.connect(self.choose_working_directory)
 
@@ -60,7 +60,7 @@ class SettingsDialog(QDialog):
 
     def choose_working_directory(self):
         file_dialog = QFileDialog(self,
-                                  "Arbeitsverzeichnis wählen",
+                                  self.tr("Arbeitsverzeichnis wählen"),
                                   self.working_directory_input.text())
         file_dialog.setFileMode(QFileDialog.FileMode.Directory)
         if file_dialog.exec():
