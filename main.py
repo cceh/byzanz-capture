@@ -3,15 +3,13 @@ import json
 import logging
 import os
 import sys
-import threading
 from enum import Enum
 from pathlib import Path
 
 import gphoto2 as gp
 import qasync
-from qasync import QEventLoop, QThreadExecutor
 from PIL.ImageQt import ImageQt
-from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt, QTranslator, QLocale
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent, QBrush, QPainter, QCursor
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
@@ -128,10 +126,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.session_menu.addActions([self.open_session_action, self.rename_session_action])
 
         self.settings_menu = QMenu(self)
-        self.open_program_settings_action = QAction('Allgemeine Einstellungen')
+        self.open_program_settings_action = QAction(self.tr('Allgemeine Einstellungen'))
         self.open_program_settings_action.triggered.connect(self.open_settings)
         self.open_program_settings_action.setIcon(QIcon(get_ui_path("ui/general_settings.svg")))
-        self.open_advanced_cam_config_action = QAction('Erweiterte Kamerakonfiguration')
+        self.open_advanced_cam_config_action = QAction(self.tr('Erweiterte Kamerakonfiguration'))
         self.open_advanced_cam_config_action.triggered.connect(self.open_advanced_capture_settings)
         self.open_advanced_cam_config_action.setIcon(QIcon(get_ui_path("ui/cam_settings.svg")))
         self.settings_menu.addActions([self.open_program_settings_action, self.open_advanced_cam_config_action])
@@ -180,7 +178,7 @@ class RTICaptureMainWindow(QMainWindow):
             second_screen = screens[1]
             self.second_screen_window = QDialog()
             self.second_screen_window.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
-            self.second_screen_window.setWindowTitle("Secondary View")
+            self.second_screen_window.setWindowTitle(self.tr("Sekundäransicht"))
             self.second_screen_window.setGeometry(second_screen.availableGeometry())
             self.second_screen_window.showFullScreen()
 
@@ -309,7 +307,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.rename_session_action.setEnabled(session_loaded)
 
         self.close_session_button.setVisible(has_session)
-        self.close_session_button.setText("Sitzung beenden" if session_loaded else "Laden abbrechen...")
+        self.close_session_button.setText(self.tr("Sitzung beenden") if session_loaded else self.tr("Laden abbrechen..."))
 
         self.session_loading_spinner.isAnimated = has_session and not session_loaded
         self.capture_view.setEnabled(has_session)
@@ -323,7 +321,7 @@ class RTICaptureMainWindow(QMainWindow):
         # configure UI according to the camera state
         match camera_state:
             case CameraStates.Waiting():
-                self.camera_state_label.setText("Suche Kamera...")
+                self.camera_state_label.setText(self.tr("Suche Kamera..."))
                 self.camera_state_icon.setPixmap(QPixmap(get_ui_path("ui/camera_waiting.png")))
                 self.open_advanced_cam_config_action.setEnabled(False)
 
@@ -339,7 +337,7 @@ class RTICaptureMainWindow(QMainWindow):
 
                 self.camera_controls.setEnabled(False)
                 self.camera_config_controls.setEnabled(False)
-                self.capture_button.setText("Nicht verbunden")
+                self.capture_button.setText(self.tr("Nicht verbunden"))
                 self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
                 self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
 
@@ -347,7 +345,7 @@ class RTICaptureMainWindow(QMainWindow):
                 pass
 
             case CameraStates.Disconnected():
-                self.camera_state_label.setText("Kamera getrennt<br><b>%s</b>" % camera_state.camera_name)
+                self.camera_state_label.setText(self.tr("Kamera getrennt<br><b>%s</b>") % camera_state.camera_name)
                 self.camera_state_icon.setPixmap(QPixmap(get_ui_path("ui/camera_not_ok.png")))
 
                 self.connect_camera_button.setEnabled(True)
@@ -363,7 +361,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.Connecting():
-                self.camera_state_label.setText("Verbinde... <br><b>%s</b>" % camera_state.camera_name)
+                self.camera_state_label.setText(self.tr("Verbinde... <br><b>%s</b>") % camera_state.camera_name)
                 self.connect_camera_button.setEnabled(False)
                 self.camera_busy_spinner.isAnimated = True
 
@@ -371,7 +369,7 @@ class RTICaptureMainWindow(QMainWindow):
                 pass
 
             case CameraStates.Ready():
-                self.camera_state_label.setText("Kamera verbunden<br><b>%s</b>" % camera_state.camera_name)
+                self.camera_state_label.setText(self.tr("Kamera verbunden<br><b>%s</b>") % camera_state.camera_name)
                 self.camera_state_icon.setPixmap(QPixmap(get_ui_path("ui/camera_ok.png")))
 
                 self.open_advanced_cam_config_action.setEnabled(True)
@@ -388,14 +386,14 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_controls.setEnabled(True if session_loaded else False)
                 self.camera_config_controls.setEnabled(True)
                 if self.capture_mode == CaptureMode.Preview:
-                    self.capture_button.setText("Vorschaubild aufnehmen")
+                    self.capture_button.setText(self.tr("Vorschaubild aufnehmen"))
                 else:
-                    self.capture_button.setText("RTI-Aufnahme starten")
+                    self.capture_button.setText(self.tr("RTI-Aufnahme starten"))
                 self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
                 self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.Disconnecting():
-                self.camera_state_label.setText("Trenne Kamera...")
+                self.camera_state_label.setText(self.tr("Trenne Kamera..."))
                 self.disconnect_camera_button.setEnabled(False)
                 self.disconnect_camera_button.setVisible(True)
                 self.open_advanced_cam_config_action.setEnabled(False)
@@ -404,7 +402,7 @@ class RTICaptureMainWindow(QMainWindow):
 
                 self.camera_controls.setEnabled(False)
                 self.camera_config_controls.setEnabled(False)
-                self.capture_button.setText("Nicht verbunden")
+                self.capture_button.setText(self.tr("Nicht verbunden"))
 
             case CameraStates.LiveViewStarted():
                 self.camera_config_controls.setEnabled(False)
@@ -421,7 +419,7 @@ class RTICaptureMainWindow(QMainWindow):
             case CameraStates.FocusFinished():
                 self.autofocus_button.setEnabled(True)
                 if not camera_state.success:
-                    self.live_view_error_label.setText("Konnte nicht fokussieren. Zu dunkel?")
+                    self.live_view_error_label.setText(self.tr("Konnte nicht fokussieren. Zu dunkel?"))
                 else:
                     self.live_view_error_label.setText(None)
 
@@ -462,7 +460,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.cancel_capture_button.setEnabled(False)
 
             case CameraStates.CaptureCanceled():
-                self.capture_status_label.setText("Aufnahme abgebrochen!")
+                self.capture_status_label.setText(self.tr("Aufnahme abgebrochen!"))
                 self.capture_status_label.setStyleSheet("color: red;")
 
                 self.session_controls.setEnabled(True)
@@ -472,7 +470,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.CaptureError():
-                self.capture_status_label.setText("Fehler: %s" % str(camera_state.error))
+                self.capture_status_label.setText(self.tr("Fehler: %s" % str(camera_state.error)))
                 self.capture_status_label.setStyleSheet("color: red;")
 
                 self.session_controls.setEnabled(True)
@@ -482,7 +480,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.CaptureFinished():
-                self.capture_status_label.setText("Fertig in %ss!" % str(camera_state.elapsed_time / 1000))
+                self.capture_status_label.setText(self.tr("Fertig in %ss!") % str(camera_state.elapsed_time / 1000))
                 self.capture_progress_bar.setValue(camera_state.num_captured)
                 self.session_controls.setEnabled(True)
                 self.cancel_capture_button.setVisible(False)
@@ -500,20 +498,20 @@ class RTICaptureMainWindow(QMainWindow):
                     self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_disconnected.svg")))
                     self.preview_led_select.setEnabled(False)
                     self.bluetooth_connecting_spinner.isAnimated = False
-                    self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller getrennt")
+                    self.bluetooth_frame.setToolTip(self.tr("Bluetooth-Verbindung zum Controller getrennt"))
                 case BtControllerState.CONNECTING:
                     self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connecting.svg")))
                     self.bluetooth_connecting_spinner.isAnimated = True
-                    self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller wird aufgebaut...")
+                    self.bluetooth_frame.setToolTip(self.tr("Bluetooth-Verbindung zum Controller wird aufgebaut..."))
                 case BtControllerState.CONNECTED:
                     self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connected.svg")))
                     self.preview_led_select.setEnabled(True)
                     self.bluetooth_connecting_spinner.isAnimated = False
-                    self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller aktiv")
+                    self.bluetooth_frame.setToolTip(self.tr("Bluetooth-Verbindung zum Controller aktiv"))
                 case BtControllerState.DISCONNECTING:
                     self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connecting.svg")))
                     self.bluetooth_connecting_spinner.isAnimated = True
-                    self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller wird getrennt...")
+                    self.bluetooth_frame.setToolTip(self.tr("Bluetooth-Verbindung zum Controller wird getrennt..."))
 
         else:
             self.bluetooth_frame.setVisible(False)
@@ -601,8 +599,8 @@ class RTICaptureMainWindow(QMainWindow):
         print("Create" + name)
         session = Session(name, QSettings().value("workingDirectory"))
         if Path(session.session_dir).exists():
-            result = QMessageBox.warning(self, "Fehler",
-                                         "Sitzung %s existiert bereits. Soll sie erneut geöffnet werden?" % name,
+            result = QMessageBox.warning(self, self.tr("Fehler"),
+                                         self.tr("Sitzung %s existiert bereits. Soll sie erneut geöffnet werden?") % name,
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if result == QMessageBox.StandardButton.No:
                 return
@@ -642,14 +640,14 @@ class RTICaptureMainWindow(QMainWindow):
             self.set_session(Session(session_name, working_dir))
 
     def rename_current_session(self):
-        new_name, ok = QInputDialog.getText(self, "Aktuelle Sitzung umbenennen", "Neuer Name", text=self.session.name)
+        new_name, ok = QInputDialog.getText(self, self.tr("Aktuelle Sitzung umbenennen"), self.tr("Neuer Name"), text=self.session.name)
         if ok:
             session_dir = self.session.session_dir
             session_dir_parent = Path(session_dir).parent
             new_session_dir = os.path.join(session_dir_parent, os.path.join(session_dir_parent, new_name))
 
             if Path(new_session_dir).exists():
-                QMessageBox.critical(self, "Fehler", "Sitzung %s existiert bereits." % new_name)
+                QMessageBox.critical(self, self.tr("Fehler"), self.tr("Sitzung %s existiert bereits.") % new_name)
                 return
 
             image_files = [os.path.join(self.session.images_dir, f) for f in os.listdir(self.session.images_dir)]
@@ -753,10 +751,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.config_hookup_select(config, "f-number", self.f_number_select)
         self.config_hookup_select(config, "shutterspeed2", self.shutter_speed_select)
         self.config_hookup_select(config, "d030", self.crop_select, {
-            "0": "Voll",
-            "1": "Klein",
-            "2": "Mittel",
-            "3": "Mittel 2"
+            "0": self.tr("Voll"),
+            "1": self.tr("Klein"),
+            "2": self.tr("Mittel"),
+            "3": self.tr("Mittel 2")
         })
 
     def on_property_change(self, event: PropertyChangeEvent):
@@ -790,13 +788,13 @@ class RTICaptureMainWindow(QMainWindow):
         # Capture RTI Series
         else:
             if self.rtiImageBrowser.num_files() > 0:
-                message_box = QMessageBox(QMessageBox.Icon.Warning, "RTI-Serie aufnehmen",
-                                          "Vorhandene Aufnahmen werden gelöscht.")
+                message_box = QMessageBox(QMessageBox.Icon.Warning, self.tr("RTI-Serie aufnehmen"),
+                                          self.tr("Vorhandene Aufnahmen werden gelöscht."))
                 message_box.addButton(
-                    QPushButton(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton), "Abbrechen"),
+                    QPushButton(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton), self.tr("Abbrechen")),
                     QMessageBox.ButtonRole.NoRole)
                 message_box.addButton(
-                    QPushButton(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOkButton), "Fortfahren"),
+                    QPushButton(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOkButton), self.tr("Fortfahren")),
                     QMessageBox.ButtonRole.YesRole)
                 if not message_box.exec():
                     return
@@ -806,6 +804,7 @@ class RTICaptureMainWindow(QMainWindow):
 
             filename_template = self.session.name.replace(" ", "_") + "_${num}${extension}"
             file_path_template = os.path.join(self.session.images_dir, filename_template)
+            # TODO image_quality is hardcoded for Nikon here
             capture_req = CaptureImagesRequest(file_path_template, num_images=60, expect_files=2,
                                                max_burst=int(QSettings().value("maxBurstNumber")), skip=0, image_quality="NEF+Fine")
             self.capture_progress_bar.setMaximum(119)
@@ -863,6 +862,13 @@ if __name__ == "__main__":
     app.setOrganizationName("CCeH")
     app.setOrganizationDomain("cceh.uni-koeln.de")
     app.setApplicationName("Byzanz RTI")
+
+    translator = QTranslator()
+    locale =  QLocale.system().name()
+    logging.info(locale)
+    if translator.load(f"byzanz_capture_{locale}", "i18n"):
+        logging.info("Loaded locale")
+        app.installTranslator(translator)
 
     settings = QSettings()
     if "workingDirectory" not in settings.allKeys():

@@ -11,7 +11,7 @@ class OpenSessionDialog(QObject):
 
     def __init__(self, restrict_path, parent=None):
         super().__init__(parent)
-        self.__dialog = QFileDialog(parent, "Bestehende Sitzung öffnen", restrict_path)
+        self.__dialog = QFileDialog(parent, self.tr("Bestehende Sitzung öffnen"), restrict_path)
         self.__selected_session_path = None
 
         self.restrict_path = Path(restrict_path).absolute()
@@ -47,11 +47,10 @@ class OpenSessionDialog(QObject):
 
     def get_session_path(self):
         result = self.__dialog.exec()
-        print("execed")
         if not self.__selected_session_path:
             return None
         elif not Path(self.__selected_session_path).parent.absolute() == Path(self.restrict_path):
-            QMessageBox.critical(None, "Fehler", "Gewähltes Verzeichnis befindet sich nicht im Arbeitsverzeichnis.")
+            QMessageBox.critical(None, self.tr("Fehler"), self.tr("Gewähltes Verzeichnis befindet sich nicht im Arbeitsverzeichnis."))
             return None
 
         return self.__selected_session_path
