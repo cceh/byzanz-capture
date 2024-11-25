@@ -1,0 +1,58 @@
+name: Build for Windows
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: false # true
+        install: >-
+          mingw-w64-x86_64-python
+          mingw-w64-x86_64-python-pip
+          mingw-w64-x86_64-libgphoto2
+          mingw-w64-x86_64-qt6-base
+          mingw-w64-x86_64-pkg-config
+          mingw-w64-x86_64-python-pip
+          mingw-w64-x86_64-python-pyqt6
+          mingw-w64-x86_64-python-pillow
+          mingw-w64-x86_64-pyinstaller
+          wget
+          p7zip
+          mingw-w64-x86_64-jq
+    
+    - name: Set up Python environment
+      run: |
+        python -m venv --system-site-packages .venv
+        source .venv/bin/activate
+        python -m pip install --upgrade pip
+        install gphoto2 --user --no-binary :all:
+        python -m pip install -r requirements.txt
+        echo "VIRTUAL_ENV=$(pwd)/.venv" >> $GITHUB_ENV
+        echo "$(pwd)/.venv/bin" >> $GITHUB_PATH        
+    - name: Build
+      run: |
+        chmod +x build_win.sh
+        ./build_win.sh
+      
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          dist/main

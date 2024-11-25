@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.uic import loadUi
 from send2trash import send2trash
 
+from helpers import get_ui_path
 
 try:
     from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest, BtControllerState
@@ -68,7 +69,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.cam_config_dialog: CameraConfigDialog = None
 
         # Set up UI and find controls
-        loadUi('ui/main_window.ui', self)
+        loadUi(get_ui_path('ui/main_window.ui'), self)
         self.disconnect_camera_button: QPushButton = self.findChild(QPushButton, "disconnectCameraButton")
         self.connect_camera_button: QPushButton = self.findChild(QPushButton, "connectCameraButton")
         self.camera_busy_spinner: Spinner = self.findChild(QWidget, "cameraBusySpinner")
@@ -120,19 +121,19 @@ class RTICaptureMainWindow(QMainWindow):
         self.session_menu = QMenu(self)
         self.open_session_action = QAction('Vorherige Sitzung öffnen...', self)
         self.open_session_action.triggered.connect(self.open_existing_session_directory)
-        self.open_session_action.setIcon(QIcon("ui/open.svg"))
+        self.open_session_action.setIcon(QIcon(get_ui_path("ui/open.svg")))
         self.rename_session_action = QAction('Sitzung umbenennen...', self)
         self.rename_session_action.triggered.connect(self.rename_current_session)
-        self.rename_session_action.setIcon(QIcon("ui/rename.svg"))
+        self.rename_session_action.setIcon(QIcon(get_ui_path("ui/rename.svg")))
         self.session_menu.addActions([self.open_session_action, self.rename_session_action])
 
         self.settings_menu = QMenu(self)
         self.open_program_settings_action = QAction('Allgemeine Einstellungen')
         self.open_program_settings_action.triggered.connect(self.open_settings)
-        self.open_program_settings_action.setIcon(QIcon("ui/general_settings.svg"))
+        self.open_program_settings_action.setIcon(QIcon(get_ui_path("ui/general_settings.svg")))
         self.open_advanced_cam_config_action = QAction('Erweiterte Kamerakonfiguration')
         self.open_advanced_cam_config_action.triggered.connect(self.open_advanced_capture_settings)
-        self.open_advanced_cam_config_action.setIcon(QIcon("ui/cam_settings.svg"))
+        self.open_advanced_cam_config_action.setIcon(QIcon(get_ui_path("ui/cam_settings.svg")))
         self.settings_menu.addActions([self.open_program_settings_action, self.open_advanced_cam_config_action])
 
         self.mirror_graphics_view: QGraphicsView | None = None
@@ -294,9 +295,9 @@ class RTICaptureMainWindow(QMainWindow):
         # configure UI according to the capture mode
         for item_index in range(self.capture_view.count()):
             if item_index == self.capture_mode.value:
-                self.capture_view.setItemIcon(item_index, QIcon("ui/chevron_down.svg"))
+                self.capture_view.setItemIcon(item_index, QIcon(get_ui_path("ui/chevron_down.svg")))
             else:
-                self.capture_view.setItemIcon(item_index, QIcon("ui/chevron_right.svg"))
+                self.capture_view.setItemIcon(item_index, QIcon(get_ui_path("ui/chevron_right.svg")))
 
 
 
@@ -323,7 +324,7 @@ class RTICaptureMainWindow(QMainWindow):
         match camera_state:
             case CameraStates.Waiting():
                 self.camera_state_label.setText("Suche Kamera...")
-                self.camera_state_icon.setPixmap(QPixmap("ui/camera_waiting.png"))
+                self.camera_state_icon.setPixmap(QPixmap(get_ui_path("ui/camera_waiting.png")))
                 self.open_advanced_cam_config_action.setEnabled(False)
 
                 self.connect_camera_button.setEnabled(False)
@@ -347,7 +348,7 @@ class RTICaptureMainWindow(QMainWindow):
 
             case CameraStates.Disconnected():
                 self.camera_state_label.setText("Kamera getrennt<br><b>%s</b>" % camera_state.camera_name)
-                self.camera_state_icon.setPixmap(QPixmap("ui/camera_not_ok.png"))
+                self.camera_state_icon.setPixmap(QPixmap(get_ui_path("ui/camera_not_ok.png")))
 
                 self.connect_camera_button.setEnabled(True)
                 self.connect_camera_button.setVisible(True)
@@ -371,7 +372,7 @@ class RTICaptureMainWindow(QMainWindow):
 
             case CameraStates.Ready():
                 self.camera_state_label.setText("Kamera verbunden<br><b>%s</b>" % camera_state.camera_name)
-                self.camera_state_icon.setPixmap(QPixmap("ui/camera_ok.png"))
+                self.camera_state_icon.setPixmap(QPixmap(get_ui_path("ui/camera_ok.png")))
 
                 self.open_advanced_cam_config_action.setEnabled(True)
 
@@ -496,21 +497,21 @@ class RTICaptureMainWindow(QMainWindow):
 
             match self.bt_controller.state:
                 case BtControllerState.DISCONNECTED:
-                    self.bluetooth_state_icon.setPixmap(QPixmap("ui/bluetooth_disconnected.svg"))
+                    self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_disconnected.svg")))
                     self.preview_led_select.setEnabled(False)
                     self.bluetooth_connecting_spinner.isAnimated = False
                     self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller getrennt")
                 case BtControllerState.CONNECTING:
-                    self.bluetooth_state_icon.setPixmap(QPixmap("ui/bluetooth_connecting.svg"))
+                    self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connecting.svg")))
                     self.bluetooth_connecting_spinner.isAnimated = True
                     self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller wird aufgebaut...")
                 case BtControllerState.CONNECTED:
-                    self.bluetooth_state_icon.setPixmap(QPixmap("ui/bluetooth_connected.svg"))
+                    self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connected.svg")))
                     self.preview_led_select.setEnabled(True)
                     self.bluetooth_connecting_spinner.isAnimated = False
                     self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller aktiv")
                 case BtControllerState.DISCONNECTING:
-                    self.bluetooth_state_icon.setPixmap(QPixmap("ui/bluetooth_connecting.svg"))
+                    self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connecting.svg")))
                     self.bluetooth_connecting_spinner.isAnimated = True
                     self.bluetooth_frame.setToolTip("Bluetooth-Verbindung zum Controller wird getrennt...")
 
@@ -817,7 +818,7 @@ class RTICaptureMainWindow(QMainWindow):
         def start_capture(show_button_message: bool):
             if self.capture_mode == CaptureMode.RTI and show_button_message:
                 press_buttons_dialog = QDialog()
-                loadUi("ui/press-buttons-dialog.ui", press_buttons_dialog)
+                loadUi(get_ui_path("ui/press-buttons-dialog.ui"), press_buttons_dialog)
                 if not press_buttons_dialog.exec():
                     return
 

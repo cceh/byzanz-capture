@@ -5,6 +5,7 @@ from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox, QCheckBox
 from PyQt6.uic import loadUi
 
+from helpers import get_ui_path
 
 class SettingsDialog(QDialog):
 
@@ -13,7 +14,7 @@ class SettingsDialog(QDialog):
         self.__q_settings = q_settings
         self.settings: dict[str, Any] = dict()
 
-        loadUi('ui/settings_dialog.ui', self)
+        loadUi(get_ui_path('ui/settings_dialog.ui'), self)
 
         self.working_directory_input: QLineEdit = self.findChild(QLineEdit, "workingDirectoryInput")
         self.working_directory_input.setText(q_settings.value("workingDirectory"))
@@ -22,7 +23,7 @@ class SettingsDialog(QDialog):
         )
 
         open_action = QAction("Arbeitsverzeichnis wählen", self)
-        open_action.setIcon(QIcon("ui/folder-open.svg"))
+        open_action.setIcon(QIcon(get_ui_path("ui/folder-open.svg")))
         open_action.triggered.connect(self.choose_working_directory)
 
         self.working_directory_input.addAction(open_action, QLineEdit.ActionPosition.TrailingPosition)
