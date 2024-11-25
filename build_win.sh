@@ -32,4 +32,5 @@ pyinstaller --onedir \
     --add-binary ./vendor/libusb/MinGW64/dll/libusb-1.0.dll:. \
     --add-data ui:ui main.py \
     --runtime-hook ./build_win_hook.py \
-    --noconfirm
+    --noconfirm \
+    --name byzanz-capture
