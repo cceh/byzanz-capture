@@ -43,7 +43,6 @@ jobs:
           mingw-w64-x86_64-python-pip
           mingw-w64-x86_64-python-pyqt6
           mingw-w64-x86_64-python-pillow
-          mingw-w64-x86_64-pyinstaller
           wget
           p7zip
           mingw-w64-x86_64-jq
@@ -64,6 +63,7 @@ jobs:
         source .venv/bin/activate
         python -m pip install --upgrade pip
         pip install gphoto2 --user --no-binary :all:
+        pip install pyinstaller
         python -m pip install -r requirements.txt
         echo "VIRTUAL_ENV=$(pwd)/.venv" >> $GITHUB_ENV
         echo "$(pwd)/.venv/bin" >> $GITHUB_PATH        
