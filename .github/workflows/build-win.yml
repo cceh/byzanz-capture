@@ -16,6 +16,16 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Cache MSYS2 packages
+      id: cache-msys2
+      uses: actions/cache@v4
+      with:
+        path: C:/msys64/var/cache/pacman/pkg
+        key: msys2-${{ hashFiles('.github/workflows/build-win.yml') }}-${{ runner.os }}
+        restore-keys: |
+          msys2-${{ hashFiles('.github/workflows/build-win.yml') }}-
+          msys2-
     
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
@@ -37,7 +47,17 @@ jobs:
           wget
           p7zip
           mingw-w64-x86_64-jq
-    
+
+    - name: Cache Python packages
+      id: cache-pip
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: pip-${{ hashFiles('requirements.txt', '.github/workflows/build-win.yml') }}-${{ runner.os }}
+        restore-keys: |
+          pip-${{ hashFiles('requirements.txt', '.github/workflows/build-win.yml') }}-
+          pip-
+          
     - name: Set up Python environment
       run: |
         python -m venv --system-site-packages .venv
