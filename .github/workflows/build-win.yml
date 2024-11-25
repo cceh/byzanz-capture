@@ -41,7 +41,7 @@ jobs:
         python -m venv --system-site-packages .venv
         source .venv/bin/activate
         python -m pip install --upgrade pip
-        install gphoto2 --user --no-binary :all:
+        pip install gphoto2 --user --no-binary :all:
         python -m pip install -r requirements.txt
         echo "VIRTUAL_ENV=$(pwd)/.venv" >> $GITHUB_ENV
         echo "$(pwd)/.venv/bin" >> $GITHUB_PATH        
