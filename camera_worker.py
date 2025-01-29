@@ -198,6 +198,7 @@ class CameraWorker(QObject):
         self.liveView = False
         self.timer: QTimer = None
 
+        self.__saved_config = None
         self.__last_ptp_error: NikonPTPError = None
 
     def initialize(self):
@@ -274,6 +275,7 @@ class CameraWorker(QObject):
         self.camera.init()
         self.empty_event_queue(1000)
         with self.__open_config("read") as cfg:
+            self.__saved_config = cfg
             self.events.config_updated.emit(cfg)
             self.camera_name = "%s %s" % (
                 cfg.get_child_by_name("manufacturer").get_value(),
@@ -391,6 +393,30 @@ class CameraWorker(QObject):
                         value = value_str
                     self.property_changed.emit(PropertyChangeEvent(property=property, property_name=property_name, value=value))
                     # print(f"Property '{property_name}' changed to {value}")
+                    print(f"Property '{property_name}' changed to {value}")
+                # else:
+                    # print(data)
+                    # match = re.search(r'PTP Event (\w+)', data)
+                    # if match:
+                    #     print(f"PTP Event '{match.group(1)}' received")
+                else:
+                    # No match found, check for other config changes
+                    with self.__open_config("read") as current_cfg:
+                        if self.__saved_config:
+                            changes = self.__get_config_diff(self.__saved_config, current_cfg)
+                            if changes:
+                                for name, old_val, new_val in changes:
+                                    if name not in ["d20c"]:
+                                        self.__logger.info(
+                                            f"Config change detected: {name} changed from {old_val} to {new_val}")
+                                    self.property_changed.emit(PropertyChangeEvent(
+                                        property=name,
+                                        property_name=name,
+                                        value=new_val
+                                    ))
+
+                        # Update saved config
+                        self.__saved_config = current_cfg
 
             # try to grab another event
             event_type, data = self.camera.wait_for_event(1)
@@ -548,5 +574,44 @@ class CameraWorker(QObject):
         except gp.GPhoto2Error:
             self.__logger.error("Config '%s' not supported by camera." % name)
 
-    def __del__(self):
-        self.__disconnect_camera()
+    def __get_config_diff(self, old_config: gp.CameraWidget, new_config: gp.CameraWidget) -> list[tuple[str, str, str]]:
+        """
+        Compare two camera configurations and return differences.
+        Returns list of tuples containing (name, old_value, new_value).
+        """
+        changes = []
+
+        def traverse_config(config: gp.CameraWidget, path=""):
+            count = config.count_children()
+            for i in range(count):
+                child = config.get_child(i)
+                child_path = f"{path}/{child.get_name()}" if path else child.get_name()
+                if child.count_children() > 0:
+                    traverse_config(child, child_path)
+                else:
+                    return child_path, child.get_value()
+
+        old_values = {}
+        new_values = {}
+
+        # Build dictionaries of all values
+        def build_value_dict(config, values_dict):
+            count = config.count_children()
+            for i in range(count):
+                child = config.get_child(i)
+                if child.count_children() > 0:
+                    build_value_dict(child, values_dict)
+                else:
+                    values_dict[child.get_name()] = child.get_value()
+
+        build_value_dict(old_config, old_values)
+        build_value_dict(new_config, new_values)
+
+        # Compare values
+        for name in set(old_values.keys()) | set(new_values.keys()):
+            old_val = old_values.get(name)
+            new_val = new_values.get(name)
+            if old_val != new_val:
+                changes.append((name, str(old_val), str(new_val)))
+
+        return changes
