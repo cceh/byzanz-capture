@@ -28,7 +28,10 @@ jobs:
         restore-keys: |
           msys2-${{ hashFiles('.github/workflows/build-win.yml') }}-
           msys2-
-    
+
+    - name: Install z7
+      uses: milliewalky/setup-7-zip@v2
+        
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
@@ -46,7 +49,6 @@ jobs:
           mingw-w64-x86_64-python-pyqt6
           mingw-w64-x86_64-python-pillow
           wget
-          p7zip
           mingw-w64-x86_64-jq
 
     - name: Cache Python packages
