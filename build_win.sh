@@ -19,7 +19,8 @@ if [ ! -f "$LIBUSB_FILENAME" ]; then
 else
     echo $LIBUSB_FILENAME already exists, skipping download.
 fi
-7z x "$LIBUSB_FILENAME" -aos -olibusb
+#7z x "$LIBUSB_FILENAME" -aos -olibusb
+"/c/Program Files/7-Zip/7z.exe" x "$LIBUSB_FILENAME" -aos -olibusb
 
 # Clean up downloaded archive
 #rm libusb.7z
