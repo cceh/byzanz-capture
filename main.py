@@ -9,8 +9,8 @@ from pathlib import Path
 import gphoto2 as gp
 import qasync
 from PIL.ImageQt import ImageQt
-from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt, QTranslator, QLocale
-from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent, QBrush, QPainter, QCursor
+from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt, QTranslator, QTimer
+from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent, QBrush, QPainter
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
     QComboBox, QLabel, QToolBox, QProgressBar, QMenu, QAbstractButton, QInputDialog, QMessageBox, QStyle, QDialog,
@@ -20,6 +20,8 @@ from PyQt6.uic import loadUi
 from send2trash import send2trash
 
 from helpers import get_ui_path
+from profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
+from profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
 
 try:
     from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest, BtControllerState
@@ -27,13 +29,19 @@ try:
 except:
     BT_AVAILABLE = False
 
-from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest
+from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest, \
+    ConfigProtocol
 from open_session_dialog import OpenSessionDialog
 from photo_browser import PhotoBrowser
 from settings_dialog import SettingsDialog
 from spinner import Spinner
 from camera_config_dialog import CameraConfigDialog
 
+
+PROFILES = {
+    "ParisDomeSonyIlce7RM5": ParisDomeSonyIlce7RM5(),
+    "CCeHDomeNikonD800E": CCeHDomeNikonD800E()
+}
 
 class Session:
     def __init__(self, name, working_dir):
@@ -65,6 +73,9 @@ class RTICaptureMainWindow(QMainWindow):
         self.__session: Session = None
         self.camera_state: CameraStates.StateType = None
         self.cam_config_dialog: CameraConfigDialog = None
+
+        current_profile = QSettings().value("profile", "CCeHDomeNikonD800E")
+        self.profile = PROFILES[current_profile]
 
         # Set up UI and find controls
         loadUi(get_ui_path('ui/main_window.ui'), self)
@@ -171,6 +182,7 @@ class RTICaptureMainWindow(QMainWindow):
         QApplication.instance().primaryScreenChanged.connect(self.reset_mirror_view)
 
 
+
     def init_mirror_view(self):
         screens = QApplication.screens()
         mirror_view_enabled = QSettings().value("enableSecondScreenMirror", type=bool)
@@ -231,7 +243,7 @@ class RTICaptureMainWindow(QMainWindow):
                 pass
 
             case CameraStates.Found():
-                self.camera_worker.commands.connect_camera.emit()
+                self.connect_camera()
 
             case CameraStates.Disconnected():
                 if state.auto_reconnect:
@@ -274,7 +286,11 @@ class RTICaptureMainWindow(QMainWindow):
                 if self.capture_mode == CaptureMode.Preview:
                     self.session.preview_count += 1
                 else:
-                    self.write_lp()
+                    if state.num_captured == state.capture_request.num_images:
+                        self.check_and_write_lp(state.capture_request.num_images, 1000)
+                    else:
+                        logging.warning("Wrong number of files, not writing LP file.")
+
                     self.dump_camera_config()
 
             case CameraStates.CaptureCanceled():
@@ -312,7 +328,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.session_loading_spinner.isAnimated = has_session and not session_loaded
         self.capture_view.setEnabled(has_session)
 
-        self.capture_progress_bar.setMaximum(60)
+        self.capture_progress_bar.setMaximum(self.profile.num_captures())
         self.capture_progress_bar.setValue(self.rtiImageBrowser.num_files() if session_loaded else 0)
 
         if has_session:
@@ -405,7 +421,8 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_button.setText(self.tr("Nicht verbunden"))
 
             case CameraStates.LiveViewStarted():
-                self.camera_config_controls.setEnabled(False)
+                if not self.profile.enable_capture_controls_in_live_preview():
+                    self.camera_config_controls.setEnabled(False)
                 self.autofocus_button.setEnabled(True)
                 self.light_lcd_frame.setEnabled(True)
                 self.update_lightmeter(camera_state.current_lightmeter_value)
@@ -455,6 +472,9 @@ class RTICaptureMainWindow(QMainWindow):
 
                 self.capture_progress_bar.setMaximum(camera_state.capture_request.num_images)
                 self.capture_progress_bar.setValue(camera_state.num_captured)
+                print(camera_state.capture_request.num_images)
+                print(camera_state.num_captured)
+
 
             case CameraStates.CaptureCancelling():
                 self.cancel_capture_button.setEnabled(False)
@@ -553,7 +573,7 @@ class RTICaptureMainWindow(QMainWindow):
 
     def open_settings(self):
         q_settings = QSettings()
-        dialog = SettingsDialog(q_settings, self)
+        dialog = SettingsDialog(q_settings, PROFILES, self)
         dialog.setModal(True)
         if dialog.exec():
             for name, value in dialog.settings.items():
@@ -569,14 +589,17 @@ class RTICaptureMainWindow(QMainWindow):
                     self.update_ui_bluetooth()
                 elif name == "enableSecondScreenMirror":
                     self.reset_mirror_view()
+                elif name == "profile":
+                    self.profile = PROFILES[value]
+                    self.reconnect_cammera()
 
     def open_advanced_capture_settings(self):
         def open_dialog(cfg: gp.CameraWidget):
-            self.cam_config_dialog = CameraConfigDialog(cfg, self)
-            if self.cam_config_dialog.exec():
-                self.camera_worker.commands.set_config.emit(cfg)
-                print(cfg.__dict__)
-            self.cam_config_dialog = None
+            self.cam_config_dialog = CameraConfigDialog(cfg, self.camera_worker, self)
+            self.cam_config_dialog.setModal(False)
+            self.cam_config_dialog.show()
+            self.cam_config_dialog.finished.connect(lambda: setattr(self, "cam_config_dialog", None))
+            print(cfg.__dict__)
 
         req = ConfigRequest()
         req.signal.got_config.connect(open_dialog)
@@ -588,10 +611,13 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_busy_spinner.isAnimated = busy
 
     def connect_camera(self):
-        self.camera_worker.commands.connect_camera.emit()
+        self.camera_worker.commands.connect_camera.emit(self.profile)
 
     def disconnect_camera(self):
         self.camera_worker.commands.disconnect_camera.emit()
+
+    def reconnect_cammera(self):
+        self.camera_worker.commands.reconnect_camera.emit()
 
     def create_session(self):
         name = self.session_name_edit.text()
@@ -670,9 +696,6 @@ class RTICaptureMainWindow(QMainWindow):
     def write_lp(self):
         file_names = [os.path.basename(file_path) for file_path in self.rtiImageBrowser.files()]
         num_files = len(file_names)
-        if num_files != 60:
-            logging.warning("Wrong number of files, not writing LP file.")
-            return
 
         lp_template_path = "cceh-dome-template.lp"
         lp_output_path = os.path.join(self.session.images_dir, self.session.name + ".lp")
@@ -682,6 +705,29 @@ class RTICaptureMainWindow(QMainWindow):
             for i, input_line in enumerate(lp_template_file):
                 output_line = file_names[i] + " " + input_line
                 lp_output_file.write(output_line)
+
+    def check_and_write_lp(self, expected_count: int, attempts_remaining: int = 20):
+        """
+        Checks if the expected number of files are present and writes the LP file.
+        Uses QTimer to check periodically without blocking the UI.
+
+        Args:
+            expected_count: Number of files we expect to find
+            attempts_remaining: Number of remaining check attempts before giving up
+        """
+        current_count = len(self.rtiImageBrowser.files())
+
+        if current_count == expected_count:
+            self.write_lp()
+            return
+
+        if attempts_remaining <= 0:
+            logging.warning(f"Timeout waiting for files. Expected {expected_count}, found {current_count}")
+            return
+
+        # Check again in 500ms
+        QTimer.singleShot(500, lambda: self.check_and_write_lp(expected_count, attempts_remaining - 1))
+
 
     def dump_camera_config(self):
         output_path = os.path.join(self.session.images_dir, "camera_config.json")
@@ -729,7 +775,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.commands.get_config.emit(req)
 
 
-    def config_hookup_select(self, config: gp.CameraWidget, config_name, combo_box: QComboBox, value_map: dict = None):
+    def config_hookup_select(self, config: ConfigProtocol, config_name, combo_box: QComboBox, value_map: dict = None):
         try:
             combo_box.currentIndexChanged.disconnect()
         except:
@@ -746,16 +792,19 @@ class RTICaptureMainWindow(QMainWindow):
             config_name, combo_box.currentData()
         ))
 
-    def on_config_update(self, config: gp.CameraWidget):
-        self.config_hookup_select(config, "iso", self.iso_select)
-        self.config_hookup_select(config, "f-number", self.f_number_select)
-        self.config_hookup_select(config, "shutterspeed2", self.shutter_speed_select)
-        self.config_hookup_select(config, "d030", self.crop_select, {
-            "0": self.tr("Voll"),
-            "1": self.tr("Klein"),
-            "2": self.tr("Mittel"),
-            "3": self.tr("Mittel 2")
-        })
+    def on_config_update(self, config: ConfigProtocol):
+        self.config_hookup_select(config, self.profile.iso_property_name(), self.iso_select)
+        self.config_hookup_select(config, self.profile.f_number_property_name(), self.f_number_select)
+        self.config_hookup_select(config, self.profile.shutterspeed_property_name(), self.shutter_speed_select)
+        self.config_hookup_select(config, self.profile.image_format_property_name(), self.crop_select)
+
+        # self.config_hookup_select(config, "aspectratio", self.crop_select)
+        # self.config_hookup_select(config, "d030", self.crop_select, {
+        #     "0": self.tr("Voll"),
+        #     "1": self.tr("Klein"),
+        #     "2": self.tr("Mittel"),
+        #     "3": self.tr("Mittel 2")
+        # })
 
     def on_property_change(self, event: PropertyChangeEvent):
         match event.property_name:
@@ -783,7 +832,7 @@ class RTICaptureMainWindow(QMainWindow):
             filename_template = self.session.name.replace(" ", "_") + "_test_" + str(
                 self.session.preview_count + 1) + "${extension}"
             file_path_template = os.path.join(self.session.preview_dir, filename_template)
-            capture_req = CaptureImagesRequest(file_path_template, num_images=1, image_quality="JPEG Fine")
+            capture_req = CaptureImagesRequest(file_path_template, num_images=1, image_quality=CaptureImagesRequest.CaptureFormat.JPEG)
 
         # Capture RTI Series
         else:
@@ -804,10 +853,10 @@ class RTICaptureMainWindow(QMainWindow):
 
             filename_template = self.session.name.replace(" ", "_") + "_${num}${extension}"
             file_path_template = os.path.join(self.session.images_dir, filename_template)
-            # TODO image_quality is hardcoded for Nikon here
-            capture_req = CaptureImagesRequest(file_path_template, num_images=60, expect_files=2,
-                                               max_burst=int(QSettings().value("maxBurstNumber")), skip=0, image_quality="NEF+Fine")
-            self.capture_progress_bar.setMaximum(119)
+            capture_req = CaptureImagesRequest(file_path_template, num_images=self.profile.num_captures(), manual_trigger=self.profile.manual_trigger(),
+                                               max_burst=int(QSettings().value("maxBurstNumber")),
+                                               image_quality=CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW)
+            self.capture_progress_bar.setMaximum(self.profile.num_captures())
             self.capture_progress_bar.setValue(0)
 
         def on_file_received(path: str):
@@ -864,10 +913,8 @@ if __name__ == "__main__":
     app.setApplicationName("Byzanz RTI")
 
     translator = QTranslator()
-    locale =  QLocale.system().name()
-    logging.info(locale)
+    locale = "de"
     if translator.load(f"byzanz_capture_{locale}", "i18n"):
-        logging.info("Loaded locale")
         app.installTranslator(translator)
 
     settings = QSettings()
@@ -889,13 +936,9 @@ if __name__ == "__main__":
 
     QPixmapCache.setCacheLimit(int(settings.value("maxPixmapCache")) * 1024)
 
-    loop: qasync.QEventLoop = qasync.QEventLoop(app)
+    # Initialize qasync loop
+    loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
-
-    app_close_event = asyncio.Event()
-    app.aboutToQuit.connect(app_close_event.set)
-
-    orig_exceptionhook = sys.__excepthook__
 
     win = RTICaptureMainWindow()
     win.show()
@@ -905,21 +948,114 @@ if __name__ == "__main__":
         if win.bt_controller and win.bt_controller.state != BtControllerState.DISCONNECTED:
             win.bt_controller.bt_disconnect()
 
-        loop.call_soon(lambda _loop: _loop.stop(), loop)
+    sys.excepthook = excepthook
 
-
-    # sys.excepthook = excepthook
-    # threading.excepthook = excepthook
-
-
-    with loop:
+    # Create a coroutine for bluetooth initialization
+    async def initialize_bluetooth():
         if BT_AVAILABLE and QSettings().value("enableBluetooth", type=bool):
-            loop.create_task(win.init_bluetooth())
+            try:
+                await win.init_bluetooth()
+            except Exception as e:
+                logging.exception("Failed to initialize bluetooth")
         else:
             logging.info("Bluetooth not available. Is bleak installed?")
 
-        loop.run_until_complete(app_close_event.wait())
+    # Run the initialization in the background
+    def signal_handler(signum, frame):
+        logging.info("Received signal to quit")
+        # Use Qt's native close mechanism
+        win.close()
+        app.quit()
 
-        # asyncio.get_running_loop().run_forever()
+        # Set up signal handlers
+
+
+    import signal
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+
+    if BT_AVAILABLE and QSettings().value("enableBluetooth", type=bool):
+        asyncio.ensure_future(initialize_bluetooth(), loop=loop)
+
+    # Run the event loop
+    try:
+        with loop:
+            loop.run_forever()
+    except Exception as e:
+        logging.exception("Error in main event loop")
+    finally:
+        if win.bt_controller and win.bt_controller.state != BtControllerState.DISCONNECTED:
+            win.bt_controller.bt_disconnect()
+
+# if __name__ == "__main__":
+#     win: RTICaptureMainWindow
+#
+#     logging.basicConfig(
+#         format='%(levelname)s: %(name)s: %(message)s', level=logging.DEBUG)
+#
+#     app = QApplication(sys.argv)
+#     app.setOrganizationName("CCeH")
+#     app.setOrganizationDomain("cceh.uni-koeln.de")
+#     app.setApplicationName("Byzanz RTI")
+#
+#     translator = QTranslator()
+#     locale = "de" # QLocale.system().name()
+#
+#     if translator.load(f"byzanz_capture_{locale}", "i18n"):
+#         app.installTranslator(translator)
+#
+#     settings = QSettings()
+#     if "workingDirectory" not in settings.allKeys():
+#         settings.setValue("workingDirectory",
+#                           QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation))
+#
+#     if "maxPixmapCache" not in settings.allKeys():
+#         settings.setValue("maxPixmapCache", 1024)
+#
+#     if "maxBurstNumber" not in settings.allKeys():
+#         settings.setValue("maxBurstNumber", 60)
+#
+#     if "enableBluetooth" not in settings.allKeys():
+#         settings.setValue("enableBluetooth", True)
+#
+#     if "enableSecondScreenMirror" not in settings.allKeys():
+#         settings.setValue("enableSecondScreenMirror", True)
+#
+#     QPixmapCache.setCacheLimit(int(settings.value("maxPixmapCache")) * 1024)
+#
+#     loop: qasync.QEventLoop = qasync.QEventLoop(app)
+#     asyncio.set_event_loop(loop)
+#
+#     app_close_event = asyncio.Event()
+#     app.aboutToQuit.connect(app_close_event.set)
+#
+#     orig_exceptionhook = sys.__excepthook__
+#
+#     win = RTICaptureMainWindow()
+#     win.show()
+#
+#     def excepthook(exc_type, exc_value, exc_traceback):
+#         logging.exception(msg="Exception", exc_info=(exc_type, exc_value, exc_traceback))
+#         if win.bt_controller and win.bt_controller.state != BtControllerState.DISCONNECTED:
+#             win.bt_controller.bt_disconnect()
+#
+#         loop.call_soon(lambda _loop: _loop.stop(), loop)
+#
+#
+#     # sys.excepthook = excepthook
+#     # threading.excepthook = excepthook
+#
+#
+#     with loop:
+#         if BT_AVAILABLE and QSettings().value("enableBluetooth", type=bool):
+#             loop.create_task(win.init_bluetooth())
+#         else:
+#             logging.info("Bluetooth not available. Is bleak installed?")
+#
+#         loop.run_until_complete(app_close_event.wait())
+#
+#         # asyncio.get_running_loop().run_forever()
 
 

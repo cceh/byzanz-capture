@@ -2,17 +2,20 @@ import io
 import logging
 import os
 import re
+import time
 from contextlib import contextmanager
 from enum import Enum
 from string import Template
 from time import sleep
-from typing import NamedTuple, Literal, Generator, Union
+from typing import NamedTuple, Literal, Generator, Union, Protocol
 
 import gphoto2 as gp
 from PIL import Image
-from PyQt6.QtCore import pyqtSignal, QObject, QElapsedTimer, QTimer, Qt, pyqtSlot
+from PyQt6.QtCore import pyqtSignal, QObject, QElapsedTimer, QTimer
 from PyQt6.QtWidgets import QApplication
 from gphoto2 import CameraWidget
+
+from profiles.base import Profile
 
 EVENT_DESCRIPTIONS = {
     gp.GP_EVENT_UNKNOWN: "Unknown",
@@ -21,6 +24,30 @@ EVENT_DESCRIPTIONS = {
     gp.GP_EVENT_FOLDER_ADDED: "Folder Added",
     gp.GP_EVENT_TIMEOUT: "Timeout"
 }
+
+class ConfigProtocol(Protocol):
+    def get_child_by_name(self, name: str): ...
+    def get_value(self): ...
+
+class PseudoConfig:
+    def __init__(self, dict_or_widget: dict[str, gp.CameraWidget] | gp.CameraWidget):
+        self.widget = None
+        self.dict = None
+        if isinstance(dict_or_widget, gp.CameraWidget):
+            self.widget: gp.CameraWidget = dict_or_widget
+        elif isinstance(dict_or_widget, dict):
+            self.dict: dict[str, gp.CameraWidget] = dict_or_widget
+
+    def get_child_by_name(self, name: str):
+        if self.widget is not None:
+           return self.widget.get_child_by_name(name)
+        else:
+            return self.dict[name]
+
+
+
+class SonyPTPId:
+    AF_WITH_SHUTTER = "d1ad"
 
 class NikonPTPError(Enum):
     OutOfFocus = "0xa002"
@@ -34,23 +61,25 @@ class ConfigRequest():
 
 
 class CaptureImagesRequest():
+    class CaptureFormat(Enum):
+        JPEG = "jpeg"
+        JPEG_AND_RAW = "jpeg_and_raw"
+
     class Signal(QObject):
         file_received = pyqtSignal(str)
 
     file_path_template: str
     num_images: int
-    expect_files: int = 1
+    expect_files: int
     max_burst: int = 1
-    skip: int = 0
     manual_trigger: bool = False
-    image_quality: str | None = None
+    image_quality: CaptureFormat
 
-    def __init__(self, file_path_template, num_images, expect_files = 1, max_burst = 1, skip = 0, manual_trigger = False, image_quality = None):
+    def __init__(self, file_path_template, num_images, image_quality, max_burst = 1, manual_trigger = False):
         self.file_path_template = file_path_template
         self.num_images = num_images
-        self.expect_files = expect_files
+        self.expect_files = 2 if image_quality == CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW else 1
         self.max_burst = max_burst
-        self.skip = skip
         self.manual_trigger = manual_trigger
         self.image_quality = image_quality
 
@@ -151,7 +180,7 @@ class CameraStates:
 class CameraCommands(QObject):
     capture_images = pyqtSignal(CaptureImagesRequest)
     find_camera = pyqtSignal()
-    connect_camera = pyqtSignal()
+    connect_camera = pyqtSignal(Profile)
     disconnect_camera = pyqtSignal()
     reconnect_camera = pyqtSignal()
     set_config = pyqtSignal(gp.CameraWidget)
@@ -169,7 +198,7 @@ class PropertyChangeEvent(NamedTuple):
 
 
 class CameraEvents(QObject):
-    config_updated = pyqtSignal(gp.CameraWidget)
+    config_updated = pyqtSignal(PseudoConfig)
 
 
 class CameraWorker(QObject):
@@ -200,6 +229,9 @@ class CameraWorker(QObject):
 
         self.__saved_config = None
         self.__last_ptp_error: NikonPTPError = None
+        self.__last_config_poll = 0.0
+
+        self.profile = None
 
     def initialize(self):
         self.__logger.info("Init Camera Worker")
@@ -228,7 +260,7 @@ class CameraWorker(QObject):
         #     gp.GP_LOG_DATA: logging.DEBUG - 6}))
 
         self.__logging_callback_extract_gp2_error = gp.check_result(
-            gp.gp_log_add_func(gp.GP_LOG_ERROR, self.__extract_gp2_error_from_log))
+            gp.gp_log_add_func(gp.GP_LOG_DEBUG, self.__extract_gp2_error_from_log))
 
     def __extract_gp2_error_from_log(self, _level: int, domain: bytes, string: bytes, _data=None):
         error_str = string
@@ -266,21 +298,32 @@ class CameraWorker(QObject):
         name, _ = camera_list[0]
         self.__set_state(CameraStates.Found(camera_name=name))
 
+    def __apply_settings(self, settings: dict):
+        with self.__open_config("write") as cfg:
+            print(settings)
+            for key, value in settings.items():
+                self.__try_set_config(cfg, key, value)
+
+
     @__handle_camera_error
-    def __connect_camera(self):
+    def __connect_camera(self, profile: Profile):
+        self.profile = profile
         self.__set_state(CameraStates.Connecting(self.camera_name))
         self.camera = gp.Camera()
         self.__last_ptp_error = None
 
         self.camera.init()
         self.empty_event_queue(1000)
+        self.__apply_settings(profile.initial_settings())
+
         with self.__open_config("read") as cfg:
             self.__saved_config = cfg
-            self.events.config_updated.emit(cfg)
+            self.events.config_updated.emit(PseudoConfig(cfg))
             self.camera_name = "%s %s" % (
                 cfg.get_child_by_name("manufacturer").get_value(),
                 cfg.get_child_by_name("cameramodel").get_value()
             )
+
         self.__set_state(CameraStates.Ready(self.camera_name))
 
         while self.camera:
@@ -290,9 +333,15 @@ class CameraWorker(QObject):
                 return
 
             try:
+                if self.profile.poll_config() is not None:
+                    if not isinstance(self.__state, CameraStates.CaptureInProgress):
+                        current_time = time.time()
+                        if current_time - self.__last_config_poll >= 0.5:
+                            self.__emit_current_config(self.profile.poll_config())
+                            self.__last_config_poll = current_time
+
                 if isinstance(self.__state, CameraStates.LiveViewActive):
                     self.__live_view_capture_preview()
-                    # self.empty_event_queue(1)
                     self.thread().msleep(50)
                 else:
                     self.empty_event_queue(1)
@@ -316,13 +365,16 @@ class CameraWorker(QObject):
 
     @__handle_camera_error
     def __set_single_config(self, name, value):
-        self.__logger.info("Set config %s to %s" % (name, value))
+        self.__logger.info("1 Set config %s to %s" % (name, value))
         with self.__open_config("write") as cfg:
+            # program_widget = cfg.get_child_by_name("expprogram")
+            # program_widget.set_value("M")
             cfg_widget = cfg.get_child_by_name(name)
             cfg_widget.set_value(value)
 
         self.empty_event_queue()
-        self.__emit_current_config()
+        if self.profile.poll_config() is None:
+            self.__emit_current_config()
 
     @__handle_camera_error
     def __set_config(self, cfg: gp.CameraWidget):
@@ -333,9 +385,20 @@ class CameraWorker(QObject):
         with self.__open_config("read") as cfg:
             req.signal.got_config.emit(cfg)
 
-    def __emit_current_config(self):
-        with self.__open_config("read") as cfg:
-            self.events.config_updated.emit(cfg)
+    @__handle_camera_error
+    def __emit_current_config(self, config_names: list[str] = None):
+       if config_names is not None:
+           config_dict = {}
+           for name in config_names:
+               try:
+                   config_dict[name] = self.camera.get_single_config(name)
+               except gp.GPhoto2Error:
+                   self.__logger.error(f"Could not get config {name}")
+                   continue
+           self.events.config_updated.emit(PseudoConfig(config_dict))
+       else:
+           with self.__open_config("read") as cfg:
+               self.events.config_updated.emit(PseudoConfig(cfg))
 
     def __cancel(self):
         self.shouldCancel = True
@@ -345,7 +408,7 @@ class CameraWorker(QObject):
         event_type, data = self.camera.wait_for_event(timeout)
 
         while event_type != gp.GP_EVENT_TIMEOUT:
-            self.__logger.debug("Event: %s, data: %s" % (EVENT_DESCRIPTIONS.get(event_type, "Unknown"), data))
+            self.__logger.info("Event: %s, data: %s" % (EVENT_DESCRIPTIONS.get(event_type, "Unknown"), data))
             QApplication.processEvents()
 
             if event_type == gp.GP_EVENT_FILE_ADDED:
@@ -354,6 +417,7 @@ class CameraWorker(QObject):
                 basename, extension = os.path.splitext(data.name)
 
                 if isinstance(self.__state, CameraStates.CaptureInProgress) and not self.shouldCancel and not self.thread().isInterruptionRequested():
+                    self.filesCounter += 1
                     tpl = Template(self.__state.capture_request.file_path_template)
                     file_target_path = tpl.substitute(
                         basename=basename,
@@ -371,18 +435,26 @@ class CameraWorker(QObject):
                         num_captured = int(self.filesCounter / current_capture_req.expect_files)
                         self.__set_state(CameraStates.CaptureInProgress(self.__state.capture_request, num_captured))
 
-                    self.filesCounter += 1
+
+                    remaining = current_capture_req.num_images * current_capture_req.expect_files - self.filesCounter
+                    self.__logger.info("Curr. files: {0} (remaining: {1}).".format(self.filesCounter, remaining))
+
+
+
                 else:
                     self.__logger.warning(
                         "Received file but capture not in progress, ignoring. State: " + self.__state.__class__.__name__)
+                    break
 
                 self.camera.file_delete(data.folder, data.name)
 
             elif event_type == gp.GP_EVENT_CAPTURE_COMPLETE:
+                print("GP_EVENT_CAPTURE_COMPLETE")
                 self.captureComplete = True
 
             elif event_type == gp.GP_EVENT_UNKNOWN:
-                match = re.search(r'PTP Property (\w+) changed, "(\w+)" to "(-?\d+[,\.]\d+)"', data)
+                #match = re.search(r'PTP Property (\w+) changed, "(\w+)" to "(-?\d+[,\.]\d+)"', data)
+                match = re.search(r'PTP Property (\w+) changed, "(.*?)" to "(.*?)"', data)
                 if match:
                     property = match.group(1)
                     property_name = match.group(2)
@@ -393,43 +465,40 @@ class CameraWorker(QObject):
                         value = value_str
                     self.property_changed.emit(PropertyChangeEvent(property=property, property_name=property_name, value=value))
                     # print(f"Property '{property_name}' changed to {value}")
-                    print(f"Property '{property_name}' changed to {value}")
                 # else:
                     # print(data)
                     # match = re.search(r'PTP Event (\w+)', data)
                     # if match:
                     #     print(f"PTP Event '{match.group(1)}' received")
                 else:
+                    match = re.search(r'PTP Event (\w+)', data)
+                    if match:
+                        print(f"PTP Event '{match.group(1)}' received")
                     # No match found, check for other config changes
-                    with self.__open_config("read") as current_cfg:
-                        if self.__saved_config:
-                            changes = self.__get_config_diff(self.__saved_config, current_cfg)
-                            if changes:
-                                for name, old_val, new_val in changes:
-                                    if name not in ["d20c"]:
-                                        self.__logger.info(
-                                            f"Config change detected: {name} changed from {old_val} to {new_val}")
-                                    self.property_changed.emit(PropertyChangeEvent(
-                                        property=name,
-                                        property_name=name,
-                                        value=new_val
-                                    ))
-
-                        # Update saved config
-                        self.__saved_config = current_cfg
+                    # with self.__open_config("read") as current_cfg:
+                    #     if self.__saved_config:
+                    #         changes = self.__get_config_diff(self.__saved_config, current_cfg)
+                    #         if changes:
+                    #             for name, old_val, new_val in changes:
+                    #                 if name not in ["d20c"]:
+                    #                     self.__logger.info(
+                    #                         f"Config change detected: {name} changed from {old_val} to {new_val}")
+                    #                 self.property_changed.emit(PropertyChangeEvent(
+                    #                     property=name,
+                    #                     property_name=name,
+                    #                     value=new_val
+                    #                 ))
+                    #
+                    #     # Update saved config
+                    #     self.__saved_config = current_cfg
 
             # try to grab another event
             event_type, data = self.camera.wait_for_event(1)
 
     @__handle_camera_error
     def __start_live_view(self):
-        lightmeter: int
-        with self.__open_config("write") as cfg:
-            self.__try_set_config(cfg, "capturetarget", "Internal RAM")
-            self.__try_set_config(cfg, "recordingmedia", "SDRAM")
-            self.__try_set_config(cfg, "viewfinder", 1)
-            self.__try_set_config(cfg, "liveviewsize", "VGA")
-            lightmeter = cfg.get_child_by_name("lightmeter").get_value()
+        lightmeter: int = 0
+        self.__apply_settings(self.profile.start_live_view_settings())
         self.__set_state(CameraStates.LiveViewStarted(current_lightmeter_value=lightmeter))
         self.__set_state(CameraStates.LiveViewActive())
 
@@ -452,9 +521,7 @@ class CameraWorker(QObject):
     @__handle_camera_error
     def __stop_live_view(self):
         if isinstance(self.__state, CameraStates.LiveViewActive):
-            with self.__open_config("write") as cfg:
-                self.__try_set_config(cfg, "viewfinder", 0)
-                self.__try_set_config(cfg, "autofocusdrive", 0)
+            self.__apply_settings(self.profile.stop_live_view_settings())
             self.__set_state(CameraStates.LiveViewStopped())
             self.__set_state(CameraStates.Ready(self.camera_name))
 
@@ -463,19 +530,18 @@ class CameraWorker(QObject):
         lightmeter = None
         self.__set_state(CameraStates.FocusStarted())
         try:
-            with self.__open_config("write") as cfg:
-                lightmeter = cfg.get_child_by_name("lightmeter").get_value()
-                self.__try_set_config(cfg, "autofocusdrive", 1)
+            self.__apply_settings(self.profile.start_autofocus_settings())
+            # with self.__open_config("write") as cfg:
+            #     # lightmeter = cfg.get_child_by_name("lightmeter").get_value()
             self.__set_state(CameraStates.FocusFinished(success=True))
         except gp.GPhoto2Error:
             if self.__last_ptp_error == NikonPTPError.OutOfFocus:
-                self.__logger.warning("Could not get focus (light: %s)." % lightmeter)
+                # self.__logger.warning("Could not get focus (light: %s)." % lightmeter)
                 self.__set_state(CameraStates.FocusFinished(success=False))
             else:
                 raise
         finally:
-            with self.__open_config("write") as cfg:
-                self.__try_set_config(cfg, "autofocusdrive", 0)
+            self.__apply_settings(self.profile.stop_autofocus_settings())
             self.__set_state(CameraStates.LiveViewActive())
             # TODO handle general camera error
 
@@ -494,38 +560,42 @@ class CameraWorker(QObject):
 
             self.__set_state(CameraStates.CaptureInProgress(capture_request=capture_req, num_captured=0))
 
-            with self.__open_config("write") as cfg:
-                self.__try_set_config(cfg, "capturetarget", "Internal RAM")
-                self.__try_set_config(cfg, "recordingmedia", "SDRAM")
-                self.__try_set_config(cfg, "viewfinder", 1)
-                self.__try_set_config(cfg, "autofocusdrive", 0)
-                self.__try_set_config(cfg, "focusmode", "Manual")
-                self.__try_set_config(cfg, "focusmode2", "MF (fixed)")
-                if capture_req.image_quality:
-                    self.__try_set_config(cfg, "imagequality", capture_req.image_quality)
+            self.__apply_settings(self.profile.start_capture_settings())
 
-            self.thread().sleep(1)
+            if capture_req.image_quality == CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW:
+                self.__apply_settings(self.profile.capture_format_jpeg_and_raw_settings())
+            elif capture_req.image_quality == CaptureImagesRequest.CaptureFormat.JPEG:
+                self.__apply_settings(self.profile.capture_format_jpeg_settings())
+
+            # self.thread().sleep(1)
 
             remaining = capture_req.num_images * capture_req.expect_files
             while remaining > 0 and not self.shouldCancel and not self.thread().isInterruptionRequested():
-                burst = min(capture_req.max_burst, int(remaining / capture_req.expect_files))
-                if not capture_req.manual_trigger:
-                    with self.__open_config("write") as cfg:
-                        self.__try_set_config(cfg, "burstnumber", burst)
+                print(f"remaining#{remaining}")
+                if self.profile.use_burst():
+                    burst = min(capture_req.max_burst, int(remaining / capture_req.expect_files))
+                    if not capture_req.manual_trigger:
+                        with self.__open_config("write") as cfg:
+                            self.__try_set_config(cfg, self.profile.burstnumber_property_name(), burst)
 
                 self.captureComplete = False
                 if not capture_req.manual_trigger:
                     self.camera.trigger_capture()
-                while not self.captureComplete:
+
+                while not self.captureComplete and not self.shouldCancel and not self.thread().isInterruptionRequested():
                     self.empty_event_queue(timeout=100)
                     QApplication.processEvents()
 
                 remaining = capture_req.num_images * capture_req.expect_files - self.filesCounter
                 self.__logger.info("Curr. files: {0} (remaining: {1}).".format(self.filesCounter, remaining))
 
-                if not capture_req.manual_trigger:
+
+                if self.profile.use_burst() and not capture_req.manual_trigger:
                     with self.__open_config("write") as cfg:
-                        self.__try_set_config(cfg, "burstnumber", burst)
+                        self.__try_set_config(cfg, self.profile.burstnumber_property_name(), burst)
+
+            # with self.__open_config("write") as cfg:
+            #     self.__try_set_config(cfg, "capture", 0)
 
             self.__logger.info("No. Files captured: {0} (took {1}).".format(self.filesCounter, timer.elapsed()))
 
@@ -535,6 +605,8 @@ class CameraWorker(QObject):
                     CameraStates.CaptureFinished(capture_req, elapsed_time=timer.elapsed(), num_captured=num_captured))
             else:
                 self.__logger.info("Capture cancelled")
+                # with self.__open_config("write") as cfg:
+                #     self.__try_set_config(cfg, "capture", 0)
                 self.__set_state(CameraStates.CaptureCanceled(capture_req, elapsed_time=timer.elapsed()))
 
         except gp.GPhoto2Error as err:
@@ -544,11 +616,12 @@ class CameraWorker(QObject):
             # If camera is still there, try to reset Camera to a default state
             if self.camera:
                 try:
-                    with self.__open_config("write") as cfg:
-                        # TODO: enable again when trigger works
-                        self.__try_set_config(cfg, "viewfinder", 0)
-                        if not capture_req.manual_trigger:
-                            self.__try_set_config(cfg, "burstnumber", 1)
+                    self.__apply_settings(self.profile.stop_capture_settings())
+                    # with self.__open_config("write") as cfg:
+                    #     # TODO: enable again when trigger works
+                    #     self.__try_set_config(cfg, "viewfinder", 0)
+                    #     # if not capture_req.manual_trigger:
+                    #     #     self.__try_set_config(cfg, "burstnumber", 1)
                     self.empty_event_queue()
                     self.__set_state(CameraStates.Ready(self.camera_name))
                 except gp.GPhoto2Error as err:
@@ -569,8 +642,8 @@ class CameraWorker(QObject):
     def __try_set_config(self, config: CameraWidget, name: str, value) -> None:
         try:
             config_widget = config.get_child_by_name(name)
+            self.__logger.info("2 Set config '%s' to %s." % (name, str(value)))
             config_widget.set_value(value)
-            self.__logger.info("Set config '%s' to %s." % (name, str(value)))
         except gp.GPhoto2Error:
             self.__logger.error("Config '%s' not supported by camera." % name)
 
