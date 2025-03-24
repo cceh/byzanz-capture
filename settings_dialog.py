@@ -2,19 +2,33 @@ from typing import Any
 
 from PyQt6.QtCore import QSettings, QVariant, Qt
 from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox, QCheckBox
+from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox, QCheckBox, QComboBox
 from PyQt6.uic import loadUi
 
 from helpers import get_ui_path
+from profiles.base import Profile
+
 
 class SettingsDialog(QDialog):
 
-    def __init__(self, q_settings: QSettings, parent=None):
+    def __init__(self, q_settings: QSettings, profiles: dict[str, Profile], parent=None):
         super(SettingsDialog, self).__init__(parent)
         self.__q_settings = q_settings
         self.settings: dict[str, Any] = dict()
 
         loadUi(get_ui_path('ui/settings_dialog.ui'), self)
+
+        self.profile_select: QComboBox = self.findChild(QComboBox, "profileSelect")
+        for profile_id, profile in profiles.items():
+            self.profile_select.addItem(profile.name(), profile_id)
+        current_profile_id = q_settings.value("profile")
+        if current_profile_id:
+            index = self.profile_select.findData(current_profile_id)
+            if index >= 0:
+                self.profile_select.setCurrentIndex(index)
+        self.profile_select.currentIndexChanged.connect(
+            lambda index: self.set("profile", self.profile_select.itemData(index))
+        )
 
         self.working_directory_input: QLineEdit = self.findChild(QLineEdit, "workingDirectoryInput")
         self.working_directory_input.setText(q_settings.value("workingDirectory"))
