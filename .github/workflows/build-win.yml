@@ -81,4 +81,4 @@ jobs:
       with:
         name: build-artifacts
         path: |
-          dist/main
+          dist
