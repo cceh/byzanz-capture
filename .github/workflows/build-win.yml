@@ -41,6 +41,7 @@ jobs:
           mingw-w64-x86_64-python
           mingw-w64-x86_64-python-pip
           mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-cppwinrt
           make
           mingw-w64-x86_64-libgphoto2
           mingw-w64-x86_64-qt6-base
