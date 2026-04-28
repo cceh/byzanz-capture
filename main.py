@@ -6,7 +6,18 @@ import sys
 from enum import Enum
 from pathlib import Path
 
+# python-gphoto2's __init__.py overrides CAMLIBS/IOLIBS on import to package-bundled
+# (and on macOS sdist builds, broken) directories. Capture the env-provided values
+# before import and reapply afterward, so PyCharm / shell / build_win_hook can win.
+_camlibs_env = os.environ.get('CAMLIBS')
+_iolibs_env = os.environ.get('IOLIBS')
 import gphoto2 as gp
+
+if _camlibs_env:
+    os.environ['CAMLIBS'] = _camlibs_env
+if _iolibs_env:
+    os.environ['IOLIBS'] = _iolibs_env
+
 import qasync
 from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt, QTranslator, QTimer
@@ -911,6 +922,8 @@ if __name__ == "__main__":
     app.setOrganizationName("CCeH")
     app.setOrganizationDomain("cceh.uni-koeln.de")
     app.setApplicationName("Byzanz RTI")
+
+    logging.info("Using libgphoto2: " + ", ".join(gp.gp_library_version(gp.GP_VERSION_SHORT)))
 
     translator = QTranslator()
     locale = "de"
