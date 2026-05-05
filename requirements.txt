@@ -4,3 +4,5 @@ Pillow~=12.2.0
 Send2Trash~=1.8.3
 #bleak==0.22.3
 qasync~=0.27.1
+rawpy~=0.26.1
+numpy~=2.4.4

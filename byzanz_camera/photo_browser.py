@@ -1,4 +1,3 @@
-import mimetypes
 import os
 import re
 from os import listdir
@@ -11,7 +10,7 @@ from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
 from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QGraphicsView
 from PyQt6.uic import loadUi
 
-from .load_image_worker import LoadImageWorker, LoadImageWorkerResult
+from .load_image_worker import LoadImageWorker, LoadImageWorkerResult, SUPPORTED_EXTENSIONS
 from .photo_viewer import PhotoViewer
 from .spinner import Spinner
 
@@ -139,7 +138,7 @@ class PhotoBrowser(QWidget):
     def __load_directory(self):
         print("Load directory: " + self.__currentPath)
         new_files = [f for f in listdir(self.__currentPath)
-                     if mimetypes.guess_type(f)[0] == "image/jpeg" and get_file_index(f) is not None]
+                     if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS and get_file_index(f) is not None]
 
         new_fileset = set(new_files)
         added_files = new_fileset - self.__currentFileSet
@@ -187,7 +186,8 @@ class PhotoBrowser(QWidget):
         self.__threadpool.start(worker)
 
     def __on_image_loaded(self, result: LoadImageWorkerResult, on_finished_callback: Callable):
-        QPixmapCache.insert(result.path, QPixmap.fromImage(result.image))
+        # Caching is the caller's decision (e.g. only the viewer flow caches —
+        # the directory-thumbnail flow used to evict view pixmaps from the cache).
         on_finished_callback(result)
 
         self.__num_images_to_load -= 1
@@ -205,10 +205,15 @@ class PhotoBrowser(QWidget):
                 self.photo_viewer.setPhoto(cached_image)
             else:
                 print("cache miss")
-                self.__load_image(file_path, lambda result: self.photo_viewer.setPhoto(QPixmap.fromImage(result.image)))
+                self.__load_image(file_path, self.__show_and_cache)
             self.image_selected.emit(file_path)
         else:
             self.photo_viewer.setPhoto(None)
+
+    def __show_and_cache(self, result: LoadImageWorkerResult):
+        pixmap = QPixmap.fromImage(result.image)
+        QPixmapCache.insert(result.path, pixmap)
+        self.photo_viewer.setPhoto(pixmap)
 
     def __add_image_item(self, image_worker_result: LoadImageWorkerResult):
         list_item = ImageFileListItem(image_worker_result.path, image_worker_result.thumbnail)
