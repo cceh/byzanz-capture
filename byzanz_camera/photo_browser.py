@@ -10,7 +10,7 @@ from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
 from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QGraphicsView
 from PyQt6.uic import loadUi
 
-from .load_image_worker import LoadImageWorker, LoadImageWorkerResult, SUPPORTED_EXTENSIONS
+from .load_image_worker import DecodeMode, LoadImageWorker, LoadImageWorkerResult, SUPPORTED_EXTENSIONS
 from .photo_viewer import PhotoViewer
 from .spinner import Spinner
 
@@ -119,6 +119,12 @@ class PhotoBrowser(QWidget):
     def resizeEvent(self, event: QResizeEvent):
         self.__center_spinner_over_photo_viewer()
 
+    def showEvent(self, event):
+        # By the time the widget is shown, Qt has laid out the inner container,
+        # so viewer_container.width()/height() return real numbers (vs 0 at __init__).
+        super().showEvent(event)
+        self.__center_spinner_over_photo_viewer()
+
     def show_preview(self, image: QImage | None):
         if not image:
             self.photo_viewer.setPhoto(None)
@@ -151,7 +157,9 @@ class PhotoBrowser(QWidget):
             # self.__threadpool.waitForDone()
             # self.stop_watching()
             for f in added_files:
-                self.__load_image(f, self.__add_image_item)
+                # Browser thumbnails: use the embedded JPEG preview for RAWs
+                # (fast). The full decode is reserved for the viewer click flow.
+                self.__load_image(f, self.__add_image_item, DecodeMode.THUMB)
 
         for f in removed_files:
             for i in range(self.image_file_list.count()):
@@ -176,10 +184,16 @@ class PhotoBrowser(QWidget):
         # just in case there have been changes while loading the files
         self.__load_directory()
 
-    def __load_image(self, file_name: str, on_finished_callback: Callable):
+    def __load_image(self, file_name: str, on_finished_callback: Callable,
+                     decode_mode: DecodeMode = DecodeMode.FULL):
         self.__num_images_to_load +=1
 
-        worker = LoadImageWorker(os.path.join(self.__currentPath, file_name), True, 200)
+        worker = LoadImageWorker(
+            os.path.join(self.__currentPath, file_name),
+            include_thumbnail=True,
+            thumbnail_size=200,
+            decode_mode=decode_mode,
+        )
         worker.signals.finished.connect(lambda result: self.__on_image_loaded(result, on_finished_callback))
 
         self.spinner.startAnimation()
@@ -244,6 +258,8 @@ class PhotoBrowser(QWidget):
 
 
     def __center_spinner_over_photo_viewer(self):
-        spinner_x = (self.viewer_container.width() - 80) / 2
-        spinner_y = (self.viewer_container.height() - 80) / 2
-        self.spinner.setGeometry(int(spinner_x), int(spinner_y), 80, 80)
+        size = 120
+        spinner_x = max(0, (self.viewer_container.width() - size) // 2)
+        spinner_y = max(0, (self.viewer_container.height() - size) // 2)
+        self.spinner.setGeometry(spinner_x, spinner_y, size, size)
+        self.spinner.raise_()
