@@ -300,6 +300,11 @@ class CameraWorker(QObject):
             camera_list = list(gp.Camera.autodetect())
             sleep(1)
 
+        if not camera_list:
+            # Loop exited because of requestInterruption() (e.g. app shutdown),
+            # not because a camera was found. Just return — state stays Waiting.
+            return
+
         name, _ = camera_list[0]
         self.__set_state(CameraStates.Found(camera_name=name))
 
