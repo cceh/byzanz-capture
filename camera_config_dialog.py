@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import QDialogButtonBox, QLineEdit
 
 from PyQt6.QtGui import QPalette, QColor
 
-from camera_worker import CameraWorker
+from byzanz_camera.camera_worker import CameraWorker
 
 
 class CameraConfigDialog(QtWidgets.QDialog):
@@ -226,7 +226,13 @@ class RangeWidget(QtWidgets.QSlider):
         if self.config.get_readonly():
             self.setDisabled(True)
         assert self.config.count_children() == 0
-        lo, hi, self.inc = self.config.get_range()
+        lo, hi, inc = self.config.get_range()
+        # Some cameras (e.g. Sony) report inc=0 for continuous/unspecified-step
+        # range properties. QSlider needs a positive step to map float ↔ int,
+        # so fabricate one: 1000 positions across the range, or 1.0 if degenerate.
+        if inc <= 0:
+            inc = (hi - lo) / 1000 if hi > lo else 1.0
+        self.inc = inc
         value = self.config.get_value()
         self.setRange(max(int(lo / self.inc), -0x80000000),
                       min(int(hi / self.inc), 0x7fffffff))

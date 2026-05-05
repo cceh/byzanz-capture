@@ -5,8 +5,8 @@ from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox, QCheckBox, QComboBox
 from PyQt6.uic import loadUi
 
-from helpers import get_ui_path
-from profiles.base import Profile
+from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.profiles.base import Profile
 
 
 class SettingsDialog(QDialog):

@@ -1,4 +1,4 @@
-from profiles.base import Profile
+from .base import Profile
 
 
 class CCeHDomeNikonD800E(Profile):

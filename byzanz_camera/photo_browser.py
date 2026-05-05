@@ -11,11 +11,11 @@ from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
 from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QGraphicsView
 from PyQt6.uic import loadUi
 
-from load_image_worker import LoadImageWorker, LoadImageWorkerResult
-from photo_viewer import PhotoViewer
-from spinner import Spinner
+from .load_image_worker import LoadImageWorker, LoadImageWorkerResult
+from .photo_viewer import PhotoViewer
+from .spinner import Spinner
 
-from helpers import get_ui_path
+from .helpers import get_ui_path
 
 
 def get_file_index(file_path) -> Optional[int]:
@@ -43,6 +43,7 @@ class ImageFileListItem(QListWidgetItem):
 
 class PhotoBrowser(QWidget):
     directory_loaded = pyqtSignal(str)
+    image_selected = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -205,6 +206,7 @@ class PhotoBrowser(QWidget):
             else:
                 print("cache miss")
                 self.__load_image(file_path, lambda result: self.photo_viewer.setPhoto(QPixmap.fromImage(result.image)))
+            self.image_selected.emit(file_path)
         else:
             self.photo_viewer.setPhoto(None)
 

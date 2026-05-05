@@ -1036,13 +1036,13 @@
   <customwidget>
    <class>Spinner</class>
    <extends>QWidget</extends>
-   <header>spinner</header>
+   <header>byzanz_camera.spinner</header>
    <container>1</container>
   </customwidget>
   <customwidget>
    <class>PhotoBrowser</class>
    <extends>QWidget</extends>
-   <header>photo_browser</header>
+   <header>byzanz_camera.photo_browser</header>
    <slots>
     <signal>directory_loaded(QString)</signal>
    </slots>

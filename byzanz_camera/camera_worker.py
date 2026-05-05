@@ -15,7 +15,7 @@ from PyQt6.QtCore import pyqtSignal, QObject, QElapsedTimer, QTimer
 from PyQt6.QtWidgets import QApplication
 from gphoto2 import CameraWidget
 
-from profiles.base import Profile
+from .profiles.base import Profile
 
 EVENT_DESCRIPTIONS = {
     gp.GP_EVENT_UNKNOWN: "Unknown",
@@ -139,11 +139,16 @@ class CameraStates:
             self.capture_request = capture_request
 
     class CaptureFinished:
-        def __init__(self, capture_request: CaptureImagesRequest, elapsed_time: int, num_captured: int):
+        def __init__(self, capture_request, elapsed_time: int, num_captured: int,
+                     file_paths: list[str] | None = None):
             super().__init__()
             self.num_captured = num_captured
             self.elapsed_time = elapsed_time
             self.capture_request = capture_request
+            # Populated by capture_one (list of saved file paths). RTI's
+            # captureImages emits per-file via the request signal and leaves
+            # this as None.
+            self.file_paths = file_paths or []
 
     class CaptureCancelling:
         pass
@@ -428,10 +433,17 @@ class CameraWorker(QObject):
                         data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
                     self.__logger.info("Saving to %s" % file_target_path)
                     cam_file.save(file_target_path)
+                    if not hasattr(self, 'captured_file_paths'):
+                        self.captured_file_paths = []
+                    self.captured_file_paths.append(file_target_path)
 
                     current_capture_req = self.__state.capture_request
                     current_capture_req.signal.file_received.emit(file_target_path)
-                    if self.filesCounter % current_capture_req.expect_files == 0:
+                    # Per-file num_captured tracking is only meaningful for the
+                    # burst path (where we don't have per-shot CAPTURE_COMPLETE).
+                    # The non-burst path updates num_captured per-shot in the
+                    # outer loop, so skip the inner update there.
+                    if self.profile.use_burst() and self.filesCounter % current_capture_req.expect_files == 0:
                         num_captured = int(self.filesCounter / current_capture_req.expect_files)
                         self.__set_state(CameraStates.CaptureInProgress(self.__state.capture_request, num_captured))
 
@@ -546,8 +558,16 @@ class CameraWorker(QObject):
             # TODO handle general camera error
 
     def captureImages(self, capture_req: CaptureImagesRequest):
+        # Stop live view inline (apply settings, no state transition). Going
+        # through __stop_live_view here would emit LiveViewStopped → Ready,
+        # and any client that auto-resumes live view on Ready would queue a
+        # live_view(True) command that fires during processEvents() below —
+        # racing with file handling and trapping the loop in endless retries.
         if isinstance(self.__state, CameraStates.LiveViewActive):
-            self.__stop_live_view()
+            try:
+                self.__apply_settings(self.profile.stop_live_view_settings())
+            except gp.GPhoto2Error:
+                pass  # not fatal; we're about to capture
 
         self.__logger.info("Start capture (%s)", str(capture_req))
 
@@ -556,6 +576,7 @@ class CameraWorker(QObject):
             timer.start()
             self.empty_event_queue()
             self.filesCounter = 0
+            self.captured_file_paths: list[str] = []
             self.captureComplete = False
 
             self.__set_state(CameraStates.CaptureInProgress(capture_request=capture_req, num_captured=0))
@@ -567,46 +588,82 @@ class CameraWorker(QObject):
             elif capture_req.image_quality == CaptureImagesRequest.CaptureFormat.JPEG:
                 self.__apply_settings(self.profile.capture_format_jpeg_settings())
 
-            # self.thread().sleep(1)
+            # Two outer-loop strategies depending on the profile:
+            # 1. Burst (Nikon dome): one trigger fires N shots and we don't
+            #    get a reliable per-shot CAPTURE_COMPLETE, so we keep the
+            #    historical "count files until num_images × expect_files"
+            #    pattern.
+            # 2. Non-burst (Sony, etc.): per-shot CAPTURE_COMPLETE bounds each
+            #    shot. expect_files isn't consulted — the camera tells us how
+            #    many files it produced (handles RAW-only, JPEG-only, AEB
+            #    brackets, multi-exposure, etc. uniformly).
 
-            remaining = capture_req.num_images * capture_req.expect_files
-            while remaining > 0 and not self.shouldCancel and not self.thread().isInterruptionRequested():
-                print(f"remaining#{remaining}")
-                if self.profile.use_burst():
+            if self.profile.use_burst():
+                # ---- BURST PATH (existing logic, unchanged) ----
+                remaining = capture_req.num_images * capture_req.expect_files
+                while remaining > 0 and not self.shouldCancel and not self.thread().isInterruptionRequested():
                     burst = min(capture_req.max_burst, int(remaining / capture_req.expect_files))
                     if not capture_req.manual_trigger:
                         with self.__open_config("write") as cfg:
                             self.__try_set_config(cfg, self.profile.burstnumber_property_name(), burst)
 
-                self.captureComplete = False
-                if not capture_req.manual_trigger:
-                    self.camera.trigger_capture()
+                    self.captureComplete = False
+                    if not capture_req.manual_trigger:
+                        self.camera.trigger_capture()
 
-                while not self.captureComplete and not self.shouldCancel and not self.thread().isInterruptionRequested():
-                    self.empty_event_queue(timeout=100)
+                    while not self.captureComplete and not self.shouldCancel and not self.thread().isInterruptionRequested():
+                        self.empty_event_queue(timeout=100)
+                        QApplication.processEvents()
+
+                    remaining = capture_req.num_images * capture_req.expect_files - self.filesCounter
+                    self.__logger.info("Burst: {0} files (remaining: {1}).".format(self.filesCounter, remaining))
+
+                    if not capture_req.manual_trigger:
+                        with self.__open_config("write") as cfg:
+                            self.__try_set_config(cfg, self.profile.burstnumber_property_name(), burst)
+
+                num_captured = int(self.filesCounter / capture_req.expect_files)
+            else:
+                # ---- NON-BURST PATH (per-shot CAPTURE_COMPLETE) ----
+                shot_idx = 0
+                while shot_idx < capture_req.num_images and not self.shouldCancel and not self.thread().isInterruptionRequested():
+                    self.captureComplete = False
+                    if not capture_req.manual_trigger:
+                        self.camera.trigger_capture()
+
+                    # Wait for CAPTURE_COMPLETE; FILE_ADDED events are saved
+                    # by empty_event_queue's handler and tracked in
+                    # self.captured_file_paths.
+                    while not self.captureComplete and not self.shouldCancel and not self.thread().isInterruptionRequested():
+                        self.empty_event_queue(timeout=100)
+                        QApplication.processEvents()
+
+                    # Brief grace window for late FILE_ADDED events that arrive
+                    # after CAPTURE_COMPLETE on slower cameras.
+                    self.empty_event_queue(timeout=300)
                     QApplication.processEvents()
 
-                remaining = capture_req.num_images * capture_req.expect_files - self.filesCounter
-                self.__logger.info("Curr. files: {0} (remaining: {1}).".format(self.filesCounter, remaining))
+                    shot_idx += 1
+                    self.__set_state(CameraStates.CaptureInProgress(
+                        capture_request=capture_req, num_captured=shot_idx
+                    ))
+                    self.__logger.info("Shot {0}/{1}: {2} files so far".format(
+                        shot_idx, capture_req.num_images, self.filesCounter))
 
+                num_captured = shot_idx
 
-                if self.profile.use_burst() and not capture_req.manual_trigger:
-                    with self.__open_config("write") as cfg:
-                        self.__try_set_config(cfg, self.profile.burstnumber_property_name(), burst)
-
-            # with self.__open_config("write") as cfg:
-            #     self.__try_set_config(cfg, "capture", 0)
-
-            self.__logger.info("No. Files captured: {0} (took {1}).".format(self.filesCounter, timer.elapsed()))
+            self.__logger.info("No. files captured: {0} ({1} ms).".format(
+                self.filesCounter, timer.elapsed()))
 
             if not self.shouldCancel:
-                num_captured = int(self.filesCounter / capture_req.expect_files)
-                self.__set_state(
-                    CameraStates.CaptureFinished(capture_req, elapsed_time=timer.elapsed(), num_captured=num_captured))
+                self.__set_state(CameraStates.CaptureFinished(
+                    capture_req,
+                    elapsed_time=timer.elapsed(),
+                    num_captured=num_captured,
+                    file_paths=list(self.captured_file_paths),
+                ))
             else:
                 self.__logger.info("Capture cancelled")
-                # with self.__open_config("write") as cfg:
-                #     self.__try_set_config(cfg, "capture", 0)
                 self.__set_state(CameraStates.CaptureCanceled(capture_req, elapsed_time=timer.elapsed()))
 
         except gp.GPhoto2Error as err:

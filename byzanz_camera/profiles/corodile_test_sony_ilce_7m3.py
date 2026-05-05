@@ -1,9 +1,9 @@
-from profiles.base import Profile
+from .base import Profile
 
 
-class ParisDomeSonyIlce7RM5(Profile):
+class MoritzA7MIII(Profile):
     def name(self) -> str:
-        return "Paris Dome with Sony A7alpha 5"
+        return "Crocodile Test Moritz Sony A7 III"
 
     def supports_chs(self):
         return False
@@ -41,9 +41,9 @@ class ParisDomeSonyIlce7RM5(Profile):
 
     def initial_settings(self):
         return {
-            "500e": "4",                     # Exposure Program Mode: manual
-            "whitebalance": "Daylight",
-            "d1a7": "2"                      # Enable release w/o card
+ #          "500e": "4",                     # Exposure Program Mode: manual
+ #          "whitebalance": "Daylight",
+ #          "d1a7": "2"                      # Enable release w/o card
         }
 
     def start_autofocus_settings(self):

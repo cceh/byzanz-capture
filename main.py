@@ -6,6 +6,8 @@ import sys
 from enum import Enum
 from pathlib import Path
 
+from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
+
 # python-gphoto2's __init__.py overrides CAMLIBS/IOLIBS on import to package-bundled
 # (and on macOS sdist builds, broken) directories. Capture the env-provided values
 # before import and reapply afterward, so PyCharm / shell / build_win_hook can win.
@@ -30,9 +32,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.uic import loadUi
 from send2trash import send2trash
 
-from helpers import get_ui_path
-from profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
-from profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
+from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
+from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
 
 try:
     from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest, BtControllerState
@@ -40,18 +42,19 @@ try:
 except:
     BT_AVAILABLE = False
 
-from camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest, \
+from byzanz_camera.camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest, \
     ConfigProtocol
 from open_session_dialog import OpenSessionDialog
-from photo_browser import PhotoBrowser
+from byzanz_camera.photo_browser import PhotoBrowser
 from settings_dialog import SettingsDialog
-from spinner import Spinner
+from byzanz_camera.spinner import Spinner
 from camera_config_dialog import CameraConfigDialog
 
 
 PROFILES = {
     "ParisDomeSonyIlce7RM5": ParisDomeSonyIlce7RM5(),
-    "CCeHDomeNikonD800E": CCeHDomeNikonD800E()
+    "CCeHDomeNikonD800E": CCeHDomeNikonD800E(),
+    "MoritzA7III": MoritzA7MIII()
 }
 
 class Session:

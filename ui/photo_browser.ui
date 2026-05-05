@@ -111,7 +111,7 @@
   <customwidget>
    <class>PhotoViewer</class>
    <extends>QGraphicsView</extends>
-   <header>photo_viewer</header>
+   <header>byzanz_camera.photo_viewer</header>
   </customwidget>
  </customwidgets>
  <resources/>

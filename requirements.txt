@@ -1,6 +1,6 @@
-gphoto2~=2.5.0
-PyQt6~=6.7.0
-Pillow~=11.2.1
+gphoto2~=2.6.3
+PyQt6~=6.11.0
+Pillow~=12.2.0
 Send2Trash~=1.8.3
-bleak==0.22.3
+#bleak==0.22.3
 qasync~=0.27.1
