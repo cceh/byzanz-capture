@@ -5,6 +5,13 @@ class ParisDomeSonyIlce7RM5(Profile):
     def name(self) -> str:
         return "Paris Dome with Sony A7alpha 5"
 
+    def gphoto2_model_pattern(self) -> str:
+        # gphoto2 reports the A7R V as "Sony ILCE-7RM5 (PC Control)" — the
+        # Sony PTP camlib uses the model code rather than the marketing name
+        # for this body. (Other Sonys like the A7 III use "Alpha-A7 III" —
+        # naming is inconsistent across Sony bodies; verify per camera.)
+        return "ILCE-7RM5"
+
     def supports_chs(self):
         return False
 

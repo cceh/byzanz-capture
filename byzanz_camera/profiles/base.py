@@ -7,6 +7,15 @@ class Profile(ABC):
         """Return user-friendly name of the camera driver"""
         pass
 
+    def gphoto2_model_pattern(self) -> str | None:
+        """Substring of the gphoto2-detected model name that should match a
+        camera using this profile. Default `None` = match the first detected
+        camera (preserves existing single-camera behavior). Subclasses
+        override to enable model-based identification when multiple cameras
+        are connected (e.g. visible + IR).
+        """
+        return None
+
     @abstractmethod
     def supports_chs(self):
         pass

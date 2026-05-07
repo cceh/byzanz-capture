@@ -5,6 +5,11 @@ class MoritzA7MIII(Profile):
     def name(self) -> str:
         return "Crocodile Test Moritz Sony A7 III"
 
+    def gphoto2_model_pattern(self) -> str:
+        # Verified via `gphoto2 --auto-detect` against this camera:
+        # "Sony Alpha-A7 III (PC Control)".
+        return "Alpha-A7 III"
+
     def supports_chs(self):
         return False
 
