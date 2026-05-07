@@ -72,8 +72,13 @@ class LoadImageWorker(QRunnable):
                 LoadImageWorkerResult(q_image, exif, self.path, thumbnail_q_image)
             )
             print("Loading image %s image took %d ms" % (Path(self.path).name, timer.elapsed()))
-        except:
-            pass # TODO: Image File Error Handling
+        except Exception as e:
+            # Was a bare `except: pass` — silently lost RAWs that rawpy couldn't
+            # read mid-flight (FS watcher fires before the file is fully flushed).
+            # Log it so the next failure is diagnosable instead of invisible.
+            import traceback
+            print(f"LoadImageWorker FAILED for {Path(self.path).name}: {e!r}")
+            traceback.print_exc()
 
     def _load_jpeg(self):
         # exif_transpose applies the camera's EXIF Orientation tag so portrait
