@@ -225,6 +225,12 @@ class CameraWorker(QObject):
         self.camera: gp.Camera = None
         self.camera_name: str = None
 
+        # Multi-camera identification (set by the orchestrator before
+        # emitting find_camera). When None, behavior matches single-camera
+        # mode: pick the first detected camera, no port pinning.
+        self.target_model_pattern: str | None = None
+        self.target_port: str | None = None
+
         self.filesCounter = 0
         self.captureComplete = False
 
@@ -294,18 +300,28 @@ class CameraWorker(QObject):
 
     def __find_camera(self):
         self.__set_state(CameraStates.Waiting())
-        camera_list = None
-        while not camera_list and not self.thread().isInterruptionRequested():
-            self.__logger.info("Waiting for camera...")
-            camera_list = list(gp.Camera.autodetect())
+        pattern = self.target_model_pattern  # snapshot — orchestrator may rebind
+        found = None
+        log_target = f" matching {pattern!r}" if pattern else ""
+
+        while not found and not self.thread().isInterruptionRequested():
+            self.__logger.info(f"Waiting for camera{log_target}...")
+            with _GPHOTO2_GLOBAL_LOCK:
+                detected = list(gp.Camera.autodetect())
+            for model, port in detected:
+                if pattern is None or pattern in model:
+                    found = (model, port)
+                    break
+            if not found:
             sleep(1)
 
-        if not camera_list:
+        if not found:
             # Loop exited because of requestInterruption() (e.g. app shutdown),
             # not because a camera was found. Just return — state stays Waiting.
             return
 
-        name, _ = camera_list[0]
+        name, port = found
+        self.target_port = port  # remember for __connect_camera to pin via port_info
         self.__set_state(CameraStates.Found(camera_name=name))
 
     def __apply_settings(self, settings: dict):
