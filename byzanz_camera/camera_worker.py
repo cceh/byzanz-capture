@@ -2,6 +2,7 @@ import io
 import logging
 import os
 import re
+import threading
 import time
 from contextlib import contextmanager
 from enum import Enum
@@ -13,9 +14,18 @@ import gphoto2 as gp
 from PIL import Image
 from PyQt6.QtCore import pyqtSignal, QObject, QElapsedTimer, QTimer
 from PyQt6.QtWidgets import QApplication
+
+from byzanz_camera._autodetect import autodetect as _gphoto2_autodetect
 from gphoto2 import CameraWidget
 
 from .profiles.base import Profile
+
+# libgphoto2 is per-camera-thread-safe but its global operations
+# (autodetect, port enumeration, abilities listing) are NOT. Concurrent
+# calls from multiple worker threads can deadlock or corrupt internal
+# state. Serialize them across all CameraWorker instances.
+_GPHOTO2_GLOBAL_LOCK = threading.Lock()
+
 
 EVENT_DESCRIPTIONS = {
     gp.GP_EVENT_UNKNOWN: "Unknown",
@@ -306,14 +316,19 @@ class CameraWorker(QObject):
 
         while not found and not self.thread().isInterruptionRequested():
             self.__logger.info(f"Waiting for camera{log_target}...")
+            # `_gphoto2_autodetect()` uses a ctypes wrapper around
+            # `gp_camera_autodetect` that releases the GIL during the USB
+            # scan, so the Qt UI thread isn't frozen for the duration.
+            # Falls back to gp.Camera.autodetect() if ctypes can't resolve
+            # the symbols (see byzanz_camera._autodetect for details).
             with _GPHOTO2_GLOBAL_LOCK:
-                detected = list(gp.Camera.autodetect())
+                detected = _gphoto2_autodetect()
             for model, port in detected:
                 if pattern is None or pattern in model:
                     found = (model, port)
                     break
             if not found:
-            sleep(1)
+                sleep(1)
 
         if not found:
             # Loop exited because of requestInterruption() (e.g. app shutdown),
@@ -335,10 +350,24 @@ class CameraWorker(QObject):
     def __connect_camera(self, profile: Profile):
         self.profile = profile
         self.__set_state(CameraStates.Connecting(self.camera_name))
-        self.camera = gp.Camera()
         self.__last_ptp_error = None
 
-        self.camera.init()
+        # libgphoto2's PTP init is per-camera in theory but does USB
+        # enumeration internally that races with concurrent autodetect /
+        # other inits. Serialize the whole gp.Camera() + set_port_info() +
+        # init() block under the global lock to be safe.
+        self.__logger.info("Acquiring global lock to init %s on %s",
+                            self.target_model_pattern or "(any)", self.target_port or "(auto)")
+        with _GPHOTO2_GLOBAL_LOCK:
+            self.camera = gp.Camera()
+            if self.target_port is not None:
+                port_info_list = gp.PortInfoList()
+                port_info_list.load()
+                idx = port_info_list.lookup_path(self.target_port)
+                self.camera.set_port_info(port_info_list[idx])
+            self.__logger.info("Calling camera.init() …")
+            self.camera.init()
+            self.__logger.info("camera.init() returned")
         self.empty_event_queue(1000)
         self.__apply_settings(profile.initial_settings())
 
@@ -388,6 +417,13 @@ class CameraWorker(QObject):
         self.__set_state(CameraStates.Disconnected(camera_name=self.camera_name, auto_reconnect=auto_reconnect))
         self.camera = None
         self.camera_name = None
+
+        # Brief pause before the UI's auto-reconnect handler kicks off another
+        # find_camera. Stops us from tight-looping the USB stack after a failed
+        # init() (e.g. when another process holds the camera or it's locked up
+        # mid-handshake). Also gives the user time to power-cycle the camera.
+        if auto_reconnect:
+            sleep(2)
 
     @__handle_camera_error
     def __set_single_config(self, name, value):
