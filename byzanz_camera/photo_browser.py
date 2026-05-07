@@ -4,10 +4,13 @@ from os import listdir
 from pathlib import Path
 from typing import Callable, Optional
 
-from PyQt6.QtCore import QFileSystemWatcher, Qt, QThreadPool, pyqtSignal, QMutex, \
-    QMutexLocker
+from PyQt6.QtCore import QFileSystemWatcher, QPoint, Qt, QThreadPool, pyqtSignal, QMutex, \
+    QMutexLocker, QSize
 from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
-from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QGraphicsView
+from PyQt6.QtWidgets import (
+    QGraphicsView, QGroupBox, QListView, QListWidget, QListWidgetItem, QMenu,
+    QStyledItemDelegate, QVBoxLayout, QWidget,
+)
 from PyQt6.uic import loadUi
 
 from .load_image_worker import DecodeMode, LoadImageWorker, LoadImageWorkerResult, SUPPORTED_EXTENSIONS
@@ -37,6 +40,10 @@ class ImageFileListItem(QListWidgetItem):
     def data(self, role: Qt.ItemDataRole):
         if role == Qt.ItemDataRole.DecorationRole:
             return self.thumbnail
+        if role == Qt.ItemDataRole.UserRole:
+            # Lets a custom delegate read the item directly from the model index
+            # without having to reach into the parent QListWidget.
+            return self
 
         return super().data(role)
 
@@ -55,6 +62,7 @@ class PhotoBrowser(QWidget):
 
         self.__currentPath: str = None
         self.__currentFileSet: set[str] = set()
+        self.__ctx_menu_provider: Optional[Callable[[ImageFileListItem], Optional[QMenu]]] = None
 
         self.photo_viewer: PhotoViewer = self.findChild(QWidget, "photoViewer")
         self.image_file_list: QListWidget = self.findChild(QListWidget, "imageFileList")
@@ -70,6 +78,103 @@ class PhotoBrowser(QWidget):
         self.resize(self.size())
 
         self.__mutex = QMutex()
+
+    # ---- Extension points for subclasses --------------------------------
+
+    def set_item_delegate(self, delegate: QStyledItemDelegate) -> None:
+        """Install a custom delegate for thumbnail items. Lets subclasses
+        overlay decorations (e.g. ★ chosen-take marker) without touching
+        the inner list widget directly.
+        """
+        self.image_file_list.setItemDelegate(delegate)
+
+    def set_context_menu_provider(
+        self,
+        provider: Callable[[ImageFileListItem], Optional[QMenu]],
+    ) -> None:
+        """Register a callable that, given the right-clicked item, returns a
+        QMenu to show (or None to skip). Wires the context-menu policy and
+        signal once on first call.
+        """
+        first_install = self.__ctx_menu_provider is None
+        self.__ctx_menu_provider = provider
+        if first_install:
+            self.image_file_list.setContextMenuPolicy(
+                Qt.ContextMenuPolicy.CustomContextMenu
+            )
+            self.image_file_list.customContextMenuRequested.connect(
+                self.__on_context_menu_requested
+            )
+
+    def repaint_items(self) -> None:
+        """Trigger a repaint of visible items. Call after external state
+        affecting item decoration changes (e.g. chosen-take swap)."""
+        self.image_file_list.viewport().update()
+
+    def use_loupe_layout(self) -> None:
+        """Switch from the default side-by-side layout (list left, viewer right)
+        to a Lightroom-style loupe layout: big viewer on top, horizontal
+        filmstrip of thumbnails below. Strips the group-box titles and gives
+        the workspace as much vertical room as possible.
+
+        Idempotent in spirit but intended to be called once at construction
+        — there's no `unuse_loupe_layout`. Safe to call from a subclass's
+        __init__ after `super().__init__`.
+        """
+        list_box = self.image_file_list.parentWidget()
+        viewer_box = self.viewer_container.parentWidget()
+
+        # Strip "Bilder" / "Vorschau" titles — they read as section labels in
+        # the side-by-side layout but are visual noise in the loupe form.
+        for box in (list_box, viewer_box):
+            if isinstance(box, QGroupBox):
+                box.setTitle("")
+
+        # Detach old layout and replace with vertical: viewer (top, stretches)
+        # then list (bottom, fixed height). Ownership transfer follows the
+        # Qt idiom of parking the old layout on a throwaway widget so it gets
+        # cleaned up when that widget falls out of scope.
+        old_layout = self.layout()
+        while old_layout.count():
+            old_layout.takeAt(0)
+        QWidget().setLayout(old_layout)
+
+        new_layout = QVBoxLayout(self)
+        new_layout.setContentsMargins(0, 0, 0, 0)
+        new_layout.setSpacing(8)
+        new_layout.addWidget(viewer_box, 1)
+        new_layout.addWidget(list_box)
+
+        # Filmstrip box: fixed height, no width cap. The original .ui sets
+        # maximumWidth=250 for the side-by-side flavor — undo that. The
+        # default text-below layout is gone; height only has to fit the
+        # thumb itself plus a little padding (subclasses are expected to
+        # paint any caption as a delegate overlay on top of the thumb).
+        list_box.setMaximumWidth(16777215)
+        list_box.setMaximumHeight(160)
+        list_box.setMinimumHeight(140)
+
+        # List flow → horizontal: thumbnails march left-to-right, no wrap.
+        self.image_file_list.setFlow(QListView.Flow.LeftToRight)
+        self.image_file_list.setWrapping(False)
+        self.image_file_list.setHorizontalScrollMode(
+            QListView.ScrollMode.ScrollPerPixel
+        )
+        self.image_file_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.image_file_list.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        # Thumb-only tiles: thumb fills the cell so a delegate overlay sits
+        # edge-to-edge on the thumbnail. The side-by-side layout shows
+        # filename+EXIF below the thumb; the loupe form expects subclasses
+        # to overlay caption text via the delegate.
+        self.image_file_list.setIconSize(QSize(120, 120))
+        self.image_file_list.setGridSize(QSize(124, 124))
+        self.image_file_list.setSpacing(4)
+
+    # ---- Existing public API --------------------------------------------
 
     def get_scene(self):
         return self.photo_viewer.getScene()
@@ -126,25 +231,34 @@ class PhotoBrowser(QWidget):
         self.__center_spinner_over_photo_viewer()
 
     def show_preview(self, image: QImage | None):
+        # NOTE: this widget no longer touches `image_file_list.setEnabled()`.
+        # "Should clicks be allowed during live view?" is a UX policy that
+        # belongs to the consumer (e.g. papyri auto-pauses live view on
+        # selection via the `image_selected` signal). PhotoBrowser is now
+        # purely a view of (file list, viewer) without a coupled lock.
         if not image:
             self.photo_viewer.setPhoto(None)
-            self.image_file_list.setEnabled(True)
-
-            # re-show the previously selected image
+            # re-show the previously selected image, if any (so the viewer
+            # doesn't go blank when live view stops without an active selection)
             selected_image_index = self.image_file_list.currentIndex()
             if selected_image_index:
                 item = self.image_file_list.item(selected_image_index.row())
                 self.__on_select_image_file(item)
             return
 
-        self.image_file_list.setEnabled(False)
         self.photo_viewer.setPhoto(QPixmap.fromImage(image))
         self.photo_viewer.fitInView()
 
     def __load_directory(self):
         print("Load directory: " + self.__currentPath)
-        new_files = [f for f in listdir(self.__currentPath)
-                     if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS and get_file_index(f) is not None]
+        if os.path.isdir(self.__currentPath):
+            new_files = [f for f in listdir(self.__currentPath)
+                         if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS and get_file_index(f) is not None]
+        else:
+            # Watched path is gone (deleted in Finder, or never existed).
+            # Treat as empty so the add/remove diffing below clears any
+            # stale items rather than leaving the list lying.
+            new_files = []
 
         new_fileset = set(new_files)
         added_files = new_fileset - self.__currentFileSet
@@ -263,3 +377,12 @@ class PhotoBrowser(QWidget):
         spinner_y = max(0, (self.viewer_container.height() - size) // 2)
         self.spinner.setGeometry(spinner_x, spinner_y, size, size)
         self.spinner.raise_()
+
+    def __on_context_menu_requested(self, position: QPoint):
+        item = self.image_file_list.itemAt(position)
+        if item is None or self.__ctx_menu_provider is None:
+            return
+        menu = self.__ctx_menu_provider(item)
+        if menu is None:
+            return
+        menu.exec(self.image_file_list.viewport().mapToGlobal(position))
