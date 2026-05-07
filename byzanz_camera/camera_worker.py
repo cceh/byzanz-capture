@@ -437,7 +437,17 @@ class CameraWorker(QObject):
                     cam_file = self.camera.file_get(
                         data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
                     self.__logger.info("Saving to %s" % file_target_path)
-                    cam_file.save(file_target_path)
+                    # Write to a `.part` temp file then atomic-rename. Stops
+                    # consumers (PhotoBrowser FS watcher, papyri Object refresh)
+                    # from seeing a half-written file. PhotoBrowser's filter
+                    # ignores `.part` extensions; rawpy only ever opens the
+                    # final, fully-written file.
+                    # `os.replace` is atomic on both POSIX and NTFS (Python 3.3+
+                    # uses MoveFileEx with REPLACE_EXISTING) — `os.rename`
+                    # would fail on Windows if the destination already exists.
+                    temp_path = file_target_path + ".part"
+                    cam_file.save(temp_path)
+                    os.replace(temp_path, file_target_path)
                     if not hasattr(self, 'captured_file_paths'):
                         self.captured_file_paths = []
                     self.captured_file_paths.append(file_target_path)
