@@ -607,8 +607,18 @@ class PhotoBrowser(QWidget):
 
     def __show_and_cache(self, result: LoadImageWorkerResult):
         pixmap = QPixmap.fromImage(result.image)
+        # Cache unconditionally — a future click on the same thumb is
+        # instant even if this result is no longer the active selection.
         QPixmapCache.insert(result.path, pixmap)
-        self.photo_viewer.setPhoto(pixmap)
+        # Stale-selection guard: rapid thumb clicks queue multiple full
+        # decodes; if an earlier worker finishes after a later one's
+        # selection, we'd display the wrong image. Only display when
+        # this result still matches the user's current selection (same
+        # pattern class as the bucket-switch generation token, but
+        # scoped per-thumb so we use currentItem() as the anchor).
+        current = self.image_file_list.currentItem()
+        if isinstance(current, ImageFileListItem) and current.path == result.path:
+            self.photo_viewer.setPhoto(pixmap)
 
     def __add_image_item(self, image_worker_result: LoadImageWorkerResult):
         list_item = ImageFileListItem(image_worker_result.path, image_worker_result.thumbnail)

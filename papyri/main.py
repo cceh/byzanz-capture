@@ -470,7 +470,6 @@ class PapyriMainWindow(QMainWindow):
             SPECTRUM_VISIBLE: None,
             SPECTRUM_INFRARED: None,
         }
-        self._live_view_paused = False
 
         self._bind_widgets()
         self._wire_actions()
@@ -713,6 +712,18 @@ class PapyriMainWindow(QMainWindow):
         self._handle_current_object_subscription()
         self._handle_current_object_view_mode_reset()
 
+        # B6 live_view_paused
+        s.live_view_paused_changed.connect(self._refresh_pause_button_text)
+        s.live_view_paused_changed.connect(self._handle_live_view_paused)
+        self._refresh_pause_button_text()
+        # _handle_live_view_paused NOT invoked at init: it would emit a
+        # live_view command to the active worker before the camera is
+        # connected — pointless and noisy.
+
+        # B7 view_mode
+        s.view_mode_changed.connect(self._refresh_view_mode_indicator)
+        self._refresh_view_mode_indicator()
+
     def _spawn_worker(self, profile: Profile) -> tuple[CameraWorker, QThread]:
         """Build a worker pre-configured to find the right camera by model
         pattern. Caller wires the signals and starts the thread."""
@@ -818,7 +829,7 @@ class PapyriMainWindow(QMainWindow):
         )):
             old_worker.commands.live_view.emit(False)
 
-        if self._live_view_paused or new_worker is None:
+        if self.session.live_view_paused or new_worker is None:
             return
         new_state = self.camera_states[new_spectrum]
         # Only start if the new camera is actually ready. If it's mid-
@@ -914,7 +925,7 @@ class PapyriMainWindow(QMainWindow):
                     # user paused. Safe with capture_one — it never
                     # transitions through Ready between live-view and
                     # CaptureInProgress.
-                    if not self._live_view_paused:
+                    if not self.session.live_view_paused:
                         worker.commands.live_view.emit(True)
 
                 case CameraStates.CaptureError(error=err):
@@ -930,17 +941,16 @@ class PapyriMainWindow(QMainWindow):
         self.photo_browser.show_preview(ImageQt(image.image))
         # Each arriving live frame asserts "live" — handles transitions
         # away from preview/paused without needing extra plumbing.
-        if not self._live_view_paused:
-            self.photo_browser.set_view_state("live")
+        if not self.session.live_view_paused:
+            self.session.set_view_mode("live")
 
     # ------------------------------------------------------------- update_ui
 
     def update_ui(self):
-        """Single source of truth for every widget's enable/visibility/text.
-
-        Always derives from (camera_state, session, _live_view_paused). Called
-        from _on_camera_state_changed and from anywhere that changes context.
-        """
+        """Camera-state-driven UI (autofocus button, capture status label,
+        capture/pause button enable). Called from _on_camera_state_changed
+        and from anywhere that changes context. Will dissolve into B3/B4
+        receivers in Stage 5; for now still imperative."""
         camera_state = self.camera_state
         has_object = self.session.current_object is not None
         object_loaded = has_object and self.session.current_object.dir_loaded
@@ -1022,49 +1032,50 @@ class PapyriMainWindow(QMainWindow):
     # ------------------------------------------------------------- handlers
 
     def _on_directory_loaded(self, _path: str):
-        if self.session.current_object is not None:
-            self.session.current_object.dir_loaded = True
-            self.session.current_object.refresh()  # capture count may have changed
-            # Existing objects: PhotoBrowser auto-selects the last-loaded
-            # thumb and shows it briefly, but its currentItemChanged signal
-            # is suppressed during auto-selection so live view doesn't get
-            # paused — and the next live frame overwrites the displayed
-            # thumb. Manually pause + set the preview indicator so the
-            # auto-selected take stays visible until the user resumes.
-            current_name = self.photo_browser.current_file_name()
-            if current_name is not None:
-                if not self.pause_live_view_button.isChecked():
-                    self.pause_live_view_button.setChecked(True)  # fires _on_pause_toggled
-                stem = os.path.splitext(current_name)[0]
-                self.photo_browser.set_view_state("preview", stem)
-            self.update_ui()
+        """Action handler for PhotoBrowser.directory_loaded. Folds in the
+        F-VIEW-1 fix: explicit view_mode for the empty-bucket case so the
+        previous bucket's "live" / "preview" pill doesn't leak in (option
+        (a) — show "empty" until live frames or selection assert otherwise).
+        """
+        if self.session.current_object is None:
+            return
+        self.session.current_object.dir_loaded = True
+        self.session.current_object.refresh()
+        # Existing objects: PhotoBrowser auto-selects the last-loaded
+        # thumb and shows it briefly, but its currentItemChanged signal
+        # is suppressed during auto-selection (H22) so image_selected
+        # never fires. Manually pause + assert the preview indicator so
+        # the auto-selected take stays visible until the user resumes.
+        current_name = self.photo_browser.current_file_name()
+        if current_name is not None:
+            self.session.set_live_view_paused(True)
+            stem = os.path.splitext(current_name)[0]
+            self.session.set_view_mode("preview", stem)
+        else:
+            # F-VIEW-1: empty bucket — no captures, no thumb to show.
+            # If active camera is streaming, the next preview_image will
+            # assert "live"; otherwise the pill stays "empty".
+            self.session.set_view_mode("empty")
+        self.update_ui()
 
     def _on_image_selected(self, _path: str):
-        # Selecting a previous capture pauses live view so the chosen image
-        # stays on screen. Resume is explicit via the Pause/Resume button.
-        if not self.pause_live_view_button.isChecked():
-            self.pause_live_view_button.setChecked(True)  # fires _on_pause_toggled
-        # Indicator → preview, with the file stem in the pill.
+        """Action handler for PhotoBrowser.image_selected — only fires on
+        USER click (auto-selection during load is suppressed per H22).
+        Pauses live view so the chosen image persists; flips view_mode to
+        preview with the file stem."""
+        self.session.set_live_view_paused(True)
         stem = os.path.splitext(os.path.basename(_path))[0]
-        self.photo_browser.set_view_state("preview", stem)
+        self.session.set_view_mode("preview", stem)
 
     def _on_pause_toggled(self, paused: bool):
-        self._live_view_paused = paused
-        self.pause_live_view_button.setText(
-            "Resume Live View" if paused else "Pause Live View"
-        )
-        if paused:
-            self.active_worker.commands.live_view.emit(False)
-            # Only flip to "paused" if we're not already showing a preview;
-            # _on_image_selected sets "preview" first and we don't want to
-            # immediately overwrite it (the auto-pause from selecting a
-            # thumb fires this handler right after).
-            if self.photo_browser._view_state != "preview":
-                self.photo_browser.set_view_state("paused")
-        elif isinstance(self.camera_state, (
-            CameraStates.Ready, CameraStates.LiveViewStopped, CameraStates.CaptureFinished,
-        )):
-            self.active_worker.commands.live_view.emit(True)
+        """Action handler for the pause button's toggled signal. Updates
+        session — the live_view command emit and pause-button-text update
+        are receiver concerns (see _wire_session). H5 preserved here:
+        when in "preview" mode, don't overwrite to "paused" because
+        _on_image_selected has already set the meaningful preview state."""
+        self.session.set_live_view_paused(paused)
+        if paused and self.session.view_mode != "preview":
+            self.session.set_view_mode("paused")
 
     def _trigger_autofocus(self):
         self.active_worker.commands.trigger_autofocus.emit()
@@ -1205,10 +1216,46 @@ class PapyriMainWindow(QMainWindow):
     def _handle_current_object_view_mode_reset(self) -> None:
         """When the object closes (B5 → None), reset view_mode to "empty"
         so the stale preview / live indicator doesn't persist with no
-        listing. Imperative direct call to PhotoBrowser until B7 lands
-        in Stage 4 — then this folds into a session.set_view_mode call."""
+        listing."""
         if self.session.current_object is None:
-            self.photo_browser.set_view_state("empty")
+            self.session.set_view_mode("empty")
+
+    # ---- B6 receivers (live_view_paused_changed) -----------------------
+
+    def _refresh_pause_button_text(self) -> None:
+        """Pause button text + checked state mirror B6 (the F-DUP fix —
+        button is no longer the source of truth)."""
+        paused = self.session.live_view_paused
+        self.pause_live_view_button.setText(
+            "Resume Live View" if paused else "Pause Live View"
+        )
+        # setChecked may fire `toggled` if the value differs; the action
+        # handler then calls set_live_view_paused which is a no-op
+        # (already current value), breaking the cycle.
+        self.pause_live_view_button.setChecked(paused)
+
+    def _handle_live_view_paused(self, paused: bool) -> None:
+        """When paused intent flips, send live_view command to active
+        worker. Started/stopped policy mirrors the prior in-handler
+        logic — only auto-resume when the camera is in a state ready
+        for it."""
+        if paused:
+            self.active_worker.commands.live_view.emit(False)
+        elif isinstance(self.camera_state, (
+            CameraStates.Ready,
+            CameraStates.LiveViewStopped,
+            CameraStates.CaptureFinished,
+        )):
+            self.active_worker.commands.live_view.emit(True)
+
+    # ---- B7 receivers (view_mode_changed) ------------------------------
+
+    def _refresh_view_mode_indicator(self) -> None:
+        """Pill text/border + viewer border tint. PhotoBrowser owns the
+        rendering; this receiver just hands the (mode, label) over."""
+        self.photo_browser.set_view_state(
+            self.session.view_mode, self.session.view_mode_label
+        )
 
     # ---- objects sidebar handlers ----
 

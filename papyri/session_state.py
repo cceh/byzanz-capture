@@ -39,6 +39,18 @@ class SessionState(QObject):
     # re-bind of the SAME instance is a no-op.
     current_object_changed = pyqtSignal(object)  # Object | None
 
+    # B6 — live-view paused intent. Single source of truth — the pause
+    # button is a UI mirror (F-DUP fix) wired via _refresh_pause_button_text.
+    # Action handlers (button toggle, thumb selection, directory load) call
+    # the setter; receivers do the rest.
+    live_view_paused_changed = pyqtSignal(bool)
+
+    # B7 — viewer mode. Atomic (mode, label): the label is meaningful only
+    # for "preview" mode but always travels with the mode change.
+    # Receivers use the args for convenience but should still read from
+    # session for idempotency.
+    view_mode_changed = pyqtSignal(str, str)  # mode, label
+
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._logger = logging.getLogger(self.__class__.__name__)
@@ -49,6 +61,14 @@ class SessionState(QObject):
 
         # B5 — current object reference.
         self._current_object: "Object | None" = None
+
+        # B6 — live-view paused intent.
+        self._live_view_paused: bool = False
+
+        # B7 — viewer mode (one of "live" / "paused" / "preview" / "empty").
+        # Label is the per-state extra (typically a stem for "preview").
+        self._view_mode: str = "empty"
+        self._view_mode_label: str = ""
 
         # B8 — per-camera advanced-config dialog handle. At most one open at
         # a time (option A in the design discussion); spectrum tracks which
@@ -96,6 +116,42 @@ class SessionState(QObject):
         self._logger.info("current_object = %s",
                           obj.name if obj is not None else None)
         self.current_object_changed.emit(obj)
+
+    # ---- B6 live_view_paused ------------------------------------------
+
+    @property
+    def live_view_paused(self) -> bool:
+        return self._live_view_paused
+
+    def set_live_view_paused(self, paused: bool) -> None:
+        if paused == self._live_view_paused:
+            return
+        self._live_view_paused = paused
+        self._logger.info("live_view_paused = %s", paused)
+        self.live_view_paused_changed.emit(paused)
+
+    # ---- B7 view_mode -------------------------------------------------
+
+    @property
+    def view_mode(self) -> str:
+        return self._view_mode
+
+    @property
+    def view_mode_label(self) -> str:
+        return self._view_mode_label
+
+    def set_view_mode(self, mode: str, label: str = "") -> None:
+        """Atomic (mode, label). Caller is responsible for valid modes
+        (one of "live" / "paused" / "preview" / "empty") — no validation
+        here per the setters-mutate-and-emit-only rule."""
+        if mode == self._view_mode and label == self._view_mode_label:
+            return
+        self._view_mode = mode
+        self._view_mode_label = label
+        self._logger.info(
+            "view_mode = %s%s", mode, f" ({label})" if label else ""
+        )
+        self.view_mode_changed.emit(mode, label)
 
     # ---- B8 cam_config_dialog -----------------------------------------
 
