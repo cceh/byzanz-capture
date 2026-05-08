@@ -467,7 +467,6 @@ class PapyriMainWindow(QMainWindow):
             SPECTRUM_VISIBLE: None,
             SPECTRUM_INFRARED: None,
         }
-        self.cam_config_dialog: CameraConfigDialog | None = None
         self._live_view_paused = False
         # Workflow state — two orthogonal axes:
         #   active_spectrum  : VISIBLE | INFRARED — drives which camera worker
@@ -539,12 +538,27 @@ class PapyriMainWindow(QMainWindow):
         # Settings menu (popup off the "Settings" button)
         self.open_program_settings_action = self._action(
             "General settings", self.open_settings, icon="ui/general_settings.svg")
-        self.open_advanced_cam_config_action = self._action(
-            "Advanced camera config", self.open_advanced_camera_config, icon="ui/cam_settings.svg")
+        # Per-camera advanced-config entries. IR entry's visibility is
+        # toggled in _wire_camera based on whether IR was configured.
+        # Enabled state is refreshed via aboutToShow so the menu reflects
+        # current per-camera readiness without needing live signal wiring
+        # (which lands in Stage 5 when camera_states migrate).
+        self.open_vis_cam_config_action = self._action(
+            "Configure VIS camera…",
+            lambda: self.open_advanced_camera_config(SPECTRUM_VISIBLE),
+            icon="ui/cam_settings.svg",
+        )
+        self.open_ir_cam_config_action = self._action(
+            "Configure IR camera…",
+            lambda: self.open_advanced_camera_config(SPECTRUM_INFRARED),
+            icon="ui/cam_settings.svg",
+        )
         self.settings_menu = QMenu(self)
-        self.settings_menu.addActions([
-            self.open_program_settings_action, self.open_advanced_cam_config_action,
-        ])
+        self.settings_menu.addAction(self.open_program_settings_action)
+        self.settings_menu.addSeparator()
+        self.settings_menu.addAction(self.open_vis_cam_config_action)
+        self.settings_menu.addAction(self.open_ir_cam_config_action)
+        self.settings_menu.aboutToShow.connect(self._refresh_settings_menu_state)
 
     def _action(self, label: str, slot, icon: str | None = None) -> QAction:
         action = QAction(label, self)
@@ -649,6 +663,8 @@ class PapyriMainWindow(QMainWindow):
             # in the side cards stay visible but are silently no-op'd (clicks
             # fall back to visible in _set_active_bucket).
             self.ir_camera_state.setVisible(False)
+            # Same logic for the per-camera advanced-config menu entry.
+            self.open_ir_cam_config_action.setVisible(False)
 
     def _wire_session(self) -> None:
         """All `session.*_changed.connect(...)` calls live here. Single grep
@@ -815,14 +831,16 @@ class PapyriMainWindow(QMainWindow):
         elif isinstance(state, CameraStates.Disconnected):
             if state.auto_reconnect:
                 worker.commands.find_camera.emit()
+        # Per-camera advanced-config dialog auto-rejects on Disconnecting —
+        # but only if the dialog is for THIS spectrum. The other camera's
+        # dialog (if any) stays open.
+        if isinstance(state, CameraStates.Disconnecting):
+            if self.session.cam_config_dialog_spectrum == spectrum:
+                self.session.cam_config_dialog.reject()
 
         # ---- active-only side effects ----
         if spectrum == self.active_spectrum:
             match state:
-                case CameraStates.Disconnecting():
-                    if self.cam_config_dialog:
-                        self.cam_config_dialog.reject()
-
                 case CameraStates.ConnectionError(error=err):
                     self.logger.error("Connection error: %s", err)
 
@@ -1178,30 +1196,61 @@ class PapyriMainWindow(QMainWindow):
                 elif name == "maxPixmapCache":
                     QPixmapCache.setCacheLimit(int(value) * 1024)
 
-    def open_advanced_camera_config(self):
-        if not isinstance(self.camera_state, (
-            CameraStates.Ready,
-            CameraStates.LiveViewStarted,
-            CameraStates.LiveViewActive,
-            CameraStates.CaptureFinished,
-        )):
-            QMessageBox.information(
-                self, "Camera not ready",
-                "Connect the camera before opening the advanced config dialog.",
+    _CAM_CONFIG_READY_STATES = (
+        CameraStates.Ready,
+        CameraStates.LiveViewStarted,
+        CameraStates.LiveViewActive,
+        CameraStates.CaptureFinished,
+    )
+
+    def _refresh_settings_menu_state(self) -> None:
+        """aboutToShow handler for the Settings menu. Per-camera advanced-
+        config entries are enabled only when that camera is in a state
+        where reading its config is sensible. Disabled-vs-hidden gives
+        the user feedback ("camera not ready") without an info dialog."""
+        self.open_vis_cam_config_action.setEnabled(
+            isinstance(self.camera_states[SPECTRUM_VISIBLE],
+                       self._CAM_CONFIG_READY_STATES)
+        )
+        # IR action is hidden when IR isn't configured (set in _wire_camera);
+        # when visible, gate on its own state.
+        if self.open_ir_cam_config_action.isVisible():
+            self.open_ir_cam_config_action.setEnabled(
+                isinstance(self.camera_states[SPECTRUM_INFRARED],
+                           self._CAM_CONFIG_READY_STATES)
             )
-            return
+
+    def open_advanced_camera_config(self, spectrum: str) -> None:
+        """Open the advanced-config dialog for `spectrum`'s camera.
+
+        Per-camera (option A): each call targets a specific worker, not
+        active_worker. Closes any existing dialog first — only one open at
+        a time. The menu's aboutToShow gates this on camera readiness, so
+        we don't repeat the check here (defense-in-depth would be fine
+        but the menu is the only entry point)."""
+        worker = (
+            self.visible_worker if spectrum == SPECTRUM_VISIBLE else self.ir_worker
+        )
+        if worker is None:
+            return  # IR not configured; menu entry is hidden but be safe
 
         def open_dialog(cfg):
-            self.cam_config_dialog = CameraConfigDialog(cfg, self.active_worker, self)
-            self.cam_config_dialog.setModal(False)
-            self.cam_config_dialog.show()
-            self.cam_config_dialog.finished.connect(
-                lambda *_: setattr(self, "cam_config_dialog", None)
+            existing = self.session.cam_config_dialog
+            if existing is not None:
+                # Synchronously fires `finished` → clears the session slot,
+                # so when we set the new dialog below we're not stomped.
+                existing.reject()
+            dialog = CameraConfigDialog(cfg, worker, self)
+            dialog.setModal(False)
+            dialog.finished.connect(
+                lambda *_: self.session.set_cam_config_dialog(None, None)
             )
+            self.session.set_cam_config_dialog(dialog, spectrum)
+            dialog.show()
 
         req = ConfigRequest()
         req.signal.got_config.connect(open_dialog)
-        self.active_worker.commands.get_config.emit(req)
+        worker.commands.get_config.emit(req)
 
     # ---------------------------------------------------------- lifecycle
 
