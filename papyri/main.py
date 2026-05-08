@@ -468,22 +468,18 @@ class PapyriMainWindow(QMainWindow):
             SPECTRUM_INFRARED: None,
         }
         self._live_view_paused = False
-        # Workflow state — two orthogonal axes:
-        #   active_spectrum  : VISIBLE | INFRARED — drives which camera worker
-        #                      fires + which spectrum chip is highlighted.
-        #   active_side      : A | B — drives which side dir captures land in.
-        # D.1 introduces the side dimension at the data layer; the side
-        # toggle UI lands in D.2, so for now active_side stays pinned to A.
-        self.active_spectrum: str = SPECTRUM_VISIBLE
-        self.active_side: str = SIDE_A
 
         self._bind_widgets()
         self._wire_actions()
         self._wire_camera()
+        # _wire_session installs B1+B2 receivers AND invokes them once for
+        # initial paint, so we don't need a separate per-stepper paint call.
         self._wire_session()
-        # Initial paint of the side cards so Side A reads as active before
-        # the first object is loaded.
-        self._refresh_workflow_stepper()
+        # Counts depend on current_object (B5); initial state is zero
+        # everywhere since no object is bound yet, but call once so the
+        # stepper renders 0/0/0/0 explicitly rather than relying on the
+        # widget's default.
+        self._refresh_workflow_stepper_counts()
         self.update_ui()
 
     # ------------------------------------------------------------------ setup
@@ -669,9 +665,36 @@ class PapyriMainWindow(QMainWindow):
     def _wire_session(self) -> None:
         """All `session.*_changed.connect(...)` calls live here. Single grep
         target for "what reacts to what" — one line per receiver per axis,
-        sorted by axis. Receivers are added as each axis migrates onto
-        SessionState (currently empty: skeleton only)."""
-        return
+        sorted by axis. After each connect block, invoke each receiver once
+        for initial paint (receivers are idempotent — rule #1 — so this is
+        safe and gives widgets the right state before the user does anything).
+
+        Receiver naming convention — name after the *property* set, not
+        an abstract concept. Anything vaguer (`_state`, `_status`,
+        `_appearance`) is a red flag that the receiver is doing too much.
+
+            _enable     setEnabled(...)
+            _visible    setVisible(...)
+            _text       text content (+ associated indicators like
+                        checked / icon when they always change together)
+            _color      foreground / background tint
+            _binding    a model / object binding (bind_object, set_count, …)
+            _emphasis   a non-content visual highlight (border, glow)
+
+        A receiver that needs to depend on multiple axes subscribes to
+        each one — multi-subscribe is normal; the receiver re-reads from
+        session each call so over-running is harmless."""
+        s = self.session
+
+        # B1+B2 active_bucket
+        s.active_bucket_changed.connect(self._refresh_workflow_stepper_active)
+        s.active_bucket_changed.connect(self._refresh_capture_button_label)
+        s.active_bucket_changed.connect(self._refresh_camera_state_emphasis)
+        s.active_bucket_changed.connect(self._refresh_photo_browser_binding)
+        self._refresh_workflow_stepper_active()
+        self._refresh_capture_button_label()
+        self._refresh_camera_state_emphasis()
+        self._refresh_photo_browser_binding()
 
     def _spawn_worker(self, profile: Profile) -> tuple[CameraWorker, QThread]:
         """Build a worker pre-configured to find the right camera by model
@@ -686,49 +709,83 @@ class PapyriMainWindow(QMainWindow):
     @property
     def active_worker(self) -> CameraWorker:
         """The worker currently driving the UI (live view, capture, etc.).
-        Tracks `self.active_spectrum`; falls back to visible if IR isn't configured."""
-        if self.active_spectrum == SPECTRUM_INFRARED and self.ir_worker is not None:
+        Tracks `session.active_spectrum`; falls back to visible if IR isn't
+        configured (defense-in-depth — the IR-fallback in
+        _on_workflow_step_clicked should already prevent active_spectrum
+        from being IR without an IR worker)."""
+        if (self.session.active_spectrum == SPECTRUM_INFRARED
+                and self.ir_worker is not None):
             return self.ir_worker
         return self.visible_worker
 
-    def _set_active_bucket(self, side: str, spectrum: str) -> None:
-        """Switch the active (side, spectrum). Updates side card visuals,
-        swaps active_worker for capture/live-view routing, re-binds the
-        photo browser, transitions live view to the new spectrum's worker,
-        and re-renders dependent UI."""
-        if spectrum == SPECTRUM_INFRARED and self.ir_worker is None:
-            # IR not configured at this station — silently keep visible.
-            spectrum = SPECTRUM_VISIBLE
-        if side == self.active_side and spectrum == self.active_spectrum:
-            return
+    # ---- B1+B2 receivers (active_bucket_changed) -----------------------
 
-        old_spectrum = self.active_spectrum
-        self.active_side = side
-        self.active_spectrum = spectrum
-
-        # Spectrum changed → hand live view from old worker to new worker.
-        # Stops the old camera streaming USB frames we don't show anymore,
-        # and gives the user immediate frames on the new spectrum (instead
-        # of waiting for them to manually toggle Pause Live View off).
-        if old_spectrum != spectrum:
-            self._transition_live_view(old_spectrum, spectrum)
-
-        self._refresh_workflow_stepper()
-        if self.current_object is not None:
-            self.photo_browser.bind_object(
-                self.current_object, side, spectrum
+    def _refresh_workflow_stepper_counts(self) -> None:
+        """Per-bucket capture counts. Reads B5 (current_object); will be
+        wired to current_object_changed in Stage 3. For now still called
+        imperatively from object-change paths (init, _on_object_state_changed)."""
+        for (side, spectrum), step_id in _STEP_ID_BY_BUCKET.items():
+            count = (
+                self.current_object.count(side, spectrum)
+                if self.current_object is not None else 0
             )
-        self.update_ui()
+            self.workflow_stepper.set_count(step_id, count)
 
-    def _transition_live_view(self, old_spectrum: str, new_spectrum: str) -> None:
+    def _refresh_workflow_stepper_active(self) -> None:
+        """Active step highlight. Reads B1+B2."""
+        self.workflow_stepper.set_active(
+            _STEP_ID_BY_BUCKET[(
+                self.session.active_side, self.session.active_spectrum
+            )]
+        )
+
+    def _refresh_capture_button_label(self) -> None:
+        """Capture button caption. Reads B1+B2."""
+        side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
+        spectrum_label = (
+            "Visible" if self.session.active_spectrum == SPECTRUM_VISIBLE
+            else "Infrared"
+        )
+        self.capture_button.setText(f"Capture · {side_label} · {spectrum_label}")
+
+    def _refresh_camera_state_emphasis(self) -> None:
+        """Top-bar camera-state pill emphasis: the active spectrum's
+        widget gets a 2px colored border. Reads B2."""
+        self.visible_camera_state.set_emphasized(
+            self.session.active_spectrum == SPECTRUM_VISIBLE
+        )
+        self.ir_camera_state.set_emphasized(
+            self.session.active_spectrum == SPECTRUM_INFRARED
+        )
+
+    def _refresh_photo_browser_binding(self) -> None:
+        """Re-bind PhotoBrowser to (current_object, active_side, active_spectrum).
+        Safe with current_object=None (browser closes its directory).
+        Reads B1+B2 (and B5 once that migrates)."""
+        self.photo_browser.bind_object(
+            self.current_object,
+            self.session.active_side,
+            self.session.active_spectrum,
+        )
+
+    # ---- B1+B2 imperative handlers (not signal-driven) ------------------
+
+    def _handle_live_view_handoff(
+        self, old_spectrum: str, new_spectrum: str
+    ) -> None:
         """When the active spectrum flips, stop live view on the old worker
-        (if it was running) and start it on the new worker (if its camera
-        is in a state where we can, and the user hasn't paused live view)."""
+        (if running) and start it on the new (if its camera is in a state
+        we can, and the user hasn't paused). Takes (old, new) explicitly
+        because the OLD value is by definition gone from session state by
+        the time we'd want to use it; this isn't a reactive refresh, it's
+        a one-shot business action triggered by the workflow-step click."""
         old_worker = (
-            self.visible_worker if old_spectrum == SPECTRUM_VISIBLE else self.ir_worker
+            self.visible_worker if old_spectrum == SPECTRUM_VISIBLE
+            else self.ir_worker
         )
         new_worker = (
-            self.visible_worker if new_spectrum == SPECTRUM_VISIBLE else self.ir_worker
+            self.visible_worker if new_spectrum == SPECTRUM_VISIBLE
+            else self.ir_worker
         )
 
         old_state = self.camera_states[old_spectrum]
@@ -751,45 +808,29 @@ class PapyriMainWindow(QMainWindow):
         )):
             new_worker.commands.live_view.emit(True)
 
-    def _refresh_workflow_stepper(self) -> None:
-        """Push current (active_side, active_spectrum) + per-bucket counts to
-        the workflow stepper. Idempotent; called after any state change."""
-        for (side, spectrum), step_id in _STEP_ID_BY_BUCKET.items():
-            count = (
-                self.current_object.count(side, spectrum)
-                if self.current_object is not None else 0
-            )
-            self.workflow_stepper.set_count(step_id, count)
-        self.workflow_stepper.set_active(
-            _STEP_ID_BY_BUCKET[(self.active_side, self.active_spectrum)]
-        )
-        # Capture button label always reflects the active bucket so the
-        # operator never has to guess where the next shot lands.
-        self._update_capture_button_label()
-        # Top-bar camera-state pill borders match the active spectrum so the
-        # right station is visually obvious.
-        self.visible_camera_state.set_emphasized(
-            self.active_spectrum == SPECTRUM_VISIBLE
-        )
-        self.ir_camera_state.set_emphasized(
-            self.active_spectrum == SPECTRUM_INFRARED
-        )
-
-    def _update_capture_button_label(self) -> None:
-        side_label = "Side A" if self.active_side == SIDE_A else "Side B"
-        spectrum_label = (
-            "Visible" if self.active_spectrum == SPECTRUM_VISIBLE else "Infrared"
-        )
-        self.capture_button.setText(f"Capture · {side_label} · {spectrum_label}")
-
     def _on_workflow_step_clicked(self, step_id: str) -> None:
-        """Stepper click → translate id back to (side, spectrum) and route
-        through the unified bucket switcher."""
+        """Stepper click → translate id back to (side, spectrum), apply
+        IR-fallback (H1, caller-side because SessionState is ignorant of
+        worker availability), update session, then run live-view handoff
+        if the spectrum actually changed."""
         bucket = _BUCKET_BY_STEP_ID.get(step_id)
         if bucket is None:
             return
         side, spectrum = bucket
-        self._set_active_bucket(side, spectrum)
+        # H1 IR-fallback — silently downgrade to VIS if no IR worker.
+        if spectrum == SPECTRUM_INFRARED and self.ir_worker is None:
+            spectrum = SPECTRUM_VISIBLE
+
+        old_spectrum = self.session.active_spectrum
+        self.session.set_active_bucket(side, spectrum)
+        if old_spectrum != self.session.active_spectrum:
+            self._handle_live_view_handoff(
+                old_spectrum, self.session.active_spectrum
+            )
+        # update_ui handles capture-button enable/disable etc. that depend
+        # on derived state across multiple axes; will dissolve into
+        # receivers in Stage 5.
+        self.update_ui()
 
     # ---------------------------------------------------------- camera state
 
@@ -797,7 +838,7 @@ class PapyriMainWindow(QMainWindow):
     def camera_state(self) -> CameraStates.StateType | None:
         """The active spectrum's camera state. Backwards-compatible name —
         all the existing isinstance() callsites just keep working."""
-        return self.camera_states[self.active_spectrum]
+        return self.camera_states[self.session.active_spectrum]
 
     def _on_camera_state_changed(self, spectrum: str, state: CameraStates.StateType) -> None:
         """Unified handler for both worker threads.
@@ -839,7 +880,7 @@ class PapyriMainWindow(QMainWindow):
                 self.session.cam_config_dialog.reject()
 
         # ---- active-only side effects ----
-        if spectrum == self.active_spectrum:
+        if spectrum == self.session.active_spectrum:
             match state:
                 case CameraStates.ConnectionError(error=err):
                     self.logger.error("Connection error: %s", err)
@@ -861,7 +902,7 @@ class PapyriMainWindow(QMainWindow):
     def _on_preview_image(self, spectrum: str, image):
         # Drop frames from the inactive spectrum — keeps the photo viewer
         # from flickering between two feeds when both workers are streaming.
-        if spectrum != self.active_spectrum:
+        if spectrum != self.session.active_spectrum:
             return
         self.photo_browser.show_preview(ImageQt(image.image))
         # Each arriving live frame asserts "live" — handles transitions
@@ -1110,7 +1151,9 @@ class PapyriMainWindow(QMainWindow):
 
         # bind_object handles both the open + close + chosen-state plumbing.
         # Pass the current (side, spectrum) so the browser shows that bucket.
-        self.photo_browser.bind_object(obj, self.active_side, self.active_spectrum)
+        self.photo_browser.bind_object(
+            obj, self.session.active_side, self.session.active_spectrum
+        )
         self.metadata_pane.bind_object(obj)
 
         # Reset the viewer indicator on object close so the stale preview
@@ -1151,7 +1194,7 @@ class PapyriMainWindow(QMainWindow):
         """Single sink for any change in the current object's derived state.
         Components that mirror that state (side cards, objects sidebar badge,
         metadata pane subtitle) re-read from `self.current_object` here."""
-        self._refresh_workflow_stepper()
+        self._refresh_workflow_stepper_counts()
         # The active object's `· → ?? → ✓` badge in the sidebar can flip
         # when captures land. Cheap re-scan; no FS watcher needed.
         self.objects_sidebar.refresh()
@@ -1166,7 +1209,7 @@ class PapyriMainWindow(QMainWindow):
         self.current_object.ensure_dir()
         req = CaptureImagesRequest(
             file_path_template=self.current_object.next_template(
-                self.active_side, self.active_spectrum
+                self.session.active_side, self.session.active_spectrum
             ),
             num_images=1,
             image_quality=CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW,

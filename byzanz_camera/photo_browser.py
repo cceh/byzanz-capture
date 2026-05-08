@@ -409,7 +409,11 @@ class PhotoBrowser(QWidget):
         QPixmapCache.clear()
 
     def stop_watching(self):
-        # print("STOP watching " + self.__currentPath)
+        # No-op when nothing was being watched — Qt's removePath emits a
+        # warning on an empty/None path. Reachable when bind_object(None)
+        # is called on a browser that never opened a directory.
+        if not self.__currentPath:
+            return
         self.__fileSystemWatcher.removePath(self.__currentPath)
 
     def num_files(self) -> int:
