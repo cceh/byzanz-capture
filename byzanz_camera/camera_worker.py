@@ -295,8 +295,15 @@ class CameraWorker(QObject):
         #     gp.GP_LOG_VERBOSE: logging.DEBUG - 3,
         #     gp.GP_LOG_DATA: logging.DEBUG - 6}))
 
+        # Filter at ERROR level (not DEBUG) so the callback fires
+        # ~1000x less often during normal operation. This shrinks the
+        # deadlock window for the SWIG-GIL-vs-libgphoto2-mutex AB-BA
+        # pattern (see docs/gphoto2-deadlock-analysis.md). PTP error
+        # detection is preserved: ptp2/usb.c logs all PTP transaction
+        # failures at GP_LOG_E with the response code as `(0x%04x)`,
+        # which is what __extract_gp2_error_from_log scans for.
         self.__logging_callback_extract_gp2_error = gp.check_result(
-            gp.gp_log_add_func(gp.GP_LOG_DEBUG, self.__extract_gp2_error_from_log))
+            gp.gp_log_add_func(gp.GP_LOG_ERROR, self.__extract_gp2_error_from_log))
 
     def __extract_gp2_error_from_log(self, _level: int, domain: bytes, string: bytes, _data=None):
         error_str = string

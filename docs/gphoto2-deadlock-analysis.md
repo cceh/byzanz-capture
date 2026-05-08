@@ -1,6 +1,6 @@
 # libgphoto2 cross-worker deadlock analysis
 
-**TL;DR**: the known deadlock vector is **closed** by the Stage 5 fix. Defense-in-depth options exist but aren't strictly necessary for correctness. The biggest remaining risk is *unknown unknowns* in libgphoto2 internals — mitigated by stress testing.
+**TL;DR**: the known deadlock vector is **closed** by the Stage 5 fix. Source-verified against libgphoto2 2.5.x — there is exactly one global mutex in libgphoto2 (`gpi_libltdl_mutex` for libltdl MT-safety), and every code path that touches it is now wrapped in `_GPHOTO2_GLOBAL_LOCK` on our side. Per-camera operations don't touch it. Additional defense-in-depth applied: log filter lowered from `GP_LOG_DEBUG` to `GP_LOG_ERROR`, shrinking the gp_log_call_python callback frequency by orders of magnitude.
 
 ## What we observed (Stage 5 verification)
 
@@ -56,11 +56,40 @@ The chain breaks because the lock acquisition happens on the **Python side**, no
 
 ## Why other unprotected calls don't deadlock
 
-The deadlock requires **two workers contending for the same libgphoto2 mutex**. libgphoto2 has two relevant categories of mutex:
+**Source-verified against libgphoto2 2.5.x** (see `/Users/mts/src/libgphoto2`).
 
-### Global mutexes — cross-worker contention possible
+libgphoto2 contains **exactly one global mutex**: `gpi_libltdl_mutex`, defined in `libgphoto2_port/libgphoto2_port/gphoto2-port-locking.c`. It exists specifically to serialize calls into libltdl (the dynamic-loader library), which is documented MT-unsafe. Grep target: every place where `gpi_libltdl_lock()` / `gpi_libltdl_unlock()` is called — these are the cross-worker contention points.
 
-The **port-info-list mutex** is the only one we've observed in the trace. Operations that touch it:
+### Code paths that take `gpi_libltdl_mutex`
+
+| libgphoto2 function | File / line | Our wrapper | Protected? |
+|---|---|---|---|
+| `gp_camera_init` | `gphoto2-camera.c` 780–828 (dlopen + dlsym for camlib) | `__connect_camera`'s `camera.init()` | ✓ `_GPHOTO2_GLOBAL_LOCK` |
+| `gp_camera_exit` | `gphoto2-camera.c` 283 (dlclose camlib if loaded) | `__disconnect_camera`'s `camera.exit()` | ✓ Stage 5 |
+| `gp_port_info_list_load` | `gphoto2-port-info-list.c` 324–329 | called from `gp_camera_autodetect` and `gp_camera_init` | ✓ both wrapped |
+| `gp_port_open/close/exit` | `gphoto2-port.c` 164–193 | only called from `gp_camera_init` and `gp_camera_exit` (since our build is `!HAVE_MULTI`) | ✓ via init/exit wrappers |
+| `gp_port_free` | `gphoto2-port.c` 359 (dlclose port driver) | triggered by `self.camera = None` SWIG dealloc | ✓ Stage 5 (forced inside lock) |
+| `gp_abilities_list_load` | `gphoto2-abilities-list.c` 334 | called from `gp_camera_autodetect` | ✓ via autodetect wrapper |
+
+Everything is covered. All six paths that touch the mutex go through one of: `__find_camera` (autodetect), `__connect_camera` (init), `__disconnect_camera` (exit + dealloc) — all under `_GPHOTO2_GLOBAL_LOCK`.
+
+### Per-camera operations — verified to NOT touch the mutex
+
+Inspecting `gphoto2-camera.c`:
+- `gp_camera_get_config` (line 855), `gp_camera_set_config` (1099), `gp_camera_get_single_config` (888), `gp_camera_set_single_config` (1131)
+- `gp_camera_capture` (1324), `gp_camera_trigger_capture` (1355), `gp_camera_capture_preview` (1385)
+- `gp_camera_wait_for_event` (1435)
+- `gp_camera_file_get` (1668), `gp_camera_file_get_info` (1575), `gp_camera_folder_*`
+
+**None** of these acquire `gpi_libltdl_mutex`. Confirmed via grep. The only cross-camera serialization happens through libusb internally (one-bus = sequential I/O), which is performance, not deadlock.
+
+**Critical assumption verified**: our build is `!HAVE_MULTI` (config.h has no `HAVE_MULTI` definition). If `HAVE_MULTI` were defined, the `CHECK_OPEN`/`CHECK_CLOSE` macros (gphoto2-camera.c 100-145) would call `gp_port_open`/`gp_port_close` per-operation, which DO take the mutex. With `!HAVE_MULTI`, ports stay open between operations — `gp_port_open` only happens once during init.
+
+---
+
+### Original section: which of OUR code paths take the mutex
+
+The **port-info-list mutex** mapping into our code (preserved for reference):
 
 | Operation | Source | Currently |
 |---|---|---|
@@ -97,25 +126,25 @@ I'm reasoning from the trace evidence, not from libgphoto2 source code. There ma
 
 **For confidence beyond reasoning, do stress testing**: see "Verification protocol" below.
 
-## Defense-in-depth options (not strictly required)
+## Defense-in-depth applied
 
-If we want belt-and-suspenders protection:
+### Lowered log filter from `GP_LOG_DEBUG` to `GP_LOG_ERROR` ✓
 
-### Option 1: Lower the log filter
+Source-verified safe: `camlibs/ptp2/usb.c:460` and `:495` log all PTP transaction failures at `GP_LOG_E` (ERROR level) with the response code as `(0x%04x)` — exactly the suffix our `__extract_gp2_error_from_log` callback scans for. So PTP error detection (including `PTP_RC_NIKON_OutOfFocus = 0xa002`) works at ERROR level too.
 
-Change `gp.gp_log_add_func(gp.GP_LOG_DEBUG, ...)` to `gp.GP_LOG_ERROR`. Reduces callback frequency by orders of magnitude (no callback for normal operations, only errors).
+Effect: callback fires only for actual errors, not on every verbose enumeration / handshake message during normal operation. Reduces the gp_log_call_python frequency by ~1000x. Smaller GIL contention surface; smaller window for any AB-BA pattern to form even if a new vector exists.
 
-**Risk**: Nikon PTP error detection in `__trigger_autofocus` reads PTP error codes from log messages. Need to verify Nikon driver logs PTP errors at ERROR level (not just DEBUG). If PTP errors only come through at DEBUG, lowering the filter loses the OutOfFocus distinction in autofocus.
+Applied in `byzanz_camera/camera_worker.py` `initialize()`.
 
-**Untestable here** without a Nikon body. The CCeH dome RTI workflow uses Nikon D800E — the RTI app would lose autofocus error detail. Papyri's Sony cameras likely don't use Nikon-specific PTP error codes.
+## Defense-in-depth NOT applied (if we ever need them)
 
-### Option 2: Wrap ALL libgphoto2 calls in `_GPHOTO2_GLOBAL_LOCK`
+### Wrap ALL libgphoto2 calls in `_GPHOTO2_GLOBAL_LOCK`
 
 Bulletproof. But serializes the per-frame live view loop (~20fps × 2 workers = 40 lock acquisitions/sec). Could cause stuttering and starve the secondary worker's UI updates.
 
 **Not recommended** unless we observe a deadlock the current fix doesn't catch.
 
-### Option 3: Per-camera lock + global lock
+### Per-camera lock + global lock
 
 Each Camera has its own `threading.Lock` for per-camera ops. The `_GPHOTO2_GLOBAL_LOCK` covers port-list ops only.
 
@@ -123,14 +152,18 @@ Per-camera locks are essentially redundant (only one worker accesses each camera
 
 **Not recommended** for current scope.
 
-## Recommended action
+## What's been done
 
-1. **Keep the current Stage 5 fix as-is.** The known deadlock vector is closed.
-2. **Stress test before declaring rock-solid** (see protocol below). Run for hours on the actual deployment hardware.
-3. **Add a watchdog** that logs warnings if a worker thread is blocked for >N seconds. Doesn't prevent deadlocks, but surfaces them in logs for postmortem analysis.
-4. **Document the analysis in the codebase** — link to this doc from `_GPHOTO2_GLOBAL_LOCK`'s definition + `__disconnect_camera` so future maintainers understand the pattern.
+1. ✓ **Stage 5 fix** (`__disconnect_camera` wraps `camera.exit()` + SWIG dealloc in `_GPHOTO2_GLOBAL_LOCK`). The known vector is closed.
+2. ✓ **Source-verified the audit** against libgphoto2 2.5.x. Found exactly one global mutex; all paths into it are protected on our side.
+3. ✓ **Lowered log filter** from `GP_LOG_DEBUG` to `GP_LOG_ERROR`. Reduces callback frequency by ~1000x, shrinking any latent deadlock window.
+4. ✓ **Documented the lock's purpose** in `_GPHOTO2_GLOBAL_LOCK`'s definition (comment block in `camera_worker.py`).
 
-If the deployment shows ANY hang, capture a sample report (`sample <pid>` on macOS / `gstack` on Linux) — the trace will tell us whether it's the same vector or a new one.
+## What's left
+
+5. **Stress test on deployment hardware** (see protocol below). Run for hours; this is the path to operational confidence beyond static analysis.
+6. **Optional watchdog** that logs warnings if a worker thread is unresponsive for >N seconds. Doesn't prevent deadlocks but surfaces them for postmortem.
+7. **If a hang ever occurs in deployment**, capture a sample report (`sample <pid>` on macOS / `gstack` on Linux) — the trace will tell us whether it's the same vector or a new one.
 
 ## Verification protocol (stress test)
 
