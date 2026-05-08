@@ -79,8 +79,11 @@ class MetadataPane(QFrame):
 
     def bind_object(self, obj: "Object | None") -> None:
         """Switch to a different object's metadata. Flushes any pending
-        debounced writes from the previous object first."""
+        debounced writes from the previous object first; disconnects the
+        previous object's state_changed connection so a stale instance
+        can't keep firing into _refresh_subtitle."""
         self._flush_pending_save()
+        self._unbind_previous()
         self._obj = obj
         self._populate_from_disk()
         self._set_form_enabled(obj is not None)
@@ -91,6 +94,17 @@ class MetadataPane(QFrame):
         if obj is not None:
             obj.state_changed.connect(self._refresh_subtitle)
         self._refresh_subtitle()
+
+    def _unbind_previous(self) -> None:
+        """Mirror of PapyriCaptureBrowser._unbind_previous — disconnect
+        the prior object's state_changed connection (F-LEAK fix). No-op
+        when nothing was bound."""
+        if self._obj is None:
+            return
+        try:
+            self._obj.state_changed.disconnect(self._refresh_subtitle)
+        except TypeError:
+            pass
 
     def set_loading_busy(self, busy: bool) -> None:
         """Drive the inline spinner in the title row.

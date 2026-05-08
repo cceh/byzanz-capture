@@ -21,6 +21,7 @@ from papyri._layout import SIDE_A, SPECTRUM_VISIBLE
 
 if TYPE_CHECKING:
     from camera_config_dialog import CameraConfigDialog
+    from papyri.main import Object
 
 
 class SessionState(QObject):
@@ -32,6 +33,12 @@ class SessionState(QObject):
     # SessionState ignorant of worker availability.
     active_bucket_changed = pyqtSignal(str, str)  # side, spectrum
 
+    # B5 — current object reference. Emits the new value (or None);
+    # receivers either ignore the arg and read from session, or use the
+    # arg as a convenience. Identity comparison in the setter — a
+    # re-bind of the SAME instance is a no-op.
+    current_object_changed = pyqtSignal(object)  # Object | None
+
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._logger = logging.getLogger(self.__class__.__name__)
@@ -39,6 +46,9 @@ class SessionState(QObject):
         # B1+B2 — workflow active bucket.
         self._active_side: str = SIDE_A
         self._active_spectrum: str = SPECTRUM_VISIBLE
+
+        # B5 — current object reference.
+        self._current_object: "Object | None" = None
 
         # B8 — per-camera advanced-config dialog handle. At most one open at
         # a time (option A in the design discussion); spectrum tracks which
@@ -69,6 +79,23 @@ class SessionState(QObject):
         self._active_spectrum = spectrum
         self._logger.info("active_bucket = (%s, %s)", side, spectrum)
         self.active_bucket_changed.emit(side, spectrum)
+
+    # ---- B5 current_object --------------------------------------------
+
+    @property
+    def current_object(self) -> "Object | None":
+        return self._current_object
+
+    def set_current_object(self, obj: "Object | None") -> None:
+        """Identity-compare — re-binding the same instance is a no-op.
+        A new Object with the same name (e.g. after rename re-construction)
+        IS a different reference and DOES emit."""
+        if obj is self._current_object:
+            return
+        self._current_object = obj
+        self._logger.info("current_object = %s",
+                          obj.name if obj is not None else None)
+        self.current_object_changed.emit(obj)
 
     # ---- B8 cam_config_dialog -----------------------------------------
 

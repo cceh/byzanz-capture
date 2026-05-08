@@ -459,7 +459,10 @@ class PapyriMainWindow(QMainWindow):
         # JPEG (~72 MB) let alone a RAW (~180 MB). Apply the user setting.
         QPixmapCache.setCacheLimit(int(self.q_settings.value("maxPixmapCache")) * 1024)
         self.profile = PROFILES[self.q_settings.value("profile", "MoritzA7III")]
-        self.current_object: Object | None = None
+        # Connection bookkeeping for current_object's state_changed signal —
+        # tracks what we're currently subscribed to so we can disconnect
+        # before re-subscribing. Maintained by _handle_current_object_subscription.
+        self._subscribed_object: "Object | None" = None
         # Per-spectrum camera states — VIS and IR each have their own worker
         # and lifecycle. update_ui / capture_button gating reads the active
         # spectrum's state via the `camera_state` property below.
@@ -472,14 +475,11 @@ class PapyriMainWindow(QMainWindow):
         self._bind_widgets()
         self._wire_actions()
         self._wire_camera()
-        # _wire_session installs B1+B2 receivers AND invokes them once for
-        # initial paint, so we don't need a separate per-stepper paint call.
+        # _wire_session installs all session-axis receivers and invokes
+        # each once for initial paint, so widgets reflect the session
+        # defaults (Side A · Visible, no current object) before the user
+        # does anything.
         self._wire_session()
-        # Counts depend on current_object (B5); initial state is zero
-        # everywhere since no object is bound yet, but call once so the
-        # stepper renders 0/0/0/0 explicitly rather than relying on the
-        # widget's default.
-        self._refresh_workflow_stepper_counts()
         self.update_ui()
 
     # ------------------------------------------------------------------ setup
@@ -696,6 +696,23 @@ class PapyriMainWindow(QMainWindow):
         self._refresh_camera_state_emphasis()
         self._refresh_photo_browser_binding()
 
+        # B5 current_object
+        s.current_object_changed.connect(self._refresh_metadata_pane_binding)
+        s.current_object_changed.connect(self._refresh_objects_sidebar_active)
+        s.current_object_changed.connect(self._refresh_objects_sidebar_entries)
+        s.current_object_changed.connect(self._refresh_workflow_stepper_counts)
+        s.current_object_changed.connect(self._refresh_workflow_stepper_active)
+        s.current_object_changed.connect(self._refresh_photo_browser_binding)
+        s.current_object_changed.connect(self._handle_current_object_subscription)
+        s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
+        self._refresh_metadata_pane_binding()
+        self._refresh_objects_sidebar_active()
+        self._refresh_objects_sidebar_entries()
+        self._refresh_workflow_stepper_counts()
+        # _refresh_photo_browser_binding already called above (B1+B2 init)
+        self._handle_current_object_subscription()
+        self._handle_current_object_view_mode_reset()
+
     def _spawn_worker(self, profile: Profile) -> tuple[CameraWorker, QThread]:
         """Build a worker pre-configured to find the right camera by model
         pattern. Caller wires the signals and starts the thread."""
@@ -726,13 +743,19 @@ class PapyriMainWindow(QMainWindow):
         imperatively from object-change paths (init, _on_object_state_changed)."""
         for (side, spectrum), step_id in _STEP_ID_BY_BUCKET.items():
             count = (
-                self.current_object.count(side, spectrum)
-                if self.current_object is not None else 0
+                self.session.current_object.count(side, spectrum)
+                if self.session.current_object is not None else 0
             )
             self.workflow_stepper.set_count(step_id, count)
 
     def _refresh_workflow_stepper_active(self) -> None:
-        """Active step highlight. Reads B1+B2."""
+        """Active step highlight. Reads B1+B2 + B5 — when no object is
+        loaded there's no "where the next capture goes" to point at, so
+        clear the highlight rather than leave it pointing at a stale
+        bucket from the closed object."""
+        if self.session.current_object is None:
+            self.workflow_stepper.set_active(None)
+            return
         self.workflow_stepper.set_active(
             _STEP_ID_BY_BUCKET[(
                 self.session.active_side, self.session.active_spectrum
@@ -763,7 +786,7 @@ class PapyriMainWindow(QMainWindow):
         Safe with current_object=None (browser closes its directory).
         Reads B1+B2 (and B5 once that migrates)."""
         self.photo_browser.bind_object(
-            self.current_object,
+            self.session.current_object,
             self.session.active_side,
             self.session.active_spectrum,
         )
@@ -919,8 +942,8 @@ class PapyriMainWindow(QMainWindow):
         from _on_camera_state_changed and from anywhere that changes context.
         """
         camera_state = self.camera_state
-        has_object = self.current_object is not None
-        object_loaded = has_object and self.current_object.dir_loaded
+        has_object = self.session.current_object is not None
+        object_loaded = has_object and self.session.current_object.dir_loaded
 
         # ---- object loading state → metadata pane spinner
         # The pane itself owns name field + rename + close button visibility
@@ -999,9 +1022,9 @@ class PapyriMainWindow(QMainWindow):
     # ------------------------------------------------------------- handlers
 
     def _on_directory_loaded(self, _path: str):
-        if self.current_object is not None:
-            self.current_object.dir_loaded = True
-            self.current_object.refresh()  # capture count may have changed
+        if self.session.current_object is not None:
+            self.session.current_object.dir_loaded = True
+            self.session.current_object.refresh()  # capture count may have changed
             # Existing objects: PhotoBrowser auto-selects the last-loaded
             # thumb and shows it briefly, but its currentItemChanged signal
             # is suppressed during auto-selection so live view doesn't get
@@ -1049,24 +1072,24 @@ class PapyriMainWindow(QMainWindow):
     # --------------------------------------------------- object lifecycle
 
     def rename_current_object(self):
-        if not self.current_object:
+        if not self.session.current_object:
             return
         new_name, ok = QInputDialog.getText(
-            self, "Rename object", "New name:", text=self.current_object.name,
+            self, "Rename object", "New name:", text=self.session.current_object.name,
         )
         if not ok:
             return
         new_name = new_name.strip().replace(" ", "_")
-        if not new_name or new_name == self.current_object.name:
+        if not new_name or new_name == self.session.current_object.name:
             return
 
-        new_dir = os.path.join(self.current_object.working_dir, new_name)
+        new_dir = os.path.join(self.session.current_object.working_dir, new_name)
         if Path(new_dir).exists():
             QMessageBox.critical(self, "Error", f"Object {new_name!r} already exists.")
             return
 
-        old_name = self.current_object.name
-        old_dir = self.current_object.dir
+        old_name = self.session.current_object.name
+        old_dir = self.session.current_object.dir
 
         # Commit any pending metadata edits to the OLD `_meta.json` so they
         # travel with the directory when we rename it. (Without this the
@@ -1105,7 +1128,7 @@ class PapyriMainWindow(QMainWindow):
                 chosen_path.write_text(stem.replace(old_name, new_name, 1))
 
         os.rename(old_dir, new_dir)
-        self._set_current_object(Object(self.current_object.working_dir, new_name))
+        self.session.set_current_object(Object(self.session.current_object.working_dir, new_name))
 
     def start_object(self, name: str):
         wd = self.q_settings.value("workingDirectory", "")
@@ -1129,48 +1152,69 @@ class PapyriMainWindow(QMainWindow):
             return
 
         obj.ensure_dir()
-        self._set_current_object(obj)
+        # Reset active bucket on object open so the user always starts a
+        # new object at the canonical first step (Side A · Visible) rather
+        # than inheriting whatever bucket the previous object left behind.
+        self.session.set_active_bucket(SIDE_A, SPECTRUM_VISIBLE)
+        self.session.set_current_object(obj)
 
     def close_object(self):
-        self._set_current_object(None)
+        self.session.set_current_object(None)
 
-    def _set_current_object(self, obj: Object | None):
-        # Disconnect the previous object's signal so a stale instance can't
-        # keep firing into our handlers (and to release the connection ref).
-        if self.current_object is not None:
+    # ---- B5 receivers (current_object_changed) -------------------------
+
+    def _refresh_metadata_pane_binding(self) -> None:
+        """Re-bind metadata pane to current object. Reads B5."""
+        self.metadata_pane.bind_object(self.session.current_object)
+
+    def _refresh_objects_sidebar_active(self) -> None:
+        """Active row highlight in the sidebar. Reads B5."""
+        obj = self.session.current_object
+        self.objects_sidebar.set_active_object_name(obj.name if obj else None)
+
+    def _refresh_objects_sidebar_entries(self) -> None:
+        """Re-scan disk for the sidebar entries. Wrapped as a receiver so
+        the connect() line shows up in the wiring grep; the underlying
+        widget call is also invoked imperatively from non-session paths
+        (object's state_changed handler, metadata_changed signal)."""
+        self.objects_sidebar.refresh()
+
+    # ---- B5 imperative handlers ----------------------------------------
+
+    def _handle_current_object_subscription(self) -> None:
+        """Manage the Object.state_changed connection — disconnect from
+        the previous object, connect to the new one, kick off an initial
+        refresh so captures populate. Tracks the previously-subscribed
+        instance via self._subscribed_object since session only exposes
+        the new value."""
+        prev = self._subscribed_object
+        new = self.session.current_object
+        if prev is new:
+            return  # defensive — set_current_object's identity guard
+                    # already prevents this, but keep idempotent
+        if prev is not None:
             try:
-                self.current_object.state_changed.disconnect(self._on_object_state_changed)
+                prev.state_changed.disconnect(self._on_object_state_changed)
             except TypeError:
                 pass
+        self._subscribed_object = new
+        if new is not None:
+            new.state_changed.connect(self._on_object_state_changed)
+            new.refresh()
 
-        self.current_object = obj
-
-        if obj is not None:
-            obj.state_changed.connect(self._on_object_state_changed)
-            obj.refresh()
-
-        # bind_object handles both the open + close + chosen-state plumbing.
-        # Pass the current (side, spectrum) so the browser shows that bucket.
-        self.photo_browser.bind_object(
-            obj, self.session.active_side, self.session.active_spectrum
-        )
-        self.metadata_pane.bind_object(obj)
-
-        # Reset the viewer indicator on object close so the stale preview
-        # caption / live border doesn't persist with no captures listed.
-        # (Open path: the next live frame or thumb-selection drives state.)
-        if obj is None:
+    def _handle_current_object_view_mode_reset(self) -> None:
+        """When the object closes (B5 → None), reset view_mode to "empty"
+        so the stale preview / live indicator doesn't persist with no
+        listing. Imperative direct call to PhotoBrowser until B7 lands
+        in Stage 4 — then this folds into a session.set_view_mode call."""
+        if self.session.current_object is None:
             self.photo_browser.set_view_state("empty")
-        self._on_object_state_changed()  # paint chip even when obj is None
-        self.objects_sidebar.set_active_object_name(obj.name if obj else None)
-        self.objects_sidebar.refresh()
-        self.update_ui()
 
     # ---- objects sidebar handlers ----
 
     def _on_sidebar_object_selected(self, name: str) -> None:
         """Sidebar row clicked: switch focus to that object."""
-        if self.current_object is not None and self.current_object.name == name:
+        if self.session.current_object is not None and self.session.current_object.name == name:
             return
         wd = self.q_settings.value("workingDirectory", "")
         if not wd:
@@ -1181,19 +1225,21 @@ class PapyriMainWindow(QMainWindow):
         if not is_managed_object_dir(obj.dir):
             self.objects_sidebar.refresh()
             return
-        self._set_current_object(obj)
+        # Reset active bucket — see start_object for rationale.
+        self.session.set_active_bucket(SIDE_A, SPECTRUM_VISIBLE)
+        self.session.set_current_object(obj)
 
     def _on_sidebar_new_object(self) -> None:
         """Sidebar '+ New object' clicked: close any current object and focus
         the metadata pane's name input so the user can type + Enter to create."""
-        if self.current_object is not None:
+        if self.session.current_object is not None:
             self.close_object()
         self.metadata_pane.focus_name_input()
 
     def _on_object_state_changed(self):
         """Single sink for any change in the current object's derived state.
         Components that mirror that state (side cards, objects sidebar badge,
-        metadata pane subtitle) re-read from `self.current_object` here."""
+        metadata pane subtitle) re-read from `self.session.current_object` here."""
         self._refresh_workflow_stepper_counts()
         # The active object's `· → ?? → ✓` badge in the sidebar can flip
         # when captures land. Cheap re-scan; no FS watcher needed.
@@ -1202,13 +1248,13 @@ class PapyriMainWindow(QMainWindow):
     # ---------------------------------------------------------- capture
 
     def capture_image(self):
-        if not self.current_object:
+        if not self.session.current_object:
             return
         # Re-ensure the on-disk skeleton — covers the case where someone
         # deleted a side or spectrum dir in Finder between captures.
-        self.current_object.ensure_dir()
+        self.session.current_object.ensure_dir()
         req = CaptureImagesRequest(
-            file_path_template=self.current_object.next_template(
+            file_path_template=self.session.current_object.next_template(
                 self.session.active_side, self.session.active_spectrum
             ),
             num_images=1,

@@ -146,6 +146,14 @@ class PhotoBrowser(QWidget):
         self.__threadpool.setMaxThreadCount(4)
         self.__num_images_to_load = 0
 
+        # Generation token — bumps on every open/close. Each LoadImageWorker
+        # captures the gen at queue time; results from a stale gen are
+        # silently dropped at __on_image_loaded. Lets us avoid blocking on
+        # `threadpool.waitForDone()` in close_directory (which made bucket
+        # switches feel laggy) without leaking thumbnails into the wrong
+        # bucket's list when the user switches mid-load.
+        self.__generation = 0
+
         self.__currentPath: str = None
         self.__currentFileSet: set[str] = set()
         self.__ctx_menu_provider: Optional[Callable[[ImageFileListItem], Optional[QMenu]]] = None
@@ -399,14 +407,42 @@ class PhotoBrowser(QWidget):
         self.__fileSystemWatcher.addPath(self.__currentPath)
 
     def close_directory(self):
+        # Bump generation FIRST so any worker results that arrive after
+        # this point (queued in the event loop, or completing on the
+        # threadpool right now) see a stale gen and skip themselves.
+        self.__generation += 1
         self.stop_watching()
         self.__currentPath = None
         self.__currentFileSet.clear()
+        # Drop queued (not-yet-started) workers from the pool. Running
+        # workers will complete on their own; their finished signals
+        # are dropped via the gen check in __on_image_loaded — we
+        # deliberately do NOT call waitForDone() so the close returns
+        # promptly and the UI stays responsive on rapid bucket switches.
         self.__threadpool.clear()
-        self.__threadpool.waitForDone()
         self.__num_images_to_load = 0
+        self._reset_displayed_state()
+
+    def _reset_displayed_state(self) -> None:
+        """Reset every piece of UI that mirrors "what bucket is displayed".
+        Single chokepoint so a new piece of displayed state can't be added
+        without showing up here. Called from close_directory.
+
+        Contract — anything that represents bucket-bound display content
+        MUST be reset here. Pre-existing examples:
+            - filmstrip items (image_file_list)
+            - main viewer image (photo_viewer)
+            - shared decoded-pixmap cache
+            - load spinner (left running by stale-skipping workers; close
+              ends the load so we stop it explicitly)
+            - corner pill / border tint (when the indicator is enabled)
+        """
         self.image_file_list.clear()
+        self.photo_viewer.setPhoto(None)
         QPixmapCache.clear()
+        self.spinner.stopAnimation()
+        if hasattr(self, "_view_state_pill"):
+            self.set_view_state("empty")
 
     def stop_watching(self):
         # No-op when nothing was being watched — Qt's removePath emits a
@@ -524,12 +560,27 @@ class PhotoBrowser(QWidget):
             thumbnail_size=200,
             decode_mode=decode_mode,
         )
-        worker.signals.finished.connect(lambda result: self.__on_image_loaded(result, on_finished_callback))
+        # Capture generation at queue time; checked at receive time. Each
+        # call's `gen` is its own local, so each lambda closes over a
+        # distinct value (Python closure-by-reference, but the variable
+        # is re-bound per call so each lambda gets the snapshot).
+        gen = self.__generation
+        worker.signals.finished.connect(
+            lambda result: self.__on_image_loaded(result, on_finished_callback, gen)
+        )
 
         self.spinner.startAnimation()
         self.__threadpool.start(worker)
 
-    def __on_image_loaded(self, result: LoadImageWorkerResult, on_finished_callback: Callable):
+    def __on_image_loaded(self, result: LoadImageWorkerResult,
+                          on_finished_callback: Callable, gen: int):
+        # Stale guard — a previous open_directory's worker just finished
+        # but we've since closed and (maybe) re-opened. Drop the result;
+        # don't touch the counter (close_directory already reset it for
+        # the new gen) or the spinner (current-gen workers will stop it
+        # when they finish).
+        if gen != self.__generation:
+            return
         # Caching is the caller's decision (e.g. only the viewer flow caches —
         # the directory-thumbnail flow used to evict view pixmaps from the cache).
         on_finished_callback(result)
