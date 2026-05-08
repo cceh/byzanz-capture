@@ -35,6 +35,12 @@ from .profiles.base import Profile
 # (autodetect, port enumeration, abilities listing) are NOT. Concurrent
 # calls from multiple worker threads can deadlock or corrupt internal
 # state. Serialize them across all CameraWorker instances.
+#
+# This lock also serves as the "GIL release point" for the SWIG-deadlock
+# class of bug — see docs/gphoto2-deadlock-analysis.md. Acquiring this
+# Python lock releases the GIL during the wait, which lets another
+# worker that's holding a libgphoto2 internal mutex AND wants the GIL
+# (for the gp_log_call_python callback) make progress.
 _GPHOTO2_GLOBAL_LOCK = threading.Lock()
 
 
