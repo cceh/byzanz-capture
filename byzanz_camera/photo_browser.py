@@ -4,8 +4,8 @@ from os import listdir
 from pathlib import Path
 from typing import Callable, Optional
 
-from PyQt6.QtCore import QEvent, QFileSystemWatcher, QPoint, Qt, QThreadPool, pyqtSignal, QMutex, \
-    QMutexLocker, QRectF, QSize
+from PyQt6.QtCore import QEvent, QFileSystemWatcher, QPoint, Qt, QThreadPool, QTimer, pyqtSignal, \
+    QMutex, QMutexLocker, QRectF, QSize
 from PyQt6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap,
     QPixmapCache, QImage, QResizeEvent,
@@ -517,7 +517,15 @@ class PhotoBrowser(QWidget):
         removed_files = self.__currentFileSet - new_fileset
 
         if not added_files and not removed_files:
-            self.directory_loaded.emit(self.__currentPath)
+            # Defer to the event loop so the emit lands AFTER whatever
+            # receiver chain triggered this load completes — synchronous
+            # re-entry would hit slots whose connections are still being
+            # set up by later receivers in the same chain (the symptom:
+            # `_on_directory_loaded` → `obj.mark_dir_loaded()` → `refresh()`
+            # → `state_changed.emit()` firing while main.py's slot for
+            # state_changed is still about to be connected).
+            path = self.__currentPath
+            QTimer.singleShot(0, lambda: self.directory_loaded.emit(path))
 
         if added_files:
             # self.__threadpool.waitForDone()

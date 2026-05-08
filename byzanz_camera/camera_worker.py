@@ -417,16 +417,28 @@ class CameraWorker(QObject):
     def __disconnect_camera(self, auto_reconnect=True):
         self.__set_state(CameraStates.Disconnecting())
 
-        # Ignore errors while disconnecting
-        try:
-            self.camera.exit()
-        except gp.GPhoto2Error:
-            pass
-        except AttributeError:  # Camera already gone
-            pass
+        # Hold the global lock around BOTH camera.exit() and the
+        # `self.camera = None` that triggers SWIG's _wrap_delete_Camera →
+        # gp_camera_free → gp_port_free. Without this, the SWIG destructor
+        # runs while we still hold the GIL and tries to acquire libgphoto2's
+        # internal port mutex; if the OTHER worker is currently inside
+        # gp_camera_autodetect (holding that mutex AND waiting for the GIL
+        # to invoke gp_log_call_python), we deadlock AB-BA. Acquiring the
+        # global lock here releases the GIL during the wait, so the other
+        # worker can finish first and free the port mutex.
+        with _GPHOTO2_GLOBAL_LOCK:
+            try:
+                self.camera.exit()
+            except gp.GPhoto2Error:
+                pass
+            except AttributeError:  # Camera already gone
+                pass
+            # Drop the only Python ref so SWIG destructor runs synchronously
+            # inside this lock — when it tries the port mutex, no other
+            # worker can be inside libgphoto2 (they'd be waiting for us).
+            self.camera = None
 
         self.__set_state(CameraStates.Disconnected(camera_name=self.camera_name, auto_reconnect=auto_reconnect))
-        self.camera = None
         self.camera_name = None
 
         # Brief pause before the UI's auto-reconnect handler kicks off another

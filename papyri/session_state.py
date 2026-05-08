@@ -17,9 +17,10 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from papyri._layout import SIDE_A, SPECTRUM_VISIBLE
+from papyri._layout import SIDE_A, SPECTRUM_INFRARED, SPECTRUM_VISIBLE
 
 if TYPE_CHECKING:
+    from byzanz_camera.camera_worker import CameraStates
     from camera_config_dialog import CameraConfigDialog
     from papyri.main import Object
 
@@ -51,6 +52,12 @@ class SessionState(QObject):
     # session for idempotency.
     view_mode_changed = pyqtSignal(str, str)  # mode, label
 
+    # B3+B4 — per-spectrum camera state. One signal for both spectra; the
+    # spectrum arg distinguishes. Receivers either gate on
+    # `spectrum == active_spectrum` (active-only effects) or fire for any
+    # spectrum (per-camera lifecycle effects).
+    camera_state_changed = pyqtSignal(str, object)  # spectrum, CameraStates.StateType
+
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._logger = logging.getLogger(self.__class__.__name__)
@@ -69,6 +76,13 @@ class SessionState(QObject):
         # Label is the per-state extra (typically a stem for "preview").
         self._view_mode: str = "empty"
         self._view_mode_label: str = ""
+
+        # B3+B4 — per-spectrum camera state. Both default to None (workers
+        # haven't initialized yet); first emission for each is Waiting.
+        self._camera_states: dict[str, "CameraStates.StateType | None"] = {
+            SPECTRUM_VISIBLE: None,
+            SPECTRUM_INFRARED: None,
+        }
 
         # B8 — per-camera advanced-config dialog handle. At most one open at
         # a time (option A in the design discussion); spectrum tracks which
@@ -152,6 +166,30 @@ class SessionState(QObject):
             "view_mode = %s%s", mode, f" ({label})" if label else ""
         )
         self.view_mode_changed.emit(mode, label)
+
+    # ---- B3+B4 camera_state per spectrum ------------------------------
+
+    def camera_state(self, spectrum: str) -> "CameraStates.StateType | None":
+        """Per-spectrum accessor."""
+        return self._camera_states[spectrum]
+
+    @property
+    def active_camera_state(self) -> "CameraStates.StateType | None":
+        """Convenience: the active spectrum's camera state."""
+        return self._camera_states[self._active_spectrum]
+
+    def set_camera_state(
+        self, spectrum: str, state: "CameraStates.StateType"
+    ) -> None:
+        """Identity-compare in the no-op guard — different state instances
+        with the same class always emit (e.g. CaptureInProgress with a
+        new num_captured count is a meaningful re-emit)."""
+        if state is self._camera_states[spectrum]:
+            return
+        self._camera_states[spectrum] = state
+        short = "VIS" if spectrum == SPECTRUM_VISIBLE else "IR"
+        self._logger.info("[%s] %s", short, state.__class__.__name__)
+        self.camera_state_changed.emit(spectrum, state)
 
     # ---- B8 cam_config_dialog -----------------------------------------
 
