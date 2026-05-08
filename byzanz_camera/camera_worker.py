@@ -15,7 +15,18 @@ from PIL import Image
 from PyQt6.QtCore import pyqtSignal, QObject, QElapsedTimer, QTimer
 from PyQt6.QtWidgets import QApplication
 
-from byzanz_camera._autodetect import autodetect as _gphoto2_autodetect
+from byzanz_camera._autodetect import (
+    autodetect as _gphoto2_autodetect,
+    set_libgphoto2_setting as _gphoto2_set_setting,
+)
+
+# Shorten the PTP camlib's start-of-init timeout from libgphoto2's default
+# of 8000 ms (USB_START_TIMEOUT in camlibs/ptp2/library.c) to 3000 ms.
+# When a camera is in a bad PTP state and gp_camera_init() hangs waiting
+# for it to respond, this caps the freeze at ~3 s instead of 8 s before
+# our outer reconnect loop gets to retry. Should make the user wait less
+# after a recovery power cycle.
+_gphoto2_set_setting("ptp2", "start_timeout", "3000")
 from gphoto2 import CameraWidget
 
 from .profiles.base import Profile

@@ -101,6 +101,12 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     ]
     lib.gp_list_get_value.restype = ctypes.c_int
 
+    # gp_setting_set / gp_setting_get — public symbols, but python-gphoto2
+    # doesn't expose them. Used to override PTP camlib timeouts (see
+    # docs/camera-reconnect-recovery.md).
+    lib.gp_setting_set.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
+    lib.gp_setting_set.restype = ctypes.c_int
+
 
 _LIB: ctypes.CDLL | None = None
 if not _DISABLE_CTYPES:
@@ -180,6 +186,36 @@ def _autodetect_swig() -> list[tuple[str, str]]:
 # Sticky flag: flipped to True the first time the ctypes path raises at
 # runtime, so we don't keep retrying a broken path on every poll.
 _runtime_ctypes_failed = False
+
+
+def set_libgphoto2_setting(section: str, key: str, value: str) -> bool:
+    """Write a libgphoto2 setting via `gp_setting_set` (not exposed by
+    python-gphoto2's SWIG bindings). Settings live in `~/.gphoto/settings`
+    and are read by libgphoto2 / camlibs at various points (notably the
+    PTP camlib reads `ptp2.start_timeout` during `gp_camera_init`).
+
+    Returns True on success, False if the ctypes path is unavailable or
+    the call returned a libgphoto2 error code. Failures are logged and
+    non-fatal — the caller should treat the setting as best-effort."""
+    if _LIB is None:
+        _logger.warning(
+            "set_libgphoto2_setting(%r, %r, %r): ctypes path unavailable, "
+            "setting not applied", section, key, value,
+        )
+        return False
+    err = _LIB.gp_setting_set(
+        section.encode("utf-8"),
+        key.encode("utf-8"),
+        value.encode("utf-8"),
+    )
+    if err < 0:
+        _logger.warning(
+            "gp_setting_set(%r, %r, %r) returned err=%d",
+            section, key, value, err,
+        )
+        return False
+    _logger.info("libgphoto2 setting: %s.%s = %r", section, key, value)
+    return True
 
 
 def autodetect() -> list[tuple[str, str]]:
