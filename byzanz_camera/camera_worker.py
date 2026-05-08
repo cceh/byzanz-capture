@@ -186,11 +186,6 @@ class CameraStates:
             self.capture_request = capture_request
             self.error = error
 
-    class IOError:
-        def __init__(self, error: str):
-            super().__init__()
-            self.error = error
-
     class ConnectionError:
         def __init__(self, error: gp.GPhoto2Error):
             super().__init__()
@@ -198,8 +193,8 @@ class CameraStates:
 
     StateType = Union[
         Waiting, Found, Disconnected, Connecting, Disconnecting, Ready, CaptureInProgress,
-        CaptureFinished, CaptureCanceled, CaptureCancelling, CaptureError, IOError, ConnectionError, LiveViewStarted, LiveViewStopped,
-        LiveViewActive, FocusStarted, FocusFinished
+        CaptureFinished, CaptureCanceled, CaptureCancelling, CaptureError, ConnectionError,
+        LiveViewStarted, LiveViewStopped, LiveViewActive, FocusStarted, FocusFinished
     ]
 
 
@@ -256,10 +251,13 @@ class CameraWorker(QObject):
         self.captureComplete = False
 
         self.shouldCancel = False
-        self.liveView = False
         self.timer: QTimer = None
 
-        self.__saved_config = None
+        # Per-capture transient — list of saved file paths populated as
+        # FILE_ADDED events arrive in empty_event_queue, snapshotted into
+        # CaptureFinished's file_paths at end of captureImages.
+        self.captured_file_paths: list[str] = []
+
         self.__last_ptp_error: NikonPTPError = None
         self.__last_config_poll = 0.0
 
@@ -383,7 +381,6 @@ class CameraWorker(QObject):
         self.__apply_settings(profile.initial_settings())
 
         with self.__open_config("read") as cfg:
-            self.__saved_config = cfg
             self.events.config_updated.emit(PseudoConfig(cfg))
             self.camera_name = "%s %s" % (
                 cfg.get_child_by_name("manufacturer").get_value(),
@@ -523,8 +520,6 @@ class CameraWorker(QObject):
                     temp_path = file_target_path + ".part"
                     cam_file.save(temp_path)
                     os.replace(temp_path, file_target_path)
-                    if not hasattr(self, 'captured_file_paths'):
-                        self.captured_file_paths = []
                     self.captured_file_paths.append(file_target_path)
 
                     current_capture_req = self.__state.capture_request
@@ -576,23 +571,6 @@ class CameraWorker(QObject):
                     match = re.search(r'PTP Event (\w+)', data)
                     if match:
                         print(f"PTP Event '{match.group(1)}' received")
-                    # No match found, check for other config changes
-                    # with self.__open_config("read") as current_cfg:
-                    #     if self.__saved_config:
-                    #         changes = self.__get_config_diff(self.__saved_config, current_cfg)
-                    #         if changes:
-                    #             for name, old_val, new_val in changes:
-                    #                 if name not in ["d20c"]:
-                    #                     self.__logger.info(
-                    #                         f"Config change detected: {name} changed from {old_val} to {new_val}")
-                    #                 self.property_changed.emit(PropertyChangeEvent(
-                    #                     property=name,
-                    #                     property_name=name,
-                    #                     value=new_val
-                    #                 ))
-                    #
-                    #     # Update saved config
-                    #     self.__saved_config = current_cfg
 
             # try to grab another event
             event_type, data = self.camera.wait_for_event(1)
@@ -666,7 +644,7 @@ class CameraWorker(QObject):
             timer.start()
             self.empty_event_queue()
             self.filesCounter = 0
-            self.captured_file_paths: list[str] = []
+            self.captured_file_paths.clear()
             self.captureComplete = False
 
             self.__set_state(CameraStates.CaptureInProgress(capture_request=capture_req, num_captured=0))

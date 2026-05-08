@@ -952,7 +952,7 @@ class PapyriMainWindow(QMainWindow):
                 self.session.set_view_mode("empty")
             case CameraStates.CaptureError(error=err):
                 self.logger.error("Capture error: %s", err)
-            case CameraStates.Disconnected() | CameraStates.IOError():
+            case CameraStates.Disconnected():
                 # Active camera is gone — clear the live indicator so the
                 # viewer doesn't show stale "live" pill / border with no
                 # frames possible. Reconnect path: H17 auto-resumes live
