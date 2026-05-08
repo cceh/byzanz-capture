@@ -4,12 +4,15 @@ from os import listdir
 from pathlib import Path
 from typing import Callable, Optional
 
-from PyQt6.QtCore import QFileSystemWatcher, QPoint, Qt, QThreadPool, pyqtSignal, QMutex, \
-    QMutexLocker, QSize
-from PyQt6.QtGui import QPixmap, QResizeEvent, QPixmapCache, QImage
+from PyQt6.QtCore import QEvent, QFileSystemWatcher, QPoint, Qt, QThreadPool, pyqtSignal, QMutex, \
+    QMutexLocker, QRectF, QSize
+from PyQt6.QtGui import (
+    QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap,
+    QPixmapCache, QImage, QResizeEvent,
+)
 from PyQt6.QtWidgets import (
-    QGraphicsView, QGroupBox, QListView, QListWidget, QListWidgetItem, QMenu,
-    QStyledItemDelegate, QVBoxLayout, QWidget,
+    QGraphicsView, QGroupBox, QListView, QListWidget, QListWidgetItem,
+    QMenu, QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 from PyQt6.uic import loadUi
 
@@ -18,6 +21,89 @@ from .photo_viewer import PhotoViewer
 from .spinner import Spinner
 
 from .helpers import get_ui_path
+
+
+class _ViewStatePill(QWidget):
+    """Custom-painted pill badge for the viewer mode indicator.
+
+    QSS-styled QLabel proved unreliable across Qt6/macOS — `border-radius`
+    + transparent rgba background combinations either render inconsistently
+    or silently drop the chrome entirely. A self-painting widget bypasses
+    QSS entirely, which is the only reliable way to get the rounded dark
+    pill look across platforms.
+    """
+
+    PAD_X = 12
+    PAD_Y = 6
+    RADIUS = 11
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._text = ""
+        self._bg = QColor(15, 23, 42, 220)         # semi-transparent slate-900
+        self._fg = QColor("white")
+        self._border_color: QColor | None = None   # set per-state, None = no border
+        self._border_w = 1.5
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.hide()
+
+    def set_border_color(self, color: str | QColor | None) -> None:
+        """Set the pill's outline color (matches the state's accent).
+        Pass None to drop the border."""
+        new = QColor(color) if color and not isinstance(color, QColor) else color
+        if (self._border_color is None) == (new is None) and new == self._border_color:
+            return
+        self._border_color = new
+        self.update()
+
+    def setText(self, text: str) -> None:
+        if self._text == text:
+            return
+        self._text = text
+        self.adjustSize()
+        self.update()
+
+    def _font(self) -> QFont:
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(9)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
+        return font
+
+    def sizeHint(self) -> QSize:
+        if not self._text:
+            return QSize(0, 0)
+        fm = QFontMetrics(self._font())
+        return QSize(
+            fm.horizontalAdvance(self._text) + 2 * self.PAD_X,
+            fm.height() + 2 * self.PAD_Y,
+        )
+
+    def paintEvent(self, event) -> None:
+        if not self._text:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Inset the rect by half the border width so the stroke isn't
+        # cropped by the widget edges.
+        bw = self._border_w if self._border_color is not None else 0
+        half = bw / 2
+        rect = QRectF(half, half, self.width() - bw, self.height() - bw)
+
+        # Fill: semi-transparent dark
+        p.setBrush(QBrush(self._bg))
+        if self._border_color is not None:
+            p.setPen(QPen(self._border_color, bw))
+        else:
+            p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(rect, self.RADIUS, self.RADIUS)
+
+        # Centered text
+        p.setFont(self._font())
+        p.setPen(QPen(self._fg))
+        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._text)
 
 
 def get_file_index(file_path) -> Optional[int]:
@@ -110,6 +196,124 @@ class PhotoBrowser(QWidget):
         """Trigger a repaint of visible items. Call after external state
         affecting item decoration changes (e.g. chosen-take swap)."""
         self.image_file_list.viewport().update()
+
+    # ---- view-state indicator (corner pill + viewer border tint) -----
+
+    # State strings:
+    #   "live"    — live frames streaming from the camera
+    #   "paused"  — live view paused, last frame frozen on screen
+    #   "preview" — user-selected capture (filename in the pill)
+    #   "empty"   — nothing meaningful to show
+    # Border + accent colors per state. "Live" uses cyan instead of red
+    # so it doesn't visually fight IR's amber identity (red is also a
+    # destructive/error color in our palette so we want to keep it for
+    # actual error states only).
+    _VIEW_STATE_BORDERS = {
+        "live":    "1.5px solid #06b6d4",   # cyan-500
+        "paused":  "1px dashed #cbd5e1",
+        "preview": "1.5px solid #94a3b8",
+        "empty":   "1px solid #e2e8f0",
+    }
+    _LIVE_DOT_COLOR    = "#06b6d4"   # cyan-500 (same as border for cohesion)
+    _PAUSED_ICON_COLOR = "#fbbf24"   # amber-400
+
+    def enable_view_state_indicator(self) -> None:
+        """Add a corner-pill + border-tint indicator to the viewer area.
+        Call `set_view_state(state, label="")` to update.
+
+        Idempotent — safe to call from a subclass __init__."""
+        if getattr(self, "_view_state_pill", None) is not None:
+            return
+
+        self._view_state: str = "empty"
+        self._view_state_label: str = ""
+
+        # Custom-painted pill — see _ViewStatePill comment for why we
+        # don't use QLabel + QSS here.
+        pill = _ViewStatePill(self.viewer_container)
+        self._view_state_pill = pill
+
+        # Border goes on the QGraphicsView itself, not viewer_container —
+        # PhotoViewer fills the container so a border on the container
+        # would be hidden behind the QGraphicsView's own paint area.
+        self.photo_viewer.setObjectName("photoViewer")
+        # Track viewport resize so the pill re-anchors when the user
+        # resizes the window or scrollbars appear/disappear.
+        self.photo_viewer.viewport().installEventFilter(self)
+
+        self._refresh_view_state_indicator()
+
+    def set_view_state(self, state: str, label: str = "") -> None:
+        """Update the indicator. `state` ∈ {live, paused, preview, empty}.
+        `label` is shown inside the pill for "preview" (typically the
+        filename); ignored for other states."""
+        if state not in self._VIEW_STATE_BORDERS:
+            return
+        self._view_state = state
+        self._view_state_label = label
+        self._refresh_view_state_indicator()
+
+    def _refresh_view_state_indicator(self) -> None:
+        if getattr(self, "_view_state_pill", None) is None:
+            return
+        state = self._view_state
+        label = self._view_state_label
+
+        # Border tint on the QGraphicsView (= the visible image area).
+        border = self._VIEW_STATE_BORDERS[state]
+        self.photo_viewer.setStyleSheet(
+            f"QGraphicsView#photoViewer {{ border: {border}; border-radius: 3px; }}"
+        )
+
+        # Pill visibility / content + accent border per state.
+        pill = self._view_state_pill
+        if state == "empty":
+            pill.hide()
+            return
+
+        # Per-state text + border color (matching the viewer border tint
+        # so the pill outline reads as part of the same indicator).
+        if state == "live":
+            pill.setText("● LIVE")
+            pill.set_border_color(self._LIVE_DOT_COLOR)
+        elif state == "paused":
+            pill.setText("⏸ PAUSED")
+            pill.set_border_color(self._PAUSED_ICON_COLOR)
+        elif state == "preview":
+            pill.setText(f"📷 {label}" if label else "📷 Preview")
+            pill.set_border_color("#94a3b8")  # neutral grey
+
+        pill.adjustSize()
+        pill.show()
+        pill.raise_()
+        self._reposition_view_state_pill()
+
+    def _reposition_view_state_pill(self) -> None:
+        pill = getattr(self, "_view_state_pill", None)
+        if pill is None or not pill.isVisible():
+            return
+        inset = 12
+        # Anchor to the QGraphicsView's viewport (scroll body) so the pill
+        # always sits inside the visible image area, never overlapping a
+        # vertical scrollbar.
+        viewport = self.photo_viewer.viewport()
+        anchor_right = (
+            self.photo_viewer.x() + viewport.x() + viewport.width()
+        )
+        pill.move(
+            max(0, anchor_right - pill.width() - inset),
+            self.photo_viewer.y() + viewport.y() + inset,
+        )
+
+    def eventFilter(self, obj, event):
+        if (
+            obj is getattr(self.photo_viewer, "viewport", lambda: None)()
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._reposition_view_state_pill()
+        return super().eventFilter(obj, event)
+
+    # ---- loupe layout ------------------------------------------------
 
     def use_loupe_layout(self) -> None:
         """Switch from the default side-by-side layout (list left, viewer right)
@@ -210,6 +414,14 @@ class PhotoBrowser(QWidget):
 
     def num_files(self) -> int:
         return self.image_file_list.count()
+
+    def current_file_name(self) -> Optional[str]:
+        """The basename of the currently-selected thumbnail, or None if
+        the list is empty / nothing is selected."""
+        item = self.image_file_list.currentItem()
+        if item is None or not isinstance(item, ImageFileListItem):
+            return None
+        return item.file_name
 
     def files(self):
         return [self.image_file_list.item(row).path for row in range(self.image_file_list.count())]
