@@ -67,6 +67,7 @@ from papyri.camera_state_widget import CameraStateWidget
 from papyri.capture_browser import PapyriCaptureBrowser
 from papyri.metadata_pane import MetadataPane
 from papyri.objects_sidebar import ObjectsSidebar
+from papyri.session_state import SessionState
 from byzanz_camera.profiles.base import Profile
 from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
 from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
@@ -447,6 +448,11 @@ class PapyriMainWindow(QMainWindow):
 
         loadUi(get_ui_path('papyri/ui/main_window.ui'), self)
 
+        # Centralized orchestrator state. Per-axis migration is in flight;
+        # until each axis lands on `self.session`, the field stays on
+        # MainWindow and the session is the no-op default.
+        self.session = SessionState(self)
+
         self.q_settings = QSettings()
         self._init_default_settings()
         # Qt's default QPixmapCache limit is 10 MB — too small for one decoded
@@ -475,6 +481,7 @@ class PapyriMainWindow(QMainWindow):
         self._bind_widgets()
         self._wire_actions()
         self._wire_camera()
+        self._wire_session()
         # Initial paint of the side cards so Side A reads as active before
         # the first object is loaded.
         self._refresh_workflow_stepper()
@@ -642,6 +649,13 @@ class PapyriMainWindow(QMainWindow):
             # in the side cards stay visible but are silently no-op'd (clicks
             # fall back to visible in _set_active_bucket).
             self.ir_camera_state.setVisible(False)
+
+    def _wire_session(self) -> None:
+        """All `session.*_changed.connect(...)` calls live here. Single grep
+        target for "what reacts to what" — one line per receiver per axis,
+        sorted by axis. Receivers are added as each axis migrates onto
+        SessionState (currently empty: skeleton only)."""
+        return
 
     def _spawn_worker(self, profile: Profile) -> tuple[CameraWorker, QThread]:
         """Build a worker pre-configured to find the right camera by model
