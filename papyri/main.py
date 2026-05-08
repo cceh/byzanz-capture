@@ -1347,24 +1347,43 @@ class PapyriMainWindow(QMainWindow):
     # ---------------------------------------------------------- dialogs
 
     def open_settings(self):
+        # Snapshot irProfile BEFORE the dialog runs so we can detect a change
+        # and warn the user — IR worker spawn happens once at startup, so
+        # changing irProfile at runtime has no effect until restart.
+        previous_ir_profile = self.q_settings.value("irProfile")
+
         dialog = PapyriSettingsDialog(self.q_settings, PROFILES, self)
-        if dialog.exec():
-            for name, value in dialog.settings.items():
-                self.q_settings.setValue(name, value)
-                if name == "profile":
-                    new_profile = PROFILES[value]
-                    if new_profile is not self.profile:
-                        self.profile = new_profile
-                        # Always target the VIS worker — the "profile"
-                        # setting is the VIS-camera profile. Routing via
-                        # active_worker would wrongly reconnect IR if IR
-                        # were the active spectrum.
-                        self.visible_worker.commands.reconnect_camera.emit()
-                elif name == "workingDirectory":
-                    self._refresh_camera_dependent_ui()
-                    self.objects_sidebar.set_working_directory(value)
-                elif name == "maxPixmapCache":
-                    QPixmapCache.setCacheLimit(int(value) * 1024)
+        if not dialog.exec():
+            return
+
+        for name, value in dialog.settings.items():
+            self.q_settings.setValue(name, value)
+            if name == "profile":
+                new_profile = PROFILES[value]
+                if new_profile is not self.profile:
+                    self.profile = new_profile
+                    # Always target the VIS worker — the "profile"
+                    # setting is the VIS-camera profile. Routing via
+                    # active_worker would wrongly reconnect IR if IR
+                    # were the active spectrum.
+                    self.visible_worker.commands.reconnect_camera.emit()
+            elif name == "workingDirectory":
+                self._refresh_camera_dependent_ui()
+                self.objects_sidebar.set_working_directory(value)
+            elif name == "maxPixmapCache":
+                QPixmapCache.setCacheLimit(int(value) * 1024)
+
+        # F-PERS-1: irProfile change has no runtime effect — the IR worker
+        # is constructed once in _wire_camera at startup based on this
+        # setting. Warn the user so they know to restart.
+        new_ir_profile = self.q_settings.value("irProfile")
+        if new_ir_profile != previous_ir_profile:
+            QMessageBox.information(
+                self,
+                "Restart required",
+                "The IR camera profile change will take effect after you "
+                "restart the application.",
+            )
 
     _CAM_CONFIG_READY_STATES = (
         CameraStates.Ready,
