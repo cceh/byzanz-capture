@@ -2,7 +2,7 @@
 
 Verification target for the upcoming `SessionState` refactor. Documents every distinct piece of state in the running app, the transitions between values, the cross-axis invariants that must hold, and the edge cases the refactor must keep passing.
 
-> **Status**: 2026-05-08 — built from a code-grounded read of `papyri/main.py`, `byzanz_camera/camera_worker.py`, `byzanz_camera/photo_browser.py`, and the rest of the `papyri/` package.
+> **Status**: 2026-05-08 — refactor complete on branch `refactor/session-state` (Stages 0–6). All 8 axes migrated to `SessionState`. This doc reflects the post-refactor shape; the "before" reactivity diagram in §2.3 is kept as a historical record.
 
 ## How to read this doc
 
@@ -16,6 +16,7 @@ Verification target for the upcoming `SessionState` refactor. Documents every di
 
 1. [Scope](#1-scope)
 2. [Visual overview](#2-visual-overview)
+2.5. [Architecture: `SessionState`](#25-architecture-sessionstate)
 3. [State axes — primary (orchestrator level)](#3-state-axes--primary-orchestrator-level)
 3a. [Widget reactivity matrix](#3a-widget-reactivity-matrix)
 4. [State held inside `Object` (model)](#4-state-held-inside-object-model)
@@ -167,11 +168,11 @@ stateDiagram-v2
 
 **Note on `IOError`**: defined as a substate but not raised anywhere in the code. Likely dead — see [§12](#12-findings-worth-flagging).
 
-### 2.3 Reactivity fan-out — today vs. proposed
+### 2.3 Reactivity fan-out — before vs. after the refactor
 
-The clearest single picture of why the refactor matters. Same user action, two different control flows.
+Same user action, two control flows — kept here as a record of *why* the refactor mattered. The "after" shape is what `SessionState` implements today; the "before" is the historical pre-refactor pattern.
 
-#### Today — `_set_active_bucket` mutates and dispatches manually
+#### Before — `_set_active_bucket` mutates and dispatches manually
 
 ```mermaid
 flowchart LR
@@ -206,7 +207,7 @@ flowchart LR
 
 The red node is the only mutator AND the dispatcher. To trace effects you have to read 6 methods. Adding a new effect means editing `_set_active_bucket` (or one of the refreshers it calls). State is not separable from dispatch.
 
-#### Proposed — `SessionState.set_active_bucket` mutates; receivers subscribe
+#### After — `SessionState.set_active_bucket` mutates; receivers subscribe
 
 ```mermaid
 flowchart LR
@@ -230,20 +231,39 @@ The green node is the only mutator. Receivers subscribe; the mutator doesn't kno
 
 ---
 
+## 2.5 Architecture: `SessionState`
+
+Orchestrator state lives on a single `SessionState` QObject (`papyri/session_state.py`). `MainWindow` owns it; widgets stay state-agnostic. Mutations go through setters that emit `*_changed` signals; receivers in `MainWindow` subscribe and call widget APIs. Eight rules — locked into the comment block at the top of `_wire_session()` — keep the pattern honest:
+
+1. **Receivers read from `session.X`, never from signal args.** Makes them idempotent — safe to call from anywhere (initial paint, manual invocation, etc.).
+2. **All `.connect()` calls live in `_wire_session()`.** Single grep target for "what reacts to what".
+3. **No lambda connects** unless binding args. Greppable named methods only.
+4. **`_refresh_X` for UI repaints** (no side effects); **`_handle_X` for business logic / commands**. Suffix names the property set (`_enable`, `_visible`, `_text`, `_color`, `_binding`, `_emphasis`) — `_state` / `_status` / `_appearance` are red flags that the receiver is doing too much.
+5. **Atomic groupings** — one setter per logical change (e.g. `set_active_bucket(side, spectrum)`, not two setters). Receivers see consistent state.
+6. **Setters mutate + emit only.** No worker commands, no widget calls, no business logic. (Exception: `set_camera_state` logs the transition since it's the source of truth.)
+7. **Type hints on every setter / getter / signal.** State shape is greppable.
+8. **Log every mutation.** One INFO line per axis change. Lets you reconstruct a session by reading the log — essential for verifying IR paths without IR hardware.
+
+**Multi-subscribe is normal**: a receiver depending on multiple axes connects to each (`s.A_changed.connect(self._refresh_X); s.B_changed.connect(self._refresh_X)`). It re-reads from session each call so over-running is harmless.
+
+**Match form for state-machine receivers**: camera-state receivers (`_handle_camera_lifecycle`, `_handle_active_camera_state`, `_refresh_camera_dependent_ui`) each contain a `match camera_state:` block. The state machine has 18 enumerated substates — match preserves the per-state scan ("what does Ready cause?") within each concern.
+
+**Imperative handlers** are allowed when the work is inherently history-dependent (`_handle_live_view_handoff(old, new)` — the OLD spectrum is gone from session by the time we want to use it). Called from action handlers, not from signal subscribers.
+
+---
+
 ## 3. State axes — primary (orchestrator level)
 
-These are the axes the refactor's `SessionState` must own. Each axis is one row.
+These are the axes `SessionState` owns. Each axis has one storage location, one setter, one signal (where reactive observers exist), and a flat list of receivers wired in `_wire_session()`.
 
-| # | Axis | Type | Location today | Mutator(s) today | Observers today |
-|---|------|------|----------------|-------------------|------------------|
-| **B1** | Active side | `SIDE_A \| SIDE_B` | `MainWindow.active_side` | `_set_active_bucket` | `_refresh_workflow_stepper`, `_update_capture_button_label`, `capture_image`, `_set_current_object` |
-| **B2** | Active spectrum | `SPECTRUM_VISIBLE \| SPECTRUM_INFRARED` | `MainWindow.active_spectrum` | `_set_active_bucket` (with IR-fallback to VIS) | same as B1, plus `active_worker` derivation, `_on_camera_state_changed` (active-only branch), `_on_preview_image` (drop filter), camera-state-widget emphasis |
-| **B3** | VIS camera state | one of 18 `CameraStates.*` or `None` | `MainWindow.camera_states[VIS]` | `_on_camera_state_changed` | `update_ui` (only when active), `_transition_live_view`, `open_advanced_camera_config`, `CameraStateWidget` (self-wired direct from worker) |
-| **B4** | IR camera state | one of 18 `CameraStates.*` or `None`; **N/A** when no IR profile | `MainWindow.camera_states[IR]` | `_on_camera_state_changed` | same as B3 + IR-specific |
-| **B5** | Current object reference | `Object \| None` | `MainWindow.current_object` | `_set_current_object` | `update_ui`, capture-related, photo browser binding, metadata pane binding, sidebar selection, workflow stepper counts |
-| **B6** | Live-view paused intent | `bool` | `MainWindow._live_view_paused` + duplicated in `pause_live_view_button.isChecked()` | `_on_pause_toggled` | `_transition_live_view`, `_on_camera_state_changed` (active-only `Ready` handler), `_on_preview_image`, `_on_directory_loaded`, `_on_pause_toggled`, viewer-mode derivation |
-| **B7** | Viewer mode | `"live" \| "paused" \| "preview" \| "empty"` (+ optional label) | `PhotoBrowser._view_state` + `_view_state_label` | `set_view_state(state, label)` called from main.py | `PhotoBrowser._refresh_view_state_indicator` (border + pill) |
-| **B8** | Cam-config dialog | `CameraConfigDialog \| None` | `MainWindow.cam_config_dialog` | `open_advanced_camera_config` (set), dialog `finished` (clear), `_on_camera_state_changed` (Disconnecting → reject) | the `open_advanced_camera_config` gate |
+| # | Axis | Type | Setter | Signal | Receivers (in `MainWindow`) |
+|---|------|------|--------|--------|------------------------------|
+| **B1+B2** | Active bucket (atomic side+spectrum) | `(SIDE_A\|SIDE_B, SPECTRUM_VISIBLE\|SPECTRUM_INFRARED)` | `session.set_active_bucket(side, spectrum)` | `active_bucket_changed(str, str)` | `_refresh_workflow_stepper_active`, `_refresh_capture_button_label`, `_refresh_camera_state_emphasis`, `_refresh_photo_browser_binding` (also subscribes to B5). IR-fallback enforced caller-side in `_on_workflow_step_clicked`; `_handle_live_view_handoff(old, new)` invoked imperatively from same caller because old value isn't in session by emission time. |
+| **B3+B4** | Camera state per spectrum | `dict[spectrum, CameraStates.* \| None]` | `session.set_camera_state(spectrum, state)` | `camera_state_changed(str, object)` | `_handle_camera_lifecycle` (per-spectrum: Found→connect, Disconnected→reconnect, Disconnecting→cam-config-dialog reject), `_handle_active_camera_state` (active-only: Ready→live view auto-resume, error logging, Disconnected→view_mode="empty"), `_refresh_camera_dependent_ui` (autofocus enable, capture status, capture/pause button enables — also subscribes to B5). |
+| **B5** | Current object reference | `Object \| None` (identity-compare in setter) | `session.set_current_object(obj)` | `current_object_changed(object)` | `_refresh_metadata_pane_binding`, `_refresh_objects_sidebar_active`, `_refresh_objects_sidebar_entries`, `_refresh_workflow_stepper_counts`, `_refresh_workflow_stepper_active`, `_refresh_photo_browser_binding`, `_handle_current_object_subscription` (manages `Object.state_changed` connection + initial refresh), `_handle_current_object_view_mode_reset` (sets view_mode="empty" on close). |
+| **B6** | Live-view paused intent | `bool` | `session.set_live_view_paused(paused)` | `live_view_paused_changed(bool)` | `_refresh_pause_button_text` (UI mirror — F-DUP fix; pause button is no longer source of truth), `_handle_live_view_paused` (emits `live_view` command on active worker). |
+| **B7** | Viewer mode | `("live"\|"paused"\|"preview"\|"empty", label)` atomic | `session.set_view_mode(mode, label="")` | `view_mode_changed(str, str)` | `_refresh_view_mode_indicator` (calls `photo_browser.set_view_state(...)`). |
+| **B8** | Per-camera advanced-config dialog | `(CameraConfigDialog \| None, spectrum \| None)` atomic | `session.set_cam_config_dialog(dialog, spectrum)` | (no signal — only inline gate observes) | Inline check in `_handle_camera_lifecycle` rejects the dialog when its spectrum's camera goes Disconnecting. |
 
 ### Derived (computed, never stored)
 
@@ -300,8 +320,9 @@ Grouped by screen region. Within each group: every visible control with its enab
 | Widget / property | Driven by | Notes | Source |
 |---|---|---|---|
 | Settings button | always visible / enabled | | `main_window.ui` |
-| "General settings" menu item | always visible / enabled | opens `PapyriSettingsDialog` (modal) | `_wire_actions` |
-| "Advanced camera config" menu item | always visible / enabled | clicking is GATED on camera state — info dialog if not Ready-ish (H7) | `open_advanced_camera_config` |
+| "General settings" menu item | always visible / enabled | opens `PapyriSettingsDialog` (modal). On close, warns if `irProfile` changed (F-PERS-1) — IR worker is constructed once at startup. | `open_settings` |
+| "Configure VIS camera…" menu item | enabled when VIS camera ∈ Ready-ish states | gated via `aboutToShow` → `_refresh_settings_menu_state`; opens dialog scoped to VIS worker | `open_advanced_camera_config(VISIBLE)` |
+| "Configure IR camera…" menu item | visible iff IR profile configured (D7); enabled when IR camera ∈ Ready-ish states | per-camera (option A from design discussion) — at most one dialog open, scoped to its specific camera | `open_advanced_camera_config(INFRARED)` |
 
 ### 3a.4 Objects sidebar (left rail)
 
@@ -324,7 +345,7 @@ Grouped by screen region. Within each group: every visible control with its enab
 | Pane width | splitter-controlled; default 200px, min 150px | user-draggable | `main_window.ui` splitter |
 | Name field — read-only | `B5 is not None` | editable (with chrome) when no object bound | `_refresh_title_row` |
 | Name field — content | object's name (when bound), empty (placeholder) otherwise | | same |
-| Inline spinner | animating when `has_object AND NOT object_loaded` (D3 ∧ ¬D4) | driven by `set_loading_busy` from `update_ui` | `set_loading_busy` |
+| Inline spinner | animating when `has_object AND NOT object_loaded` (D3 ∧ ¬D4) | driven by `set_loading_busy` from `_refresh_camera_dependent_ui` | `set_loading_busy` |
 | Rename button (✏) | visible when B5 is not None | emits `rename_requested` | `_refresh_title_row` |
 | Close button (×) | visible when B5 is not None | emits `close_requested` | same |
 | Subtitle text | "X/4 buckets" filled, derived from object's per-bucket counts | empty when no object; refreshes on object's `state_changed` | `_refresh_subtitle` |
@@ -367,22 +388,20 @@ Grouped by screen region. Within each group: every visible control with its enab
 
 | Widget / property | Driven by | Notes | Source |
 |---|---|---|---|
-| Pause Live View button — enabled | `camera_ready` (D5) | disabled in Waiting / Found / Connecting / Disconnecting / Disconnected / IOError / ConnectionError / CaptureInProgress / CaptureCancelling / CaptureCanceled / CaptureError | `update_ui` |
-| Pause Live View button — text | "Pause Live View" / "Resume Live View" per B6 | | `_on_pause_toggled` |
-| Pause Live View button — checked state | mirrors B6; programmatically set by `_on_image_selected`, `_on_directory_loaded` (which fires this handler in turn) | (F-DUP — duplicates `_live_view_paused` field) | `_on_pause_toggled` |
-| Autofocus button — enabled | active camera ∈ {LiveViewStarted, LiveViewActive, FocusFinished} | disabled in all other states | `update_ui` match |
+| Pause Live View button — enabled | `camera_ready` (D5) | disabled in Waiting / Found / Connecting / Disconnecting / Disconnected / ConnectionError / CaptureInProgress / CaptureCancelling / CaptureCanceled / CaptureError | `_refresh_camera_dependent_ui` |
+| Pause Live View button — text + checked | "Pause Live View" / "Resume Live View" per B6 (F-DUP fixed — button is now a UI mirror of session.live_view_paused, no longer source of truth) | | `_refresh_pause_button_text` |
+| Autofocus button — enabled | active camera ∈ {LiveViewStarted, LiveViewActive, FocusFinished} | disabled in all other states | `_refresh_camera_dependent_ui` match |
 | Capture status label — text | per active camera state — Capturing… (CaptureInProgress) / "Captured: x.jpg, y.arw" (CaptureFinished) / "Capture canceled." (CaptureCanceled) / "Error: {err}" (CaptureError) / "Could not focus." (FocusFinished success=False) | empty in Waiting; previous text persists in unhandled states | same |
 | Capture status label — color | red on focus-fail / cancel / error; mid-grey on CaptureFinished; default otherwise | | same |
-| Capture button — enabled | `camera_ready AND object_loaded` (D5 ∧ D4) | | `update_ui` |
-| Capture button — text | `"Capture · Side {A/B} · {Visible/Infrared}"` per B1 + B2 | | `_update_capture_button_label` |
+| Capture button — enabled | `camera_ready AND object_loaded` (D5 ∧ D4) | multi-subscribed to `camera_state_changed` AND `current_object_changed` | `_refresh_camera_dependent_ui` |
+| Capture button — text | `"Capture · Side {A/B} · {Visible/Infrared}"` per B1 + B2 | | `_refresh_capture_button_label` |
 
 ### 3a.9 Modal dialogs
 
 | Dialog | Triggered by | Modality | Notes | Source |
 |---|---|---|---|---|
-| `PapyriSettingsDialog` | Settings menu → "General settings" | modal | writes back QSettings: profile (triggers VIS reconnect), irProfile (no runtime effect — F-PERS-1), workingDirectory (refreshes sidebar), maxPixmapCache (live-applies), enableSecondScreenMirror | `open_settings` |
-| `CameraConfigDialog` | Settings menu → "Advanced camera config" (if camera Ready-ish) | non-modal | auto-`reject()` on active camera Disconnecting | `open_advanced_camera_config` |
-| Camera-not-ready info | "Advanced camera config" when camera not Ready-ish | modal info | "Connect the camera before opening the advanced config dialog." | `open_advanced_camera_config` |
+| `PapyriSettingsDialog` | Settings menu → "General settings" | modal | writes back QSettings: profile (triggers VIS reconnect), irProfile (warns user to restart — F-PERS-1 fixed), workingDirectory (refreshes sidebar), maxPixmapCache (live-applies), enableSecondScreenMirror | `open_settings` |
+| `CameraConfigDialog` | Settings menu → "Configure VIS camera…" or "Configure IR camera…" (per-camera) | non-modal | auto-`reject()` when **its** spectrum's camera goes Disconnecting (per-camera, not active-spectrum-keyed) | `open_advanced_camera_config(spectrum)` |
 | Move-capture confirmation | Right-click thumbnail → "Move to side B/A" | modal Yes/Cancel | | `_confirm_and_move` |
 | Delete-capture confirmation | Right-click thumbnail → "Delete capture…" | modal Yes/Cancel | | `_confirm_and_delete` |
 | Rename input dialog | ✏ button | modal text + Ok/Cancel | invokes full rename flow (re-prefixes files in all 4 buckets, rewrites `_chosen_*.txt`, renames dir) | `rename_current_object` |
@@ -415,9 +434,9 @@ These aren't widgets but are user-visible side effects worth tracking.
 | # | Field | Type | Mutator | Observer |
 |---|-------|------|---------|----------|
 | C1 | `working_dir` | str | constructor | path derivations |
-| C2 | `name` | str | constructor; mutated in-place by `_set_current_object` after rename (via re-construction) | path derivations |
+| C2 | `name` | str | constructor; new instance constructed and passed to `session.set_current_object` after rename | path derivations |
 | C3 | `dir` | str | constructor | path derivations |
-| C4 | `dir_loaded` | bool | **set externally** by `_on_directory_loaded` in main.py (line 930) | `update_ui` capture-button gate |
+| C4 | `dir_loaded` | bool | set via `Object.mark_dir_loaded()` (called from `_on_directory_loaded`) | `_refresh_camera_dependent_ui` capture-button gate |
 | C5 | `_captures: dict[bucket, list[Capture]]` | per-bucket file list | `refresh()` (re-scan disk) | `count()`, `captures()`, browser ★, sidebar badge, subtitle |
 | C6 | `_chosen: dict[bucket, Capture \| None]` | persisted in `_chosen_*.txt` | `set_chosen()`, `refresh()` (re-resolve), implicit clear in `move()` | browser ★, future RTI / processing exports |
 | C7 | `state_changed` signal connections | signal-receiver list | `connect`/`disconnect` from main.py, capture_browser, metadata_pane | (the receivers themselves) |
@@ -593,12 +612,12 @@ Statements the code relies on. The refactor must keep all of these true.
 
 | # | Invariant | Enforced where |
 |---|-----------|----------------|
-| H1 | `active_spectrum == IR` ⇒ `ir_worker is not None` | `_set_active_bucket` falls back to VIS (line 669-671) |
+| H1 | `active_spectrum == IR` ⇒ `ir_worker is not None` | `_on_workflow_step_clicked` falls back to VIS before calling `session.set_active_bucket` (caller-side; SessionState stays ignorant of worker availability) |
 | H2 | `current_object is None` ⇒ `dir_loaded` not consulted | guarded by `has_object` checks |
 | H3 | `view_mode == "live"` ⇒ `live_view_paused == False` | `_on_preview_image` only sets "live" when `not _live_view_paused` |
 | H4 | `view_mode == "preview"` ⇒ `live_view_paused == True` | `_on_image_selected` flips pause-toggle on |
 | H5 | Pausing while in "preview" must NOT clobber the indicator | `_on_pause_toggled` reads `_view_state != "preview"` (line 966) |
-| H6 | At most one `Object`'s `state_changed` connected to main.py | `_set_current_object` disconnects previous |
+| H6 | At most one `Object`'s `state_changed` connected to main.py | `_handle_current_object_subscription` tracks `_subscribed_object`, disconnects previous |
 | H6′ | At most one `Object`'s `state_changed` connected to `MetadataPane` | **NOT enforced today** — finding F-LEAK |
 | H7 | `cam_config_dialog` opens only when active camera is Ready-ish | `open_advanced_camera_config` gate |
 | H8 | Settings change to `profile` reconnects ONLY the VIS worker | `open_settings` explicitly targets `visible_worker` |
@@ -608,12 +627,12 @@ Statements the code relies on. The refactor must keep all of these true.
 | H12 | `pause_live_view_button.isChecked()` mirrors `_live_view_paused` | `_on_pause_toggled` connects them; `_on_directory_loaded` and `_on_image_selected` set the button (which fires the `toggled` signal) |
 | H13 | Both worker `preview_image` connected; inactive's frames dropped | `_on_preview_image` early return |
 | H14 | Both worker `state_changed` connected; per-spectrum vs active-only branching | `_on_camera_state_changed` two-tier |
-| H15 | Spectrum switch hands live view from old to new | `_transition_live_view` |
-| H16 | New live view starts only if new camera is in `Ready / LiveViewStopped / CaptureFinished` | `_transition_live_view` final check |
+| H15 | Spectrum switch hands live view from old to new | `_handle_live_view_handoff(old, new)` (imperative, called from `_on_workflow_step_clicked`) |
+| H16 | New live view starts only if new camera is in `Ready / LiveViewStopped / CaptureFinished` AND new bucket has no captures | `_handle_live_view_handoff` (skip-start guard added in Stage 5 to avoid spurious shutter) |
 | H17 | Auto-resume live view on each `Ready` if not paused | `_on_camera_state_changed` active-only |
 | H18 | Auto-reconnect on `Disconnected(auto_reconnect=True)` for ANY spectrum | `_on_camera_state_changed` per-spectrum |
-| H19 | Workflow stepper falls back to VIS silently when IR step clicked without IR worker | inherited from H1 + `_set_active_bucket` |
-| H20 | Object close → view mode "empty"; object open with captures → "preview"; opened empty → mode unchanged (could leak prior state) | `_set_current_object` + `_on_directory_loaded` (incomplete coverage — finding F-VIEW-1) |
+| H19 | Workflow stepper falls back to VIS silently when IR step clicked without IR worker | inherited from H1 in `_on_workflow_step_clicked` |
+| H20 | Object close → view mode "empty"; object open with captures → "preview"; opened empty → "empty" | `_handle_current_object_view_mode_reset` (close path) + `_on_directory_loaded` (open path with explicit empty-bucket transition — F-VIEW-1 fixed in Stage 4) |
 | H21 | Worker shutdown bounded (5 s grace, then `terminate()`) | `closeEvent` |
 | H22 | `image_selected` only fires on USER click, not on auto-select during load | `__add_image_item` disconnect/reconnect dance |
 | H23 | Capture starts inline-stop of live view (no `LiveViewStopped` emission) | `captureImages` opening block (line 644-648) |
@@ -627,12 +646,12 @@ Each should pass after refactor. Each row is a single test/walkthrough.
 
 | # | Scenario | Today's actual behavior | Verified-against |
 |---|----------|--------------------------|-------------------|
-| J1 | User switches active spectrum mid-VIS-capture | VIS worker keeps capturing in background (one in-flight command). `update_ui` now reads IR's state → status label shows IR's state, not VIS's capture progress. **Latent ambiguity.** | (manual test) |
+| J1 | User switches active spectrum mid-VIS-capture | VIS worker keeps capturing in background (one in-flight command). `_refresh_camera_dependent_ui` now reads IR's state → status label shows IR's state, not VIS's capture progress. **Latent ambiguity (F-AMBIG)** — still open. | (manual test) |
 | J2 | User selects thumb, then clicks Resume Live View | `_on_pause_toggled(False)` → unpauses. Next live frame asserts "live" via `_on_preview_image`. Indicator transitions preview → live. | H3 |
 | J3 | User selects thumb (auto-pause), then clicks Pause again | `_on_pause_toggled(True)` reads `_view_state == "preview"` → does NOT overwrite to "paused". Stays "preview". | H5 |
 | J4 | IR camera disconnects during VIS work | IR's `CameraStateWidget` shows Disconnected. VIS unaffected. Auto-reconnect tries IR. | H14 + H18 |
 | J5 | Active camera disconnects with `auto_reconnect=False` (manual disconnect) | Camera state → Disconnected. `cam_config_dialog` rejected if open. Capture button disables. No auto-reconnect. | H14 active-only branch |
-| J6 | User clicks "ir_a" stepper step on a VIS-only station | `_set_active_bucket` rewrites spectrum to VIS. Active step becomes "vis_a". User sees their click ignored — silently. | H1 + H19 |
+| J6 | User clicks "ir_a" stepper step on a VIS-only station | `_on_workflow_step_clicked` rewrites spectrum to VIS before calling session. Active step becomes "vis_a". User sees their click ignored — silently. | H1 + H19 |
 | J7 | User changes `profile` in Settings | `visible_worker` reconnects. IR stays. New profile's `initial_settings` applied on connect. | H8 |
 | J8 | User changes `irProfile` in Settings | Persisted to QSettings but **no IR worker spawn / change at runtime**. User must restart. | H9 — surface this clearly to user |
 | J9 | User opens an Object with existing captures | `directory_loaded` fires. PhotoBrowser auto-selects last-loaded thumb (no `image_selected` per H22). Main.py's handler reads `current_file_name()` → flips pause-button + sets view_mode="preview" with stem label. | H20 (covered branch) |
@@ -640,15 +659,15 @@ Each should pass after refactor. Each row is a single test/walkthrough.
 | J11 | User closes Object while live-view streaming | View_mode set to "empty". Live view keeps streaming on the worker (intentional). PhotoBrowser unbinds, no chosen take displayed. | H20 |
 | J12 | App close while worker is in C call (libgphoto2 init) | `requestInterruption()` doesn't reach C. `wait(5000)` returns false. `terminate()` fires. | H21 |
 | J13 | Capture lands while user is in "preview" mode | `Object.refresh` sees new files → `state_changed` → browser repaints (★ stays on selected). View_mode stays "preview" (no transition trigger). The new capture file is in the list but not selected. | OBSERVED — verify intentional |
-| J14 | User toggles spectrum while live-view paused | New spectrum's live view does NOT auto-start. | H16 — confirmed via early-return in `_transition_live_view` |
-| J15 | User toggles spectrum while old worker is mid-`LiveViewStarted` (transient) | Old gets `live_view(False)`. New only starts if `Ready/Stopped/CaptureFinished`. So `LiveViewStarted` on the new wouldn't trigger start (because `_transition_live_view` checks the new's CURRENT state at switch time). | H16 |
+| J14 | User toggles spectrum while live-view paused | New spectrum's live view does NOT auto-start. | H16 — early-return in `_handle_live_view_handoff` |
+| J15 | User toggles spectrum while old worker is mid-`LiveViewStarted` (transient) | Old gets `live_view(False)`. New only starts if `Ready/Stopped/CaptureFinished` AND new bucket has no captures. | H16 |
 | J16 | Object renamed | Capture files re-prefixed in all 4 buckets. `_chosen_*.txt` rewritten where applicable. Dir renamed. PhotoBrowser re-bound to new path. Metadata pane flushes pending save before rename. | (no invariant — see code) |
 | J17 | Object's `state_changed` fires after replacement | Stale signal can't fire into main.py's handler (disconnected). Can fire into `MetadataPane`'s `_refresh_subtitle` if old object still alive. | H6 enforced; H6′ NOT enforced |
-| J18 | User clicks workflow step matching current bucket | No-op (early return at `_set_active_bucket` line 672-673). | confirmed |
+| J18 | User clicks workflow step matching current bucket | No-op (`session.set_active_bucket` early-returns when value unchanged). | confirmed |
 | J19 | User toggles spectrum, browser re-binds to new bucket whose existing chosen ★ differs | `bind_object(obj, side, spectrum)` opens new dir. Auto-selects last loaded thumb (from new bucket's contents). View_mode unchanged unless `_on_directory_loaded` fires AND finds a current_file_name. View pill could show stale "preview" + stale label briefly. | F-VIEW-1 |
 | J20 | Concurrent capture: both workers fire simultaneously | Not user-reachable today (capture button only routes to active_worker). But: both workers' state_changed signals are processed serially on the main thread. Safe. | confirmed |
 | J21 | User cancels capture mid-shot | `cancel` command → `CaptureCancelling` → loop exits → `CaptureCanceled` → finally-block → `Ready`. Live view auto-resumes via H17. | confirmed |
-| J22 | Autofocus during live view | `FocusStarted` → `FocusFinished(success)` → `LiveViewActive`. `update_ui` sets autofocus button enable/disable per state. Capture status label populated only on `FocusFinished(success=False)`. | confirmed |
+| J22 | Autofocus during live view | `FocusStarted` → `FocusFinished(success)` → `LiveViewActive`. `_refresh_camera_dependent_ui` sets autofocus button enable/disable per state. Capture status label populated only on `FocusFinished(success=False)`. | confirmed |
 | J23 | Capture finishes successfully | `CaptureFinished(file_paths)` → status label "Captured: x.jpg, x.arw". Then finally-block emits `Ready` → live view resumes (if not paused) → next preview frame asserts "live". Browser auto-detects new files via FS watcher. | H17 + H24 + FS watcher |
 | J24 | User disconnects via `CameraStateWidget` button while in live view | `disconnect_camera` (auto_reconnect=False) → `Disconnecting` → `Disconnected`. Live view stops. cam_config_dialog rejects if open. | H7 + H14 |
 | J25 | `__handle_camera_error` triggers during capture | `ConnectionError(error)` emitted → decorator calls `__disconnect_camera` → state goes to Disconnecting → Disconnected. Capture status label shows error. | (no invariant — verify) |
@@ -680,18 +699,25 @@ A higher-level lens: combinations of (object × camera-readiness) that produce v
 
 Inconsistencies, dead state, and latent risks surfaced while writing this survey.
 
+### Fixed during the SessionState refactor
+
+| # | Finding | Fixed in |
+|---|---------|----------|
+| F1 | `CameraWorker.liveView: bool` is dead | Stage 6 (`446a361`) — deleted |
+| F8 | `CameraWorker.__saved_config` is dead | Stage 6 (`446a361`) — deleted, plus the commented-out diff block |
+| F-IO | `CameraStates.IOError` is never raised | Stage 6 (`446a361`) — class + Union member + papyri's unreachable case-match all deleted |
+| F-LAZY | `CameraWorker.captured_file_paths` lazy attr via `if not hasattr` | Stage 6 (`446a361`) — initialized in `__init__`, `captureImages` uses `.clear()` |
+| F-PERS-1 | `irProfile` settings change doesn't take effect until restart | Stage 6 (`7e58b3e`) — info dialog warns user when irProfile changed |
+| F-LEAK | `MetadataPane.bind_object` connects `state_changed` without disconnecting previous | Stage 3 — added `_unbind_previous()` mirror |
+| F-DUP | `_live_view_paused` duplicated in pause-button + MainWindow field | Stage 4 — pause button is now a UI mirror of `session.live_view_paused` |
+| F-XLAYER | Main.py mutates `Object.dir_loaded` directly | Stage 5 — `Object.mark_dir_loaded()` method |
+| F-VIEW-1 | View_mode has no explicit transitions for empty-object-open, spectrum-switch-with-stale-binding, etc. | Stage 4 (option (a) — empty-bucket → "empty" pill) + Stage 5 (active camera Disconnected → "empty"). Capture-while-preview behavior documented as intentional (preview holds). |
+
+### Still open (post-refactor cleanup phase)
+
 | # | Finding | Severity | Action |
 |---|---------|----------|--------|
-| F1 | `CameraWorker.liveView: bool` is dead | low | delete |
-| F8 | `CameraWorker.__saved_config` is dead | low | delete |
-| F-IO | `CameraStates.IOError` is never raised | low | delete or document use-case |
-| F-PERS-1 | `irProfile` settings change doesn't take effect until restart | med | warn user in dialog OR support runtime IR-worker spawn |
-| F-VIEW-1 | View_mode has no explicit transition for: opening empty object, capture-while-preview, spectrum-switch with stale browser binding | med | refactor moment to make transitions explicit |
-| F-LEAK | `MetadataPane.bind_object` connects `state_changed` without disconnecting previous | low (latent) | add disconnect-on-rebind |
-| F-DUP | `_live_view_paused` is duplicated in `pause_live_view_button.isChecked()` and `MainWindow._live_view_paused`; setting one fires the other | low | use button as source of truth OR move to SessionState |
-| F-XLAYER | Main.py mutates `Object.dir_loaded` directly (line 930) | low | move to SessionState OR add `Object.mark_dir_loaded()` |
 | F-AMBIG | Mid-capture spectrum switch leaves capture status hidden | med | gate user-facing capture status by capture_request originator, not active_spectrum |
-| F-LAZY | `CameraWorker.captured_file_paths` lazy attr via `if not hasattr` | low | initialize in `__init__` |
 | F-GPHOTO2-LOCK | libgphoto2 calls outside `_GPHOTO2_GLOBAL_LOCK` can deadlock with concurrent worker. Root cause: SWIG-generated bindings hold the GIL during C calls; `gp_log_call_python` (registered debug-log callback) needs the GIL to invoke our Python handler, which deadlocks with another worker holding the libgphoto2 internal port mutex (e.g. inside `gp_camera_autodetect`). Stage 5 fixed `__disconnect_camera` (wrap exit + Camera dealloc in the global lock). Other unprotected paths: `__set_single_config`, `__set_config`, `__get_config`, `__open_config`, `__live_view_capture_preview` (per-frame), `empty_event_queue`, `__start_live_view`, `__stop_live_view`, `__trigger_autofocus`, `captureImages` body, `camera.trigger_capture()` / `wait_for_event()` / `file_get()`. | **high** | (1) Lower `gp_log_add_func` filter from `GP_LOG_DEBUG` to `GP_LOG_ERROR` to reduce callback frequency. (2) Audit each unprotected path; wrap libgphoto2 calls in `_GPHOTO2_GLOBAL_LOCK`. Care needed for live-view's per-frame path (~20 fps) so it doesn't starve the other worker — consider per-camera lock + a separate "autodetect-vs-dealloc" lock. |
 | F-STEPPER-NO-OBJECT | When no object is loaded, workflow stepper steps are still clickable. Click silently mutates `active_spectrum` (which routes future commands to that worker), but Stage 3 hides the active highlight when no object — so user can't tell their click did anything. Capture button is also disabled, so no immediate workflow purpose. | low | Disable the stepper widget when `current_object is None`. Loses the side-affordance of switching active spectrum without an object loaded (e.g. to open a specific camera's advanced-config dialog), but the camera-state widgets' connect/disconnect buttons cover that. |
 
@@ -699,69 +725,75 @@ Inconsistencies, dead state, and latent risks surfaced while writing this survey
 
 ## 13. Verification checklist
 
-For the refactor, every cell below must be reachable + every transition must fire.
+Migration completed Stage 0 through Stage 6 on branch `refactor/session-state`. Every axis below verified via single-camera manual testing (see commit messages for per-stage scenarios).
 
 ```
-[ ] B1 Active side
-    [ ] init = SIDE_A
-    [ ] mutate via stepper click (matching id)
-    [ ] mutate via _on_workflow_step_clicked falling back through B2 IR-fallback
-    [ ] no-op when same side
-    [ ] propagates: stepper highlight, capture button label, photo_browser binding
+[x] B1+B2 Active bucket (Stage 2)
+    [x] init = (SIDE_A, VISIBLE)
+    [x] mutate via stepper click → all 4 receivers fire (workflow, label, emphasis, browser)
+    [x] IR fallback to VIS when ir_worker is None (silent, caller-side in
+        _on_workflow_step_clicked)
+    [x] no-op when same bucket (setter early-return)
+    [x] _handle_live_view_handoff(old, new) imperative for old-spectrum continuity
+    [x] reset to (SIDE_A, VISIBLE) on object open (Stage 3)
+    [x] skip live-view auto-start when new bucket has captures (avoids spurious
+        shutter; Stage 5 fix folded into Stage 4 verification)
 
-[ ] B2 Active spectrum
-    [ ] init = VISIBLE
-    [ ] mutate via stepper click (vis_*, ir_*)
-    [ ] IR fallback to VIS when ir_worker is None (silent)
-    [ ] propagates: active_worker derivation, camera-state-widget emphasis,
-        _transition_live_view, photo_browser re-bind
+[x] B3+B4 Camera state per spectrum (Stage 5)
+    [x] all (reachable) substates emitted — IOError now deleted (was unreachable)
+    [x] payload preserved (camera_name, file_paths, error, success)
+    [x] _handle_active_camera_state guards on spectrum == active
+    [x] _handle_camera_lifecycle fires regardless of active
+    [x] _refresh_camera_dependent_ui multi-subscribed to camera_state_changed
+        AND current_object_changed (capture button gates on both)
+    [x] CameraStateWidget self-renders independently from worker.state_changed
+    [x] active camera disconnected → view_mode → "empty"
+    [x] deadlock fix: __disconnect_camera holds _GPHOTO2_GLOBAL_LOCK around
+        camera.exit() AND `self.camera = None` (SWIG dealloc serialization)
 
-[ ] B3/B4 Camera state per spectrum
-    [ ] all 18 substates emitted at least once across the suite
-    [ ] payload preserved (camera_name, file_paths, error, success, etc.)
-    [ ] active-only side effects (J22, J23, J5) fire only for active spectrum
-    [ ] per-spectrum side effects (J4, J18 reconnect) fire regardless of active
-    [ ] CameraStateWidget self-renders on every transition
-    [ ] update_ui re-renders only when active spectrum's state changes
-        (or active spectrum changes)
+[x] B5 Current object (Stage 3)
+    [x] None → Object via start_object / sidebar select / close
+    [x] Object → renamed Object via rename_current_object
+    [x] Identity-compare in setter — re-binding same instance is no-op
+    [x] _handle_current_object_subscription manages state_changed connection
+    [x] F-LEAK: MetadataPane disconnects previous on rebind
+    [x] F-XLAYER: Object.mark_dir_loaded() method (Stage 5)
+    [x] PhotoBrowser deferred-emit fix: directory_loaded for no-diff case
+        uses QTimer.singleShot(0) so subscription is established first
 
-[ ] B5 Current object
-    [ ] None → Object via start_object (new, must not exist)
-    [ ] None → Object via sidebar select (existing)
-    [ ] Object → None via close_object
-    [ ] Object → Object' via sidebar select different
-    [ ] Object → renamed Object via rename_current_object
-    [ ] On replace: old state_changed disconnected from MainWindow
-        AND MetadataPane (post-refactor; today MetadataPane leaks)
-    [ ] dir_loaded toggled correctly on each open
+[x] B6 Live view paused (Stage 4)
+    [x] toggle via Pause button → session updated → button text + checked mirror
+    [x] auto-set true via image_selected and _on_directory_loaded
+    [x] _handle_live_view_paused emits worker live_view command
+    [x] frame-drop guard in _on_preview_image (defends pause-window race)
+    [x] F-DUP: pause button is now UI mirror of session
 
-[ ] B6 Live view paused
-    [ ] toggle via Pause button → updates B7 to "paused" if not in "preview"
-    [ ] auto-set true via image_selected (from filmstrip click)
-    [ ] auto-set true via _on_directory_loaded with current_file_name
-    [ ] when False + active camera Ready → live view auto-starts
-    [ ] when True + spectrum switches → new live view does NOT auto-start
-    [ ] when False + spectrum switches → new live view starts iff
-        new camera is Ready-ish
+[x] B7 View mode (Stage 4)
+    [x] init = "empty"
+    [x] live frame arriving while not paused → "live"
+    [x] image_selected → "preview" with stem
+    [x] pause toggled true outside "preview" → "paused" (H5 preserved)
+    [x] object closed → "empty"
+    [x] object opened with captures → "preview" with last-loaded stem
+    [x] object opened empty → "empty" (F-VIEW-1 option (a))
+    [x] active camera disconnected → "empty"
+    [x] capture-while-preview → preview holds (intentional; documented)
 
-[ ] B7 View mode
-    [ ] init = "empty"
-    [ ] live frame arriving while not paused → "live"
-    [ ] image_selected → "preview" with stem label
-    [ ] pause toggled true outside of "preview" → "paused"
-    [ ] object closed → "empty"
-    [ ] object opened with captures → "preview" with last-loaded stem
-    [ ] object opened empty → ??? (currently undefined — refactor must decide)
-    [ ] capture finishes while user is in "preview" → ??? (currently undefined)
-    [ ] spectrum switch with browser re-bind → ??? (currently undefined)
+[x] B8 Per-camera advanced-config dialog (Stage 1)
+    [x] menu split into "Configure VIS camera…" / "Configure IR camera…"
+    [x] each enabled only when its camera is Ready-ish (aboutToShow gate)
+    [x] auto-reject keys on dialog's spectrum, not active_spectrum
+    [x] (option A: at most one open at a time)
 
-[ ] B8 Cam-config dialog
-    [ ] None → open via menu when active camera Ready-ish
-    [ ] Open → None when dialog finishes (any reason)
-    [ ] Open → None when active camera goes Disconnecting
-    [ ] Cannot open when camera not Ready-ish
+[x] Architectural patterns
+    [x] generation token in PhotoBrowser (race-free thumbnail load)
+    [x] _reset_displayed_state contract on close_directory
+    [x] stale-selection guard in __show_and_cache (currentItem comparison)
+    [x] deferred no-diff emit in __load_directory (race-free directory_loaded)
+    [x] receiver naming convention locked into _wire_session() comment block
 
-[ ] H invariants — assert every one in tests-or-walkthroughs
-[ ] J scenarios — manual walkthrough of each, against expected behavior
-[ ] F findings — fix or explicitly document as accepted
+[ ] F-AMBIG (still open) — mid-capture spectrum switch leaves capture status hidden
+[ ] F-GPHOTO2-LOCK (still open, partial) — Stage 5 fixed __disconnect_camera;
+    other libgphoto2 paths unprotected (audit pending)
+[ ] F-STEPPER-NO-OBJECT (still open) — disable stepper widget when no object
 ```
