@@ -23,13 +23,16 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from PyQt6.QtCore import (
-    QFileSystemWatcher, QMutex, QMutexLocker, QPoint, QSize, Qt,
+    QFileSystemWatcher, QMutex, QMutexLocker, QPoint, QRect, QSize, Qt,
     QThreadPool, QTimer, pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QIcon, QImage, QPalette, QPixmap, QPixmapCache
+from PyQt6.QtGui import (
+    QColor, QIcon, QImage, QLinearGradient, QPainter, QPalette, QPixmap,
+    QPixmapCache,
+)
 from PyQt6.QtWidgets import (
     QFrame, QListView, QListWidget, QListWidgetItem, QMenu,
-    QStyledItemDelegate, QVBoxLayout, QWidget,
+    QStyle, QStyleOptionViewItem, QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
 from .load_image_worker import (
@@ -43,13 +46,13 @@ from .load_image_worker import (
 THUMB_WIDTH = 120
 THUMB_HEIGHT = 80
 
-# Visible gap between adjacent thumbnails. Manufactured via gridSize > iconSize
-# (see __init__ for why setSpacing isn't used here).
+# Visible gap between adjacent thumbnails and overlays. Manufactured via
+# gridSize > iconSize: each cell has THUMB_GAP/2 of empty space around the
+# centered icon and adjacent cells abut, so two adjacent thumbs are
+# THUMB_GAP apart visually. The overlay is painted at the icon's rect, so
+# the gap between overlays is the same as the gap between thumbnails.
 THUMB_GAP = 8
 
-# Cell size — wider than the thumb to create the inter-thumb gap. Each cell
-# has THUMB_GAP / 2 of empty space on either side of its centered icon;
-# adjacent cells abut, so two adjacent thumbs are THUMB_GAP apart visually.
 CELL_WIDTH = THUMB_WIDTH + THUMB_GAP
 CELL_HEIGHT = THUMB_HEIGHT
 
@@ -57,14 +60,123 @@ CELL_HEIGHT = THUMB_HEIGHT
 # FilmstripWidget's distinct background color).
 STRIP_MARGIN = 8
 
-# Total strip height: top margin + cell + bottom margin. The widget is
-# fixed-height so the layout above (capture controls / viewer) doesn't
-# shift when thumbnails appear or vanish.
-STRIP_HEIGHT = STRIP_MARGIN + CELL_HEIGHT + STRIP_MARGIN
+# Background color for the strip — explicitly white so the STRIP_MARGIN
+# around the thumbs is clearly distinct from the surrounding window gray.
+STRIP_BG_COLOR = QColor(255, 255, 255)
 
-# Background color for the strip — slightly off-white so the STRIP_MARGIN
-# around the thumbs is visible against the parent window.
-STRIP_BG_COLOR = QColor(245, 245, 245)
+# Note: total strip height is computed at runtime in FilmstripWidget.__init__
+# because it needs the horizontal scrollbar's pixel extent, which only the
+# active QStyle knows (and which varies by platform).
+
+
+# ---- caption overlay (drawn by the default delegate) -------------------
+
+_CAPTION_HEIGHT = 34
+_CAPTION_GRADIENT_TOP = QColor(0, 0, 0, 0)         # transparent at top
+_CAPTION_GRADIENT_BOTTOM = QColor(0, 0, 0, 150)    # ~60% black at bottom
+
+
+def stem_of(file_name: str) -> str:
+    """Filename stem (extension stripped). Safe for names with embedded dots."""
+    return os.path.splitext(file_name)[0]
+
+
+class CaptionDelegate(QStyledItemDelegate):
+    """Default thumbnail delegate: draws a two-line caption (filename
+    stem + EXIF line) as a gradient overlay along the bottom of each
+    thumb. The gradient fades from transparent at the top to ~60% black
+    at the bottom so the text reads over any thumbnail, light or dark.
+
+    Captions are read from item.text() — FilmstripWidget sets it as
+    "filename\\nf/X | 1/Y" when adding. Empty second line is fine (the
+    EXIF row just renders blank).
+
+    Subclasses extend `paint` to add additional decorations (e.g.
+    CaptureFilmstrip's ★ on the chosen take). The helper `_thumb_rect`
+    exposes where the icon is actually painted so overlays land on the
+    thumb regardless of cell-vs-icon size differences."""
+
+    def displayText(self, value, locale) -> str:
+        # Suppress the standard text-below-thumb caption — the gradient
+        # caption overlay in paint() replaces it.
+        return ""
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        super().paint(painter, option, index)
+        item = index.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(item, ImageFileListItem):
+            return
+        self._paint_caption(painter, self._thumb_rect(option), item)
+
+    @staticmethod
+    def _thumb_rect(option: QStyleOptionViewItem) -> QRect:
+        """Where the thumbnail lives inside the cell. gridSize is wider
+        than iconSize (to create the inter-thumb gap), so we center
+        decorationSize within option.rect to track wherever Qt actually
+        paints the icon."""
+        cell = option.rect
+        icon = option.decorationSize
+        x = cell.x() + (cell.width() - icon.width()) // 2
+        y = cell.y() + (cell.height() - icon.height()) // 2
+        return QRect(x, y, icon.width(), icon.height())
+
+    @staticmethod
+    def _paint_caption(
+        painter: QPainter, thumb_rect: QRect, item: ImageFileListItem
+    ) -> None:
+        """Two-line caption: stem on top (bold), EXIF line below (regular)."""
+        stem = stem_of(item.file_name)
+        text_lines = item.text().split("\n")
+        exif_line = text_lines[1] if len(text_lines) > 1 else ""
+
+        # Overlay matches the thumbnail's rect exactly — covers the bottom
+        # 34px of the icon area. The inter-overlay gap visually equals the
+        # inter-thumbnail gap (THUMB_GAP), since both come from gridSize
+        # being wider than iconSize.
+        strip = QRect(
+            thumb_rect.x(),
+            thumb_rect.bottom() - _CAPTION_HEIGHT + 1,
+            thumb_rect.width(),
+            _CAPTION_HEIGHT,
+        )
+
+        painter.save()
+        gradient = QLinearGradient(
+            float(strip.x()), float(strip.y()),
+            float(strip.x()), float(strip.bottom()),
+        )
+        gradient.setColorAt(0.0, _CAPTION_GRADIENT_TOP)
+        gradient.setColorAt(1.0, _CAPTION_GRADIENT_BOTTOM)
+        painter.fillRect(strip, gradient)
+
+        painter.setPen(QColor("white"))
+        font = painter.font()
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+
+        elided_stem = painter.fontMetrics().elidedText(
+            stem, Qt.TextElideMode.ElideMiddle, strip.width() - 8
+        )
+        stem_rect = QRect(strip.x() + 4, strip.y() + 2,
+                          strip.width() - 8, 16)
+        painter.drawText(
+            stem_rect,
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+            elided_stem,
+        )
+
+        font.setPointSize(8)
+        font.setBold(False)
+        painter.setFont(font)
+        exif_rect = QRect(strip.x() + 4, strip.y() + 18,
+                          strip.width() - 8, 14)
+        painter.drawText(
+            exif_rect,
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+            exif_line,
+        )
+        painter.restore()
 
 
 # ---- model items -------------------------------------------------------
@@ -213,7 +325,25 @@ class FilmstripWidget(QWidget):
         )
         layout.addWidget(self.image_file_list)
 
-        self.setFixedHeight(STRIP_HEIGHT)
+        # The horizontal scrollbar shows up inside the QListWidget viewport
+        # only when content overflows. To keep the visible bottom margin at
+        # exactly STRIP_MARGIN in BOTH states (no-scrollbar and scrollbar
+        # visible), the FilmstripWidget grows by the scrollbar's pixel
+        # extent whenever scrolling is needed, and shrinks back when it
+        # isn't. Pixel extent is platform-dependent (query from the active
+        # style). The horizontal scrollbar's `rangeChanged` signal fires
+        # whenever the scrollable range changes — range == (0, 0) means
+        # everything fits and the scrollbar is hidden; otherwise it's
+        # shown. This is more reliable than Show/Hide event filtering,
+        # which misses the initial render and fires on parent visibility
+        # changes.
+        self._scrollbar_extent = self.style().pixelMetric(
+            QStyle.PixelMetric.PM_ScrollBarExtent
+        )
+        self._apply_strip_height(scrollbar_visible=False)
+        self.image_file_list.horizontalScrollBar().rangeChanged.connect(
+            self._on_hscroll_range_changed
+        )
 
         # Directory binding state
         self.__currentPath: str | None = None
@@ -238,6 +368,12 @@ class FilmstripWidget(QWidget):
         # Mutex protects __add_image_item against concurrent calls from
         # multiple worker threads completing thumbnail decodes.
         self.__mutex = QMutex()
+
+        # Default delegate: caption overlay (filename + EXIF) painted as
+        # a gradient strip along the bottom of each thumb. Subclasses can
+        # override via set_item_delegate() — CaptureFilmstrip does so to
+        # add the chosen-take ★ on top of the caption.
+        self.image_file_list.setItemDelegate(CaptionDelegate(self))
 
         # Subclass extension points
         self.__ctx_menu_provider: Optional[Callable[[ImageFileListItem], Optional[QMenu]]] = None
@@ -328,6 +464,21 @@ class FilmstripWidget(QWidget):
         """Trigger a repaint of visible items (after external state
         affecting decoration changes, e.g. chosen-take swap)."""
         self.image_file_list.viewport().update()
+
+    # ---- scrollbar-aware height ---------------------------------------
+
+    def _apply_strip_height(self, *, scrollbar_visible: bool) -> None:
+        """Resize the strip so the visible bottom margin stays at
+        STRIP_MARGIN regardless of horizontal-scrollbar visibility. When
+        the scrollbar appears, the FilmstripWidget grows by its pixel
+        extent; when it hides, the widget shrinks back."""
+        extra = self._scrollbar_extent if scrollbar_visible else 0
+        self.setFixedHeight(STRIP_MARGIN + CELL_HEIGHT + extra + STRIP_MARGIN)
+
+    def _on_hscroll_range_changed(self, minimum: int, maximum: int) -> None:
+        """Range == (0, 0) ⇔ no horizontal scrolling needed ⇔ scrollbar
+        hidden under AsNeeded policy. Anything else ⇒ scrollbar visible."""
+        self._apply_strip_height(scrollbar_visible=(maximum > minimum))
 
     # ---- reset contract -----------------------------------------------
 

@@ -766,6 +766,18 @@
         <string>Schritt 2: RTI-Serie aufnehmen</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout">
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
         <item>
          <widget class="ViewerWidget" name="rtiViewer" native="true">
           <property name="sizePolicy">

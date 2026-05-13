@@ -1,11 +1,12 @@
 """CaptureFilmstrip — chosen-take overlay + capture-management menu.
 
-Extends FilmstripWidget with the generic capture-workflow UI:
-  - thumbnail caption (filename stem + EXIF) painted as a gradient
-    overlay at the bottom of each thumb
-  - ★ overlay on the chosen take
+Extends FilmstripWidget with the capture-workflow UI:
+  - ★ overlay on the chosen take (on top of the inherited caption)
   - right-click menu: mark as chosen, optionally move to other side, delete
   - confirmation dialogs for destructive operations (move, delete)
+
+The thumbnail caption (filename + EXIF) is now drawn by FilmstripWidget's
+default CaptionDelegate; this delegate only adds the chosen-take star.
 
 Model-agnostic. Emits action signals (`mark_chosen_requested`,
 `move_requested`, `delete_requested`); the subclass binds to a specific
@@ -17,41 +18,25 @@ two-sided structure (RTI, etc.) can skip it.
 """
 from __future__ import annotations
 
-import os
-
 from PyQt6.QtCore import QRect, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPen
-from PyQt6.QtWidgets import (
-    QMenu, QMessageBox, QStyleOptionViewItem, QStyledItemDelegate,
-)
+from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtWidgets import QMenu, QMessageBox, QStyleOptionViewItem
 
-from .filmstrip_widget import FilmstripWidget, ImageFileListItem
+from .filmstrip_widget import (
+    CaptionDelegate, FilmstripWidget, ImageFileListItem, stem_of,
+)
 
 
 _STAR_GLYPH = "★"
 _STAR_FILL = QColor("#f59e0b")     # amber-500
 _STAR_OUTLINE = QColor("#78350f")  # amber-900 (1px halo for legibility)
 
-_CAPTION_HEIGHT = 34
-_CAPTION_GRADIENT_TOP = QColor(0, 0, 0, 0)         # transparent at top
-_CAPTION_GRADIENT_BOTTOM = QColor(0, 0, 0, 150)    # ~60% black at bottom
 
-
-def _stem_of(file_name: str) -> str:
-    """Filename stem (extension stripped). Safe for names with embedded dots."""
-    return os.path.splitext(file_name)[0]
-
-
-class _ChosenStarDelegate(QStyledItemDelegate):
-    """Custom paint for filmstrip items: thumbnail + bottom-gradient
-    caption overlay (filename + EXIF) + ★ on the chosen take.
-
-    The gradient strip works against both bright and dark thumbnails —
-    text sits inside the dark band so contrast holds either way.
+class _ChosenStarDelegate(CaptionDelegate):
+    """Adds a ★ on the chosen-take thumb on top of the inherited caption.
 
     Compares by stem so a JPEG+RAW pair shows the ★ on both rows, and
-    RAW-only / JPEG-only takes work without special-casing.
-    """
+    RAW-only / JPEG-only takes work without special-casing."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -60,96 +45,14 @@ class _ChosenStarDelegate(QStyledItemDelegate):
     def set_chosen_stem(self, stem: str | None) -> None:
         self._chosen_stem = stem
 
-    def displayText(self, value, locale) -> str:
-        # Suppress the standard text-below-thumb caption — we paint our
-        # own caption as a gradient overlay in paint().
-        return ""
-
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        # Selection background + thumbnail come from the default paint path.
+        # CaptionDelegate paints thumbnail + caption.
         super().paint(painter, option, index)
         item = index.data(Qt.ItemDataRole.UserRole)
         if not isinstance(item, ImageFileListItem):
             return
-        thumb_rect = self._thumb_rect(option)
-        self._paint_caption(painter, thumb_rect, item)
-        if _stem_of(item.file_name) == self._chosen_stem:
-            self._paint_star(painter, thumb_rect)
-
-    @staticmethod
-    def _thumb_rect(option: QStyleOptionViewItem) -> QRect:
-        """Where the thumbnail lives inside the cell. The filmstrip's
-        gridSize is wider than iconSize (to create the inter-thumb gap),
-        so we center decorationSize within option.rect to track wherever
-        Qt actually paints the icon."""
-        cell = option.rect
-        icon = option.decorationSize
-        x = cell.x() + (cell.width() - icon.width()) // 2
-        y = cell.y() + (cell.height() - icon.height()) // 2
-        return QRect(x, y, icon.width(), icon.height())
-
-    @staticmethod
-    def _paint_caption(
-        painter: QPainter, thumb_rect: QRect, item: ImageFileListItem
-    ) -> None:
-        """Two-line caption: stem on top (bold), EXIF line below (regular).
-        Reads the EXIF line from item.text()'s second line — the strip
-        sets the item text as "filename\\nf/X | 1/Y" when adding."""
-        stem = _stem_of(item.file_name)
-        text_lines = item.text().split("\n")
-        exif_line = text_lines[1] if len(text_lines) > 1 else ""
-
-        strip = QRect(
-            thumb_rect.x(),
-            thumb_rect.bottom() - _CAPTION_HEIGHT + 1,
-            thumb_rect.width(),
-            _CAPTION_HEIGHT,
-        )
-
-        painter.save()
-        # Vertical fade from transparent → ~60% black so the caption
-        # reads over any thumb without a hard color stripe. QLinearGradient
-        # takes float coords, not QPoint — be explicit to avoid the
-        # QPoint→QPointF overload mismatch.
-        gradient = QLinearGradient(
-            float(strip.x()), float(strip.y()),
-            float(strip.x()), float(strip.bottom()),
-        )
-        gradient.setColorAt(0.0, _CAPTION_GRADIENT_TOP)
-        gradient.setColorAt(1.0, _CAPTION_GRADIENT_BOTTOM)
-        painter.fillRect(strip, gradient)
-
-        painter.setPen(QColor("white"))
-        font = painter.font()
-        font.setPointSize(10)
-        font.setBold(True)
-        painter.setFont(font)
-
-        # Stem line (top of strip): elide in the middle so the object
-        # name and the take index both stay visible.
-        elided_stem = painter.fontMetrics().elidedText(
-            stem, Qt.TextElideMode.ElideMiddle, strip.width() - 8
-        )
-        stem_rect = QRect(strip.x() + 4, strip.y() + 2,
-                          strip.width() - 8, 16)
-        painter.drawText(
-            stem_rect,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
-            elided_stem,
-        )
-
-        # EXIF line (bottom of strip): smaller, regular weight.
-        font.setPointSize(8)
-        font.setBold(False)
-        painter.setFont(font)
-        exif_rect = QRect(strip.x() + 4, strip.y() + 18,
-                          strip.width() - 8, 14)
-        painter.drawText(
-            exif_rect,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
-            exif_line,
-        )
-        painter.restore()
+        if stem_of(item.file_name) == self._chosen_stem:
+            self._paint_star(painter, self._thumb_rect(option))
 
     @staticmethod
     def _paint_star(painter: QPainter, thumb_rect: QRect) -> None:
@@ -229,7 +132,7 @@ class CaptureFilmstrip(FilmstripWidget):
         override to add or replace entries — set_context_menu_provider
         is wired to self._build_context_menu, so subclass override is
         picked up via normal Python method dispatch."""
-        stem = _stem_of(item.file_name)
+        stem = stem_of(item.file_name)
         menu = QMenu(self)
 
         is_chosen = (stem == self._chosen_stem)

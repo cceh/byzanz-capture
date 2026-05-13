@@ -982,6 +982,16 @@ if __name__ == "__main__":
     win = RTICaptureMainWindow()
     win.show()
 
+    # BYZANZ_AUTO_OPEN_SESSION=<absolute_session_dir> opens the named
+    # session 500ms after the window appears — used for unattended UI
+    # debugging where the filmstrip needs real captures to render.
+    auto_open = os.environ.get("BYZANZ_AUTO_OPEN_SESSION")
+    if auto_open:
+        from PyQt6.QtCore import QTimer
+        _session_name = os.path.basename(os.path.normpath(auto_open))
+        _working_dir = os.path.dirname(os.path.normpath(auto_open))
+        QTimer.singleShot(500, lambda: win.set_session(Session(_session_name, _working_dir)))
+
     def excepthook(exc_type, exc_value, exc_traceback):
         logging.exception(msg="Exception", exc_info=(exc_type, exc_value, exc_traceback))
         if win.bt_controller and win.bt_controller.state != BtControllerState.DISCONNECTED:
