@@ -732,11 +732,17 @@
          </widget>
         </item>
         <item>
-         <widget class="PhotoBrowser" name="previewImageBrowser" native="true">
-          <property name="toolTipDuration">
-           <number>0</number>
+         <widget class="ViewerWidget" name="previewViewer" native="true">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>1</verstretch>
+           </sizepolicy>
           </property>
          </widget>
+        </item>
+        <item>
+         <widget class="FilmstripWidget" name="previewFilmstrip" native="true"/>
         </item>
        </layout>
       </widget>
@@ -761,14 +767,17 @@
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout">
         <item>
-         <widget class="PhotoBrowser" name="rtiImageBrowser" native="true">
-          <property name="font">
-           <font>
-            <pointsize>13</pointsize>
-            <bold>false</bold>
-           </font>
+         <widget class="ViewerWidget" name="rtiViewer" native="true">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>1</verstretch>
+           </sizepolicy>
           </property>
          </widget>
+        </item>
+        <item>
+         <widget class="FilmstripWidget" name="rtiFilmstrip" native="true"/>
         </item>
        </layout>
       </widget>
@@ -1040,9 +1049,14 @@
    <container>1</container>
   </customwidget>
   <customwidget>
-   <class>PhotoBrowser</class>
+   <class>ViewerWidget</class>
    <extends>QWidget</extends>
-   <header>byzanz_camera.photo_browser</header>
+   <header>byzanz_camera.viewer_widget</header>
+  </customwidget>
+  <customwidget>
+   <class>FilmstripWidget</class>
+   <extends>QWidget</extends>
+   <header>byzanz_camera.filmstrip_widget</header>
    <slots>
     <signal>directory_loaded(QString)</signal>
    </slots>
@@ -1200,7 +1214,7 @@
    </hints>
   </connection>
   <connection>
-   <sender>previewImageBrowser</sender>
+   <sender>previewFilmstrip</sender>
    <signal>directory_loaded(QString)</signal>
    <receiver>MainWindow</receiver>
    <slot>session_directory_loaded(QString)</slot>
@@ -1232,7 +1246,7 @@
    </hints>
   </connection>
   <connection>
-   <sender>rtiImageBrowser</sender>
+   <sender>rtiFilmstrip</sender>
    <signal>directory_loaded(QString)</signal>
    <receiver>MainWindow</receiver>
    <slot>session_directory_loaded(QString)</slot>

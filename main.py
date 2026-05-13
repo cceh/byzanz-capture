@@ -45,7 +45,8 @@ except:
 from byzanz_camera.camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest, \
     ConfigProtocol
 from open_session_dialog import OpenSessionDialog
-from byzanz_camera.photo_browser import PhotoBrowser
+from byzanz_camera.filmstrip_widget import FilmstripWidget
+from byzanz_camera.viewer_widget import ViewerWidget
 from settings_dialog import SettingsDialog
 from byzanz_camera.spinner import Spinner
 from camera_config_dialog import CameraConfigDialog
@@ -123,8 +124,26 @@ class RTICaptureMainWindow(QMainWindow):
         self.capture_view: QToolBox = self.findChild(QToolBox, "captureView")
         self.rtiPage: QWidget = self.findChild(QWidget, "rtiPage")
         self.previewPage: QWidget = self.findChild(QWidget, "previewPage")
-        self.previewImageBrowser: PhotoBrowser = self.findChild(QWidget, "previewImageBrowser")
-        self.rtiImageBrowser: PhotoBrowser = self.findChild(QWidget, "rtiImageBrowser")
+        self.preview_viewer: ViewerWidget = self.findChild(ViewerWidget, "previewViewer")
+        self.preview_filmstrip: FilmstripWidget = self.findChild(FilmstripWidget, "previewFilmstrip")
+        self.rti_viewer: ViewerWidget = self.findChild(ViewerWidget, "rtiViewer")
+        self.rti_filmstrip: FilmstripWidget = self.findChild(FilmstripWidget, "rtiFilmstrip")
+
+        # Filmstrip → viewer wiring (per mode). The filmstrip handles all
+        # the directory/async-thumb work and emits a decoded pixmap when
+        # the user clicks a thumb (or when a fresh capture lands); the
+        # viewer just receives and displays. The .ui still wires the
+        # directory_loaded signal to session_directory_loaded.
+        for filmstrip, viewer in (
+            (self.preview_filmstrip, self.preview_viewer),
+            (self.rti_filmstrip, self.rti_viewer),
+        ):
+            filmstrip.image_decoded.connect(
+                lambda path, pixmap, v=viewer: v.show_image(pixmap)
+            )
+            filmstrip.image_decode_started.connect(viewer.show_busy)
+            filmstrip.image_cleared.connect(viewer.clear)
+            filmstrip.directory_closed.connect(lambda path, v=viewer: v.clear())
         self.capture_button: QPushButton = self.findChild(QPushButton, "captureButton")
         self.cancel_capture_button: QPushButton = self.findChild(QPushButton, "cancelCaptureButton")
 
@@ -181,7 +200,11 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.state_changed.connect(self.set_camera_state)
         self.camera_worker.events.config_updated.connect(self.on_config_update)
         self.camera_worker.property_changed.connect(self.on_property_change)
-        self.camera_worker.preview_image.connect(lambda image: self.previewImageBrowser.show_preview(ImageQt(image.image)))
+        self.camera_worker.preview_image.connect(
+            lambda image: self.preview_viewer.show_image(
+                QPixmap.fromImage(ImageQt(image.image)), fit=True
+            )
+        )
         self.camera_worker.initialized.connect(lambda: self.camera_worker.commands.find_camera.emit())
         self.camera_thread.started.connect(self.camera_worker.initialize)
         self.camera_thread.start()
@@ -343,7 +366,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.capture_view.setEnabled(has_session)
 
         self.capture_progress_bar.setMaximum(self.profile.num_captures())
-        self.capture_progress_bar.setValue(self.rtiImageBrowser.num_files() if session_loaded else 0)
+        self.capture_progress_bar.setValue(self.rti_filmstrip.num_files() if session_loaded else 0)
 
         if has_session:
             self.session_name_edit.setText(self.session.name)
@@ -455,7 +478,7 @@ class RTICaptureMainWindow(QMainWindow):
                     self.live_view_error_label.setText(None)
 
             case CameraStates.LiveViewStopped():
-                self.previewImageBrowser.show_preview(None)
+                self.preview_viewer.clear()
                 self.light_lcd_number.display(None)
                 self.light_lcd_frame.setEnabled(False)
                 self.live_view_error_label.setText(None)
@@ -568,10 +591,10 @@ class RTICaptureMainWindow(QMainWindow):
         os.makedirs(_session.preview_dir, exist_ok=True)
         os.makedirs(_session.images_dir, exist_ok=True)
 
-        # both browser will emit the directory_loaded signal connected to the
-        # session_directory_loaded slot below (in Qt Designer/Creator, main_window.ui)
-        self.previewImageBrowser.open_directory(self.session.preview_dir)
-        self.rtiImageBrowser.open_directory(self.session.images_dir)
+        # Both filmstrips emit directory_loaded → session_directory_loaded
+        # via the .ui-defined slot connection.
+        self.preview_filmstrip.open_directory(self.session.preview_dir)
+        self.rti_filmstrip.open_directory(self.session.images_dir)
 
     def on_capture_mode_changed(self):
         self.update_mirror_view()
@@ -581,9 +604,9 @@ class RTICaptureMainWindow(QMainWindow):
 
     def update_mirror_view(self):
         if self.capture_mode == CaptureMode.Preview:
-            self.previewImageBrowser.set_mirror_graphics_view(self.mirror_graphics_view)
+            self.preview_viewer.set_mirror_graphics_view(self.mirror_graphics_view)
         else:
-            self.rtiImageBrowser.set_mirror_graphics_view(self.mirror_graphics_view)
+            self.rti_viewer.set_mirror_graphics_view(self.mirror_graphics_view)
 
     def open_settings(self):
         q_settings = QSettings()
@@ -653,7 +676,7 @@ class RTICaptureMainWindow(QMainWindow):
 
         if os.path.normpath(path) == os.path.normpath(self.session.preview_dir):
             self.session.preview_dir_loaded = True
-            self.session.preview_count = self.previewImageBrowser.last_index()
+            self.session.preview_count = self.preview_filmstrip.last_index()
 
         elif os.path.normpath(path) == os.path.normpath(self.session.images_dir):
             self.session.images_dir_loaded = True
@@ -661,8 +684,8 @@ class RTICaptureMainWindow(QMainWindow):
         self.update_ui()
 
     def close_session(self):
-        self.previewImageBrowser.close_directory()
-        self.rtiImageBrowser.close_directory()
+        self.preview_filmstrip.close_directory()
+        self.rti_filmstrip.close_directory()
         self.set_session(None)
 
     def show_session_menu(self):
@@ -708,7 +731,7 @@ class RTICaptureMainWindow(QMainWindow):
             self.set_session(Session(new_name, session_dir_parent))
 
     def write_lp(self):
-        file_names = [os.path.basename(file_path) for file_path in self.rtiImageBrowser.files()]
+        file_names = [os.path.basename(file_path) for file_path in self.rti_filmstrip.files()]
         num_files = len(file_names)
 
         lp_template_path = "cceh-dome-template.lp"
@@ -729,7 +752,7 @@ class RTICaptureMainWindow(QMainWindow):
             expected_count: Number of files we expect to find
             attempts_remaining: Number of remaining check attempts before giving up
         """
-        current_count = len(self.rtiImageBrowser.files())
+        current_count = len(self.rti_filmstrip.files())
 
         if current_count == expected_count:
             self.write_lp()
@@ -850,7 +873,7 @@ class RTICaptureMainWindow(QMainWindow):
 
         # Capture RTI Series
         else:
-            if self.rtiImageBrowser.num_files() > 0:
+            if self.rti_filmstrip.num_files() > 0:
                 message_box = QMessageBox(QMessageBox.Icon.Warning, self.tr("RTI-Serie aufnehmen"),
                                           self.tr("Vorhandene Aufnahmen werden gelöscht."))
                 message_box.addButton(
