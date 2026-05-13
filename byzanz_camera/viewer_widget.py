@@ -185,6 +185,12 @@ class ViewerWidget(QWidget):
         self.show_image(None)
         self.set_view_state("empty")
 
+    def set_mirror_graphics_view(self, view) -> None:
+        """Route the same scene to a second QGraphicsView (e.g. an external
+        screen mirror for dome alignment). Thin pass-through to the
+        underlying PhotoViewer."""
+        self.photo_viewer.setMirrorView(view)
+
     # ---- internals ------------------------------------------------------
 
     def _refresh_indicator(self) -> None:
