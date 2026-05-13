@@ -96,9 +96,9 @@ class MetadataPane(QFrame):
         self._refresh_subtitle()
 
     def _unbind_previous(self) -> None:
-        """Mirror of PapyriCaptureBrowser._unbind_previous — disconnect
-        the prior object's state_changed connection (F-LEAK fix). No-op
-        when nothing was bound."""
+        """Mirror of PapyriFilmstrip._unbind_previous — disconnect the
+        prior object's state_changed connection (F-LEAK fix). No-op when
+        nothing was bound."""
         if self._obj is None:
             return
         try:
