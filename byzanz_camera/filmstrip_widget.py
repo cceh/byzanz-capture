@@ -26,15 +26,45 @@ from PyQt6.QtCore import (
     QFileSystemWatcher, QMutex, QMutexLocker, QPoint, QSize, Qt,
     QThreadPool, QTimer, pyqtSignal,
 )
-from PyQt6.QtGui import QPixmap, QPixmapCache
+from PyQt6.QtGui import QColor, QIcon, QImage, QPalette, QPixmap, QPixmapCache
 from PyQt6.QtWidgets import (
-    QListView, QListWidget, QListWidgetItem, QMenu, QStyledItemDelegate,
-    QVBoxLayout, QWidget,
+    QFrame, QListView, QListWidget, QListWidgetItem, QMenu,
+    QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
 from .load_image_worker import (
     DecodeMode, LoadImageWorker, LoadImageWorkerResult, SUPPORTED_EXTENSIONS,
 )
+
+
+# ---- layout constants --------------------------------------------------
+
+# Thumbnail (the painted icon, 3:2 aspect to match camera native orientation).
+THUMB_WIDTH = 120
+THUMB_HEIGHT = 80
+
+# Visible gap between adjacent thumbnails. Manufactured via gridSize > iconSize
+# (see __init__ for why setSpacing isn't used here).
+THUMB_GAP = 8
+
+# Cell size — wider than the thumb to create the inter-thumb gap. Each cell
+# has THUMB_GAP / 2 of empty space on either side of its centered icon;
+# adjacent cells abut, so two adjacent thumbs are THUMB_GAP apart visually.
+CELL_WIDTH = THUMB_WIDTH + THUMB_GAP
+CELL_HEIGHT = THUMB_HEIGHT
+
+# Margin around the whole strip (top/bottom/left/right, painted in the
+# FilmstripWidget's distinct background color).
+STRIP_MARGIN = 8
+
+# Total strip height: top margin + cell + bottom margin. The widget is
+# fixed-height so the layout above (capture controls / viewer) doesn't
+# shift when thumbnails appear or vanish.
+STRIP_HEIGHT = STRIP_MARGIN + CELL_HEIGHT + STRIP_MARGIN
+
+# Background color for the strip — slightly off-white so the STRIP_MARGIN
+# around the thumbs is visible against the parent window.
+STRIP_BG_COLOR = QColor(245, 245, 245)
 
 
 # ---- model items -------------------------------------------------------
@@ -49,23 +79,27 @@ def get_file_index(file_path: str) -> Optional[int]:
 
 
 class ImageFileListItem(QListWidgetItem):
-    """One thumbnail in the strip. Holds the absolute path, the thumbnail
-    pixmap, and the parsed numeric index for sorting. Custom delegates can
-    read this via `index.data(Qt.ItemDataRole.UserRole)`."""
+    """One thumbnail in the strip. Holds the absolute path and the parsed
+    numeric index for sorting. The thumbnail itself is stored as the
+    item's QIcon (via setIcon) — not as a separate attribute, because
+    QIcon respects iconSize/decorationSize whereas a raw QPixmap/QImage
+    returned from data(DecorationRole) paints at the cell's full rect,
+    which would defeat the gridSize > iconSize inter-thumb gap. Custom
+    delegates can read this back via `index.data(Qt.ItemDataRole.UserRole)`."""
 
-    def __init__(self, path: str, thumbnail: QPixmap):
+    def __init__(self, path: str, thumbnail: QPixmap | QImage):
         super().__init__()
         self.path: str = path
         self.file_name = Path(path).name
         self.index = get_file_index(self.file_name)
-        self.thumbnail: QPixmap = thumbnail
+        pixmap = (QPixmap.fromImage(thumbnail)
+                  if isinstance(thumbnail, QImage) else thumbnail)
+        self.setIcon(QIcon(pixmap))
 
     def __lt__(self, other):
         return self.index < other.index
 
     def data(self, role: Qt.ItemDataRole):
-        if role == Qt.ItemDataRole.DecorationRole:
-            return self.thumbnail
         if role == Qt.ItemDataRole.UserRole:
             return self
         return super().data(role)
@@ -99,6 +133,12 @@ class FilmstripWidget(QWidget):
     # Stale-guarded against rapid clicks via currentItem comparison.
     image_decoded = pyqtSignal(str, QPixmap)    # path, pixmap
 
+    # Emitted right before a cache-miss full-decode worker is queued.
+    # Lets the viewer show a busy spinner during the wait — paired with
+    # image_decoded which arrives when the decode completes (and which
+    # auto-hides the spinner via show_image).
+    image_decode_started = pyqtSignal(str)      # path
+
     # Selection cleared (e.g. last item removed). Viewer should clear.
     image_cleared = pyqtSignal()
 
@@ -115,10 +155,34 @@ class FilmstripWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        # Distinct background so STRIP_MARGIN is visible against the parent
+        # window (otherwise the margin is the parent's color and disappears).
+        # The QListWidget below is made transparent so the strip color shows
+        # through the margin area and the gap between thumbs.
+        self.setAutoFillBackground(True)
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, STRIP_BG_COLOR)
+        self.setPalette(palette)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(
+            STRIP_MARGIN, STRIP_MARGIN, STRIP_MARGIN, STRIP_MARGIN
+        )
 
         self.image_file_list = QListWidget(self)
+        # IconMode + gridSize: cells are exactly gridSize, items flow
+        # left-to-right in one row. Without IconMode (default ListMode),
+        # gridSize isn't honored the same way and cells get stretched,
+        # which breaks the delegate's overlay math.
+        self.image_file_list.setViewMode(QListView.ViewMode.IconMode)
+        self.image_file_list.setUniformItemSizes(True)
+        self.image_file_list.setMovement(QListView.Movement.Static)
+        self.image_file_list.setResizeMode(QListView.ResizeMode.Adjust)
+        self.image_file_list.setLayoutMode(QListView.LayoutMode.Batched)
+        # AlignHCenter only — including AlignJustify makes Qt distribute
+        # items edge-to-edge across the viewport, silently zeroing the
+        # inter-thumb gap from gridSize.
+        self.image_file_list.setItemAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.image_file_list.setFlow(QListView.Flow.LeftToRight)
         self.image_file_list.setWrapping(False)
         self.image_file_list.setHorizontalScrollMode(
@@ -130,16 +194,26 @@ class FilmstripWidget(QWidget):
         self.image_file_list.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        # Thumb-only tiles: thumb fills the cell so a delegate overlay
-        # sits edge-to-edge on the thumbnail.
-        self.image_file_list.setIconSize(QSize(120, 120))
-        self.image_file_list.setGridSize(QSize(124, 124))
-        self.image_file_list.setSpacing(4)
+        # Inter-thumb gap is manufactured via gridSize > iconSize: each
+        # cell has THUMB_GAP/2 of empty space around the centered icon,
+        # and adjacent cells abut, so two adjacent thumbs are THUMB_GAP
+        # apart visually. setSpacing is NOT used here because in this
+        # Flow=LeftToRight + Wrapping=False configuration Qt only honors
+        # it vertically — and it does so by shrinking option.rect.height
+        # to viewport.height - 2*spacing, which clips the icon.
+        self.image_file_list.setIconSize(QSize(THUMB_WIDTH, THUMB_HEIGHT))
+        self.image_file_list.setGridSize(QSize(CELL_WIDTH, CELL_HEIGHT))
+        self.image_file_list.setSpacing(0)
+        self.image_file_list.setFrameShape(QFrame.Shape.NoFrame)
+        # Transparent so STRIP_BG_COLOR shows through the contentsMargins
+        # (the visible strip margin) and through the cell-vs-icon padding
+        # (the visible inter-thumb gap).
+        self.image_file_list.setStyleSheet(
+            "QListWidget { background: transparent; }"
+        )
         layout.addWidget(self.image_file_list)
 
-        # Sensible defaults; consumer can override via setMinimumHeight etc.
-        self.setMinimumHeight(140)
-        self.setMaximumHeight(160)
+        self.setFixedHeight(STRIP_HEIGHT)
 
         # Directory binding state
         self.__currentPath: str | None = None
@@ -423,6 +497,7 @@ class FilmstripWidget(QWidget):
         if cached_image:
             self.image_decoded.emit(file_path, cached_image)
         else:
+            self.image_decode_started.emit(file_path)
             self.__load_image(file_path, self.__show_and_cache)
         self.image_selected.emit(file_path)
 

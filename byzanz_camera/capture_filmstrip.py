@@ -78,13 +78,14 @@ class _ChosenStarDelegate(QStyledItemDelegate):
 
     @staticmethod
     def _thumb_rect(option: QStyleOptionViewItem) -> QRect:
-        """Where the thumbnail lives inside the cell. Qt's IconMode centers
-        the icon horizontally near the top of the cell — we mirror that
-        placement so the overlay lands on the thumb."""
+        """Where the thumbnail lives inside the cell. The filmstrip's
+        gridSize is wider than iconSize (to create the inter-thumb gap),
+        so we center decorationSize within option.rect to track wherever
+        Qt actually paints the icon."""
         cell = option.rect
         icon = option.decorationSize
         x = cell.x() + (cell.width() - icon.width()) // 2
-        y = cell.y() + 2
+        y = cell.y() + (cell.height() - icon.height()) // 2
         return QRect(x, y, icon.width(), icon.height())
 
     @staticmethod
