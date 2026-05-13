@@ -113,7 +113,7 @@
      </layout>
     </item>
     <item>
-     <widget class="PapyriCaptureBrowser" name="captureBrowser" native="true">
+     <widget class="ViewerWidget" name="viewer" native="true">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
         <horstretch>0</horstretch>
@@ -197,7 +197,10 @@
        </widget>
       </item>
      </layout>
-        </item>
+    </item>
+    <item>
+     <widget class="PapyriFilmstrip" name="filmstrip" native="true"/>
+    </item>
          </layout>
         </widget>
        </widget>
@@ -210,18 +213,20 @@
  </widget>
  <customwidgets>
   <customwidget>
-   <class>Spinner</class>
+   <class>ViewerWidget</class>
    <extends>QWidget</extends>
-   <header>byzanz_camera.spinner</header>
-   <container>1</container>
+   <header>byzanz_camera.viewer_widget</header>
   </customwidget>
   <customwidget>
-   <class>PapyriCaptureBrowser</class>
+   <class>PapyriFilmstrip</class>
    <extends>QWidget</extends>
-   <header>papyri.capture_browser</header>
+   <header>papyri.papyri_filmstrip</header>
    <slots>
-    <signal>directory_loaded(QString)</signal>
     <signal>image_selected(QString)</signal>
+    <signal>image_decoded(QString,QPixmap)</signal>
+    <signal>image_cleared()</signal>
+    <signal>directory_loaded(QString)</signal>
+    <signal>directory_closed(QString)</signal>
    </slots>
   </customwidget>
   <customwidget>

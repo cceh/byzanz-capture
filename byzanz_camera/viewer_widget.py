@@ -17,6 +17,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from .photo_viewer import PhotoViewer
+from .spinner import Spinner
 
 
 # ---- view-state pill (corner indicator) ---------------------------------
@@ -115,6 +116,7 @@ class ViewerWidget(QWidget):
     _LIVE_DOT_COLOR    = "#06b6d4"
     _PAUSED_ICON_COLOR = "#fbbf24"
     _PILL_INSET = 12
+    _SPINNER_SIZE = 120
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -131,6 +133,15 @@ class ViewerWidget(QWidget):
         self._view_state: str = "empty"
         self._view_state_label: str = ""
         self._pill = _ViewStatePill(self.photo_viewer.viewport())
+
+        # Busy spinner — overlaid in the center of the viewport during
+        # full-image decode (clicked-thumb load). Hidden by default;
+        # caller drives via show_busy / hide_busy. show_image also
+        # auto-hides on arrival of a pixmap.
+        self._spinner = Spinner(self.photo_viewer.viewport(), Spinner.m_light_color)
+        self._spinner.isAnimated = False
+        self._reposition_spinner()
+
         self.photo_viewer.viewport().installEventFilter(self)
         self._refresh_indicator()
 
@@ -140,10 +151,23 @@ class ViewerWidget(QWidget):
         """Display a pixmap (or clear with None). `fit=True` re-scales to
         the viewport — appropriate for live frames where the viewer should
         always show the full frame. `fit=False` (default) preserves the
-        user's current zoom — appropriate for clicked thumbnails."""
+        user's current zoom — appropriate for clicked thumbnails. Also
+        hides the busy spinner — an image arriving means the load done."""
         self.photo_viewer.setPhoto(pixmap)
         if pixmap is not None and fit:
             self.photo_viewer.fitInView()
+        self._spinner.stopAnimation()
+
+    def show_busy(self) -> None:
+        """Show the centered spinner overlay. Use during async loads
+        (e.g. full-image decode of a clicked thumbnail) so the user
+        gets feedback that something's happening."""
+        self._reposition_spinner()
+        self._spinner.startAnimation()
+
+    def hide_busy(self) -> None:
+        """Hide the spinner. Usually called implicitly by show_image."""
+        self._spinner.stopAnimation()
 
     def set_view_state(self, mode: str, label: str = "") -> None:
         """Update the corner-pill / border-tint indicator. `mode` ∈
@@ -197,8 +221,17 @@ class ViewerWidget(QWidget):
             self._PILL_INSET,
         )
 
+    def _reposition_spinner(self) -> None:
+        viewport = self.photo_viewer.viewport()
+        size = self._SPINNER_SIZE
+        x = max(0, (viewport.width() - size) // 2)
+        y = max(0, (viewport.height() - size) // 2)
+        self._spinner.setGeometry(x, y, size, size)
+        self._spinner.raise_()
+
     def eventFilter(self, obj, event):
         if (obj is self.photo_viewer.viewport()
                 and event.type() == QEvent.Type.Resize):
             self._reposition_pill()
+            self._reposition_spinner()
         return super().eventFilter(obj, event)

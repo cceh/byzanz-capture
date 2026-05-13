@@ -47,8 +47,9 @@ from PyQt6.uic import loadUi
 from byzanz_camera.camera_worker import (
     CameraStates, CameraWorker, CaptureImagesRequest, ConfigRequest,
 )
+from byzanz_camera.filmstrip_widget import get_file_index
 from byzanz_camera.helpers import get_ui_path
-from byzanz_camera.photo_browser import get_file_index
+from byzanz_camera.viewer_widget import ViewerWidget
 from papyri._layout import (
     BUCKETS,
     JPG_EXTENSIONS,
@@ -64,7 +65,7 @@ from papyri._layout import (
     side_dir_for,
 )
 from papyri.camera_state_widget import CameraStateWidget
-from papyri.capture_browser import PapyriCaptureBrowser
+from papyri.papyri_filmstrip import PapyriFilmstrip
 from papyri.metadata_pane import MetadataPane
 from papyri.objects_sidebar import ObjectsSidebar
 from papyri.session_state import SessionState
@@ -522,7 +523,8 @@ class PapyriMainWindow(QMainWindow):
         )
         self.workflow_stepper.set_groups(_build_workflow_groups())
         self.workflow_stepper.step_clicked.connect(self._on_workflow_step_clicked)
-        self.photo_browser: PapyriCaptureBrowser = self.findChild(PapyriCaptureBrowser, "captureBrowser")
+        self.viewer: ViewerWidget = self.findChild(ViewerWidget, "viewer")
+        self.filmstrip: PapyriFilmstrip = self.findChild(PapyriFilmstrip, "filmstrip")
 
         self.pause_live_view_button: QPushButton = self.findChild(QPushButton, "pauseLiveViewButton")
         self.autofocus_button: QPushButton = self.findChild(QPushButton, "autofocusButton")
@@ -578,10 +580,24 @@ class PapyriMainWindow(QMainWindow):
         # widget-internal wiring, no main.py plumbing needed.
 
         self.pause_live_view_button.toggled.connect(self._on_pause_toggled)
-        self.photo_browser.image_selected.connect(self._on_image_selected)
-        self.photo_browser.directory_loaded.connect(self._on_directory_loaded)
         self.autofocus_button.clicked.connect(self._trigger_autofocus)
         self.capture_button.clicked.connect(self.capture_image)
+
+        # Filmstrip → main.py (user actions, lifecycle)
+        self.filmstrip.image_selected.connect(self._on_image_selected)
+        self.filmstrip.directory_loaded.connect(self._on_directory_loaded)
+        # Filmstrip → viewer (decoded images, cleared selection, closed dir).
+        # _on_filmstrip_image_decoded is a small wrapper that drops the path
+        # arg (signal carries it for future logging; viewer only needs the
+        # pixmap).
+        self.filmstrip.image_decoded.connect(self._on_filmstrip_image_decoded)
+        self.filmstrip.image_cleared.connect(self.viewer.clear)
+        # directory_closed signal carries path; viewer.clear takes no args
+        # — PyQt silently drops extra signal args, so this connects fine.
+        self.filmstrip.directory_closed.connect(self.viewer.clear)
+        # Spinner during cache-miss full-decode of a clicked thumb.
+        # show_busy takes no args; PyQt drops the path arg.
+        self.filmstrip.image_decode_started.connect(self.viewer.show_busy)
 
         # Objects sidebar
         self.objects_sidebar.set_working_directory(
@@ -688,11 +704,11 @@ class PapyriMainWindow(QMainWindow):
         s.active_bucket_changed.connect(self._refresh_workflow_stepper_active)
         s.active_bucket_changed.connect(self._refresh_capture_button_label)
         s.active_bucket_changed.connect(self._refresh_camera_state_emphasis)
-        s.active_bucket_changed.connect(self._refresh_photo_browser_binding)
+        s.active_bucket_changed.connect(self._refresh_filmstrip_binding)
         self._refresh_workflow_stepper_active()
         self._refresh_capture_button_label()
         self._refresh_camera_state_emphasis()
-        self._refresh_photo_browser_binding()
+        self._refresh_filmstrip_binding()
 
         # B5 current_object
         s.current_object_changed.connect(self._refresh_metadata_pane_binding)
@@ -700,14 +716,14 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._refresh_objects_sidebar_entries)
         s.current_object_changed.connect(self._refresh_workflow_stepper_counts)
         s.current_object_changed.connect(self._refresh_workflow_stepper_active)
-        s.current_object_changed.connect(self._refresh_photo_browser_binding)
+        s.current_object_changed.connect(self._refresh_filmstrip_binding)
         s.current_object_changed.connect(self._handle_current_object_subscription)
         s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
         self._refresh_metadata_pane_binding()
         self._refresh_objects_sidebar_active()
         self._refresh_objects_sidebar_entries()
         self._refresh_workflow_stepper_counts()
-        # _refresh_photo_browser_binding already called above (B1+B2 init)
+        # _refresh_filmstrip_binding already called above (B1+B2 init)
         self._handle_current_object_subscription()
         self._handle_current_object_view_mode_reset()
 
@@ -805,15 +821,21 @@ class PapyriMainWindow(QMainWindow):
             self.session.active_spectrum == SPECTRUM_INFRARED
         )
 
-    def _refresh_photo_browser_binding(self) -> None:
-        """Re-bind PhotoBrowser to (current_object, active_side, active_spectrum).
-        Safe with current_object=None (browser closes its directory).
-        Reads B1+B2 (and B5 once that migrates)."""
-        self.photo_browser.bind_object(
+    def _refresh_filmstrip_binding(self) -> None:
+        """Re-bind PapyriFilmstrip to (current_object, active_side,
+        active_spectrum). Safe with current_object=None (filmstrip closes
+        its directory; the directory_closed signal also clears the viewer).
+        Reads B1+B2+B5."""
+        self.filmstrip.bind_object(
             self.session.current_object,
             self.session.active_side,
             self.session.active_spectrum,
         )
+
+    def _on_filmstrip_image_decoded(self, path: str, pixmap) -> None:
+        """Display the filmstrip's decoded image in the viewer. Path is
+        kept on the signal for future debug/logging but ignored here."""
+        self.viewer.show_image(pixmap)
 
     # ---- B1+B2 imperative handlers (not signal-driven) ------------------
 
@@ -971,7 +993,11 @@ class PapyriMainWindow(QMainWindow):
         # whatever's displayed (preview thumbnail, last-paused frame).
         if self.session.live_view_paused:
             return
-        self.photo_browser.show_preview(ImageQt(image.image))
+        # Live frames: always fit-to-viewport so the user sees the full
+        # frame (matches old PhotoBrowser.show_preview's fitInView call).
+        self.viewer.show_image(
+            QPixmap.fromImage(ImageQt(image.image)), fit=True
+        )
         # Each arriving live frame asserts "live" — handles transitions
         # away from preview/paused without needing extra plumbing.
         self.session.set_view_mode("live")
@@ -1080,7 +1106,7 @@ class PapyriMainWindow(QMainWindow):
         # is suppressed during auto-selection (H22) so image_selected
         # never fires. Manually pause + assert the preview indicator so
         # the auto-selected take stays visible until the user resumes.
-        current_name = self.photo_browser.current_file_name()
+        current_name = self.filmstrip.current_file_name()
         if current_name is not None:
             self.session.set_live_view_paused(True)
             stem = os.path.splitext(current_name)[0]
@@ -1143,7 +1169,7 @@ class PapyriMainWindow(QMainWindow):
         self.metadata_pane.flush_pending_save()
 
         # Stop watching before moving the directory; reopen at the new path.
-        self.photo_browser.bind_object(None)
+        self.filmstrip.bind_object(None)
 
         # Rename capture files in every (side, spectrum) bucket whose basename
         # starts with the old object name. Metadata file (_meta.json) and
@@ -1285,9 +1311,9 @@ class PapyriMainWindow(QMainWindow):
     # ---- B7 receivers (view_mode_changed) ------------------------------
 
     def _refresh_view_mode_indicator(self) -> None:
-        """Pill text/border + viewer border tint. PhotoBrowser owns the
+        """Pill text/border + viewer border tint. ViewerWidget owns the
         rendering; this receiver just hands the (mode, label) over."""
-        self.photo_browser.set_view_state(
+        self.viewer.set_view_state(
             self.session.view_mode, self.session.view_mode_label
         )
 
@@ -1476,6 +1502,13 @@ def main():
     app.setApplicationName("Papyri Capture")
     win = PapyriMainWindow()
     win.show()
+    # PAPYRI_AUTO_OPEN=<object_name> auto-opens that object 500ms after
+    # the window appears — used for unattended UI debugging where the
+    # filmstrip needs real captures to render.
+    auto_open = os.environ.get("PAPYRI_AUTO_OPEN")
+    if auto_open:
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(500, lambda: win._on_sidebar_object_selected(auto_open))
     sys.exit(app.exec())
 
 
