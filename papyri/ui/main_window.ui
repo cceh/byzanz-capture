@@ -94,34 +94,35 @@
         </widget>
         <widget class="QWidget" name="mainColumnContainer" native="true">
          <layout class="QVBoxLayout" name="mainColumn">
-          <property name="spacing"><number>12</number></property>
+          <property name="spacing"><number>0</number></property>
           <property name="leftMargin"><number>14</number></property>
     <item>
-     <layout class="QHBoxLayout" name="stepperRow">
-      <property name="spacing"><number>0</number></property>
-      <item>
-       <widget class="WorkflowStepper" name="workflowStepper" native="true"/>
-      </item>
-      <item>
-       <spacer name="stepperRowSpacer">
-        <property name="orientation"><enum>Qt::Horizontal</enum></property>
-        <property name="sizeHint" stdset="0">
-         <size><width>40</width><height>20</height></size>
-        </property>
-       </spacer>
-      </item>
-     </layout>
+     <widget class="BucketSelector" name="bucketSelector" native="true"/>
     </item>
     <item>
-     <widget class="ViewerWidget" name="viewer" native="true">
+     <widget class="FusingPanel" name="fusingPanel" native="true">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
         <horstretch>0</horstretch>
         <verstretch>1</verstretch>
        </sizepolicy>
       </property>
-     </widget>
-    </item>
+      <layout class="QVBoxLayout" name="fusingPanelLayout">
+       <property name="leftMargin"><number>8</number></property>
+       <property name="topMargin"><number>10</number></property>
+       <property name="rightMargin"><number>8</number></property>
+       <property name="bottomMargin"><number>8</number></property>
+       <property name="spacing"><number>10</number></property>
+       <item>
+        <widget class="ViewerWidget" name="viewer" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>1</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
     <item>
      <layout class="QHBoxLayout" name="captureRow">
       <property name="spacing">
@@ -198,8 +199,11 @@
       </item>
      </layout>
     </item>
-    <item>
-     <widget class="PapyriFilmstrip" name="filmstrip" native="true"/>
+       <item>
+        <widget class="PapyriFilmstrip" name="filmstrip" native="true"/>
+       </item>
+      </layout>
+     </widget>
     </item>
          </layout>
         </widget>
@@ -252,9 +256,17 @@
    <header>papyri.camera_state_widget</header>
   </customwidget>
   <customwidget>
-   <class>WorkflowStepper</class>
+   <class>BucketSelector</class>
    <extends>QWidget</extends>
-   <header>papyri.workflow_stepper</header>
+   <header>papyri.bucket_selector</header>
+   <slots>
+    <signal>step_clicked(QString)</signal>
+   </slots>
+  </customwidget>
+  <customwidget>
+   <class>FusingPanel</class>
+   <extends>QFrame</extends>
+   <header>papyri.bucket_selector</header>
   </customwidget>
  </customwidgets>
  <resources/>

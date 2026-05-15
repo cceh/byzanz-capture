@@ -36,7 +36,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s: %(messag
 from pathlib import Path
 
 from PIL.ImageQt import ImageQt
-from PyQt6.QtCore import QObject, QSettings, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QSettings, QSize, QThread, QThreadPool, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QIcon, QPixmap, QPixmapCache
 from PyQt6.QtWidgets import (
     QApplication, QInputDialog, QLabel, QMainWindow, QMenu,
@@ -48,6 +48,7 @@ from byzanz_camera.camera_worker import (
     CameraStates, CameraWorker, CaptureImagesRequest, ConfigRequest,
 )
 from byzanz_camera.filmstrip_widget import get_file_index
+from byzanz_camera.load_image_worker import ImageMode, LoadImageWorker
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.viewer_widget import ViewerWidget
 from papyri._layout import (
@@ -73,9 +74,8 @@ from byzanz_camera.profiles.base import Profile
 from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
 from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
 from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
-from papyri.workflow_stepper import (
-    WorkflowGroup, WorkflowStep, WorkflowStepper,
-)
+from papyri.bucket_selector import BucketSelector, FusingPanel
+from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
 
 from send2trash import send2trash
 
@@ -461,6 +461,11 @@ class PapyriMainWindow(QMainWindow):
         # MainWindow and the session is the no-op default.
         self.session = SessionState(self)
 
+        # Bumped on every _refresh_bucket_chosen_thumbs call; async results
+        # from the worker pool check it on arrival and discard themselves
+        # if a newer refresh has already started (object swap, mark-chosen).
+        self._chosen_thumb_gen = 0
+
         self.q_settings = QSettings()
         self._init_default_settings()
         # Qt's default QPixmapCache limit is 10 MB — too small for one decoded
@@ -514,15 +519,20 @@ class PapyriMainWindow(QMainWindow):
         self.metadata_splitter.setStretchFactor(1, 1)
         self.metadata_pane: MetadataPane = self.findChild(MetadataPane, "metadataPane")
 
-        # WorkflowStepper replaces the old step-indicator chips and the
-        # short-lived SideCard widgets. One stepper renders all four
-        # (side, spectrum) buckets as a chevron flow with a per-spectrum
-        # bracket above each pair.
-        self.workflow_stepper: WorkflowStepper = self.findChild(
-            WorkflowStepper, "workflowStepper"
+        # BucketSelector — grouped tabbed boxes (Visible | Infrared)
+        # paired with a FusingPanel below that contains the viewer +
+        # capture controls + filmstrip. The active tab visually fuses
+        # with the panel.
+        self.bucket_selector: BucketSelector = self.findChild(
+            BucketSelector, "bucketSelector"
         )
-        self.workflow_stepper.set_groups(_build_workflow_groups())
-        self.workflow_stepper.step_clicked.connect(self._on_workflow_step_clicked)
+        self.fusing_panel: FusingPanel = self.findChild(
+            FusingPanel, "fusingPanel"
+        )
+        self.bucket_selector.set_groups(_build_workflow_groups())
+        self.bucket_selector.set_fusing_panel(self.fusing_panel)
+        self.fusing_panel.set_bucket_selector(self.bucket_selector)
+        self.bucket_selector.step_clicked.connect(self._on_workflow_step_clicked)
         self.viewer: ViewerWidget = self.findChild(ViewerWidget, "viewer")
         self.filmstrip: PapyriFilmstrip = self.findChild(PapyriFilmstrip, "filmstrip")
 
@@ -716,6 +726,7 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._refresh_objects_sidebar_entries)
         s.current_object_changed.connect(self._refresh_workflow_stepper_counts)
         s.current_object_changed.connect(self._refresh_workflow_stepper_active)
+        s.current_object_changed.connect(self._refresh_bucket_chosen_thumbs)
         s.current_object_changed.connect(self._refresh_filmstrip_binding)
         s.current_object_changed.connect(self._handle_current_object_subscription)
         s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
@@ -723,6 +734,7 @@ class PapyriMainWindow(QMainWindow):
         self._refresh_objects_sidebar_active()
         self._refresh_objects_sidebar_entries()
         self._refresh_workflow_stepper_counts()
+        self._refresh_bucket_chosen_thumbs()
         # _refresh_filmstrip_binding already called above (B1+B2 init)
         self._handle_current_object_subscription()
         self._handle_current_object_view_mode_reset()
@@ -786,7 +798,55 @@ class PapyriMainWindow(QMainWindow):
                 self.session.current_object.count(side, spectrum)
                 if self.session.current_object is not None else 0
             )
-            self.workflow_stepper.set_count(step_id, count)
+            self.bucket_selector.set_count(step_id, count)
+
+    def _refresh_bucket_chosen_thumbs(self) -> None:
+        """Update each bucket card's thumb to its chosen-take preview.
+        For chosen JPEGs we load the file directly; for chosen RAWs we
+        use the camera's embedded JPEG preview via rawpy (~50–200 ms).
+        Both paths flow through LoadImageWorker (same code the filmstrip
+        uses), running on the global thread pool so the UI doesn't block.
+
+        Buckets without a chosen take get a synchronous `None` —
+        BucketSelector renders the dashed-placeholder empty state.
+
+        Subscribed to current_object_changed (object swap). Also called
+        from _on_object_state_changed so that marking-as-chosen and new
+        captures update the thumb without needing a separate signal.
+
+        A generation token is bumped on every call; async results check
+        it on arrival and silently drop themselves if a newer refresh
+        has overtaken them (avoids the "previous object's thumbs flash
+        in the new object's cards" race)."""
+        self._chosen_thumb_gen += 1
+        gen = self._chosen_thumb_gen
+        obj = self.session.current_object
+        pool = QThreadPool.globalInstance()
+        for (side, spectrum), step_id in _STEP_ID_BY_BUCKET.items():
+            cap = obj.chosen(side, spectrum) if obj is not None else None
+            path = (cap.jpg_path or cap.raw_path) if cap is not None else None
+            if path is None:
+                self.bucket_selector.set_chosen_thumb(step_id, None)
+                continue
+            worker = LoadImageWorker(
+                path,
+                mode=ImageMode.THUMB,
+                thumb_max_size=128,
+            )
+            worker.signals.finished.connect(
+                lambda result, sid=step_id, g=gen:
+                    self._on_chosen_thumb_loaded(sid, g, result)
+            )
+            pool.start(worker)
+
+    def _on_chosen_thumb_loaded(self, step_id: str, gen: int, result) -> None:
+        if gen != self._chosen_thumb_gen:
+            return
+        if result.thumbnail is None or result.thumbnail.isNull():
+            return
+        self.bucket_selector.set_chosen_thumb(
+            step_id, QPixmap.fromImage(result.thumbnail)
+        )
 
     def _refresh_workflow_stepper_active(self) -> None:
         """Active step highlight. Reads B1+B2 + B5 — when no object is
@@ -794,9 +854,9 @@ class PapyriMainWindow(QMainWindow):
         clear the highlight rather than leave it pointing at a stale
         bucket from the closed object."""
         if self.session.current_object is None:
-            self.workflow_stepper.set_active(None)
+            self.bucket_selector.set_active(None)
             return
-        self.workflow_stepper.set_active(
+        self.bucket_selector.set_active(
             _STEP_ID_BY_BUCKET[(
                 self.session.active_side, self.session.active_spectrum
             )]
@@ -1348,6 +1408,7 @@ class PapyriMainWindow(QMainWindow):
         Components that mirror that state (side cards, objects sidebar badge,
         metadata pane subtitle) re-read from `self.session.current_object` here."""
         self._refresh_workflow_stepper_counts()
+        self._refresh_bucket_chosen_thumbs()
         # The active object's `· → ?? → ✓` badge in the sidebar can flip
         # when captures land. Cheap re-scan; no FS watcher needed.
         self.objects_sidebar.refresh()
