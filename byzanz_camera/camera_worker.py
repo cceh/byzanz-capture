@@ -2,6 +2,7 @@ import io
 import logging
 import os
 import re
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -9,6 +10,7 @@ from enum import Enum
 from string import Template
 from time import sleep
 from typing import NamedTuple, Literal, Generator, Union, Protocol
+import psutil
 
 import gphoto2 as gp
 from PIL import Image
@@ -233,6 +235,10 @@ class CameraWorker(QObject):
     state_changed = pyqtSignal(object)
     property_changed = pyqtSignal(PropertyChangeEvent)
     preview_image = pyqtSignal(LiveViewImage)
+    # Emitted when macOS USB-claim recovery couldn't free the camera.
+    # Payload: list of (process_name, friendly_label) tuples for the UI
+    # to surface ("quit these apps and try again").
+    usb_offenders_detected = pyqtSignal(list)
 
     def __init__(self, parent=None):
         super(CameraWorker, self).__init__(parent)
@@ -263,6 +269,11 @@ class CameraWorker(QObject):
         # FILE_ADDED events arrive in empty_event_queue, snapshotted into
         # CaptureFinished's file_paths at end of captureImages.
         self.captured_file_paths: list[str] = []
+
+        # macOS USB-claim recovery budget. Recovery runs at most twice
+        # per connection cycle to avoid pushing launchd into marking
+        # ptpcamerad permanently disabled. Resets when we reach Ready.
+        self.__macos_recovery_attempts: int = 0
 
         self.__last_ptp_error: NikonPTPError = None
         self.__last_config_poll = 0.0
@@ -367,7 +378,6 @@ class CameraWorker(QObject):
             for key, value in settings.items():
                 self.__try_set_config(cfg, key, value)
 
-
     @__handle_camera_error
     def __connect_camera(self, profile: Profile):
         self.profile = profile
@@ -388,7 +398,7 @@ class CameraWorker(QObject):
                 idx = port_info_list.lookup_path(self.target_port)
                 self.camera.set_port_info(port_info_list[idx])
             self.__logger.info("Calling camera.init() …")
-            self.camera.init()
+            self.__init_with_macos_usb_recovery()
             self.__logger.info("camera.init() returned")
         self.empty_event_queue(1000)
         self.__apply_settings(profile.initial_settings())
@@ -400,6 +410,9 @@ class CameraWorker(QObject):
                 cfg.get_child_by_name("cameramodel").get_value()
             )
 
+        # Successful init — reset the macOS USB recovery budget so a
+        # later disconnect-and-reconnect cycle gets a fresh allowance.
+        self.__macos_recovery_attempts = 0
         self.__set_state(CameraStates.Ready(self.camera_name))
 
         while self.camera:
@@ -423,6 +436,49 @@ class CameraWorker(QObject):
                     self.empty_event_queue(1)
             finally:
                 QApplication.processEvents()
+
+    def __init_with_macos_usb_recovery(self):
+        """Call `self.camera.init()`. On macOS, if it fails with error
+        -53 ("Could not claim the USB device"), invoke the tiered
+        recovery from `macos_usb_recovery.attempt` and try once more.
+        On other platforms or other error codes, behave identically to
+        a bare `self.camera.init()`. Re-raises the original error on
+        unrecoverable failure so `@__handle_camera_error` can run its
+        normal transition to ConnectionError."""
+        try:
+            self.camera.init()
+        except gp.GPhoto2Error as err:
+            if not self.__should_attempt_macos_recovery(err):
+                raise
+            self.__macos_recovery_attempts += 1
+            self.__logger.warning(
+                "camera.init() failed with claim error (-53); "
+                "attempting macOS USB recovery (attempt %d/2)",
+                self.__macos_recovery_attempts,
+            )
+            from .macos_usb_recovery import attempt as _macos_recovery_attempt
+            result = _macos_recovery_attempt(
+                lambda: self.camera.init(), self.__logger,
+            )
+            if result.success:
+                self.__logger.info(
+                    "macOS USB recovery succeeded via tier %r", result.tier,
+                )
+                return
+            if result.offenders:
+                self.__logger.warning(
+                    "macOS USB recovery failed; detected offending apps: %s",
+                    ", ".join(label for _, label in result.offenders),
+                )
+                self.usb_offenders_detected.emit(result.offenders)
+            raise
+
+    def __should_attempt_macos_recovery(self, err: "gp.GPhoto2Error") -> bool:
+        return (
+            sys.platform == "darwin"
+            and getattr(err, "code", None) == -53
+            and self.__macos_recovery_attempts < 2
+        )
 
     def __disconnect_camera(self, auto_reconnect=True):
         self.__set_state(CameraStates.Disconnecting())
@@ -598,18 +654,15 @@ class CameraWorker(QObject):
     @__handle_camera_error
     def __live_view_capture_preview(self):
         lightmeter = None
-        try:
-            camera_file = self.camera.capture_preview()
-            file_data = camera_file.get_data_and_size()
-            image = Image.open(io.BytesIO(file_data))
+        camera_file = self.camera.capture_preview()
+        file_data = camera_file.get_data_and_size()
+        image = Image.open(io.BytesIO(file_data))
 
-            self.empty_event_queue(1)
-            self.preview_image.emit(LiveViewImage(image=image))
+        self.empty_event_queue(1)
+        self.preview_image.emit(LiveViewImage(image=image))
 
-            #
-            # self.preview_image.emit(LiveViewImage(image=image, lightmeter_value=lightmeter))
-        except gp.GPhoto2Error:
-            self.__stop_live_view()
+        #
+        # self.preview_image.emit(LiveViewImage(image=image, lightmeter_value=lightmeter))
 
     @__handle_camera_error
     def __stop_live_view(self):
