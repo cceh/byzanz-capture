@@ -450,6 +450,28 @@ class FilmstripWidget(QWidget):
             return None
         return item.file_name
 
+    def show_current(self) -> Optional[str]:
+        """Re-display the currently-selected thumb in the viewer.
+        Emits image_decoded (cache hit) or image_decode_started +
+        queues a fresh decode (cache miss). Does NOT emit
+        image_selected — this is a caller-initiated refresh, not a
+        user click; the caller updates any derived UI state itself.
+        Returns the current item's basename, or None if nothing is
+        selected. Used to "refresh" the viewer when something other
+        than a thumb click should re-assert the selection — e.g.
+        pausing live view, so the viewer stops showing the stale
+        last live frame and shows the selected take instead."""
+        current = self.image_file_list.currentItem()
+        if not isinstance(current, ImageFileListItem):
+            return None
+        cached_image = QPixmapCache.find(current.path)
+        if cached_image:
+            self.image_decoded.emit(current.path, cached_image)
+        else:
+            self.image_decode_started.emit(current.path)
+            self.__load_image(current.path, self.__show_and_cache)
+        return current.file_name
+
     def current_path(self) -> Optional[str]:
         """The currently-bound directory path, or None."""
         return self.__currentPath

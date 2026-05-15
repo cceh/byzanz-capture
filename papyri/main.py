@@ -1236,11 +1236,25 @@ class PapyriMainWindow(QMainWindow):
     def _on_pause_toggled(self, paused: bool):
         """Action handler for the pause button's toggled signal. Updates
         session — the live_view command emit and pause-button-text update
-        are receiver concerns (see _wire_session). H5 preserved here:
-        when in "preview" mode, don't overwrite to "paused" because
-        _on_image_selected has already set the meaningful preview state."""
+        are receiver concerns (see _wire_session).
+
+        On pause, the viewer would otherwise keep showing the (now
+        stale) last live frame. Two branches replace it:
+          - filmstrip has a current selection ⇒ re-display that take,
+            flip view_mode to "preview" with its stem (same end state
+            as the user having clicked the thumb directly).
+          - empty filmstrip ⇒ blank the viewer, flip to "paused".
+        Already in "preview" (user clicked a thumb earlier) means the
+        selected take is already showing — leave it."""
         self.session.set_live_view_paused(paused)
-        if paused and self.session.view_mode != "preview":
+        if not paused or self.session.view_mode == "preview":
+            return
+        file_name = self.filmstrip.show_current()
+        if file_name is not None:
+            stem = os.path.splitext(file_name)[0]
+            self.session.set_view_mode("preview", stem)
+        else:
+            self.viewer.show_image(None)
             self.session.set_view_mode("paused")
 
     def _trigger_autofocus(self):
