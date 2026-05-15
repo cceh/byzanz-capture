@@ -10,6 +10,7 @@ orchestration (auto-connect, auto-reconnect, capture button gating) lives
 elsewhere.
 """
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QSize, Qt
@@ -108,7 +109,7 @@ class CameraStateWidget(QFrame):
 
     def _build_ui(self) -> None:
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(10, 6, 10, 6)
+        outer.setContentsMargins(10, 4, 10, 4)
         outer.setSpacing(8)
 
         self._side_badge = QLabel("?")
@@ -184,7 +185,7 @@ class CameraStateWidget(QFrame):
         elif isinstance(state, CameraStates.Disconnected):
             self._set_icon("camera_not_ok.png")
             name = state.camera_name or ""
-            self._text.setText(f"Disconnected: <b>{name}</b>")
+            self._text.setText(f"Disconnected: <b>{name.replace("Corporation ", "")}</b>")
             self._spinner.isAnimated = False
             self._connect_btn.setVisible(True)
             self._connect_btn.setEnabled(True)
@@ -200,7 +201,7 @@ class CameraStateWidget(QFrame):
             # Ready / LiveView* / Capture* / Focus* — all "connected and idle/working" states.
             name = self._worker.camera_name if self._worker and self._worker.camera_name else ""
             self._set_icon("camera_ok.png")
-            self._text.setText(f"Connected:<br><b>{name}</b>")
+            self._text.setText(f"Connected:<br><b>{name.replace("Corporation ", "")}</b>")
             self._spinner.isAnimated = False
             self._connect_btn.setVisible(False)
             self._disconnect_btn.setVisible(True)
