@@ -69,7 +69,14 @@ class PapyriFilmstrip(CaptureFilmstrip):
 
         obj.state_changed.connect(self._on_object_state_changed)
         self._on_object_state_changed()  # initial chosen-stem paint
-        self.open_directory(obj.dir_for(side, spectrum))
+        # Tell the strip which file should land in the viewer at end of
+        # load — the bucket's chosen-take if there is one. If not,
+        # FilmstripWidget falls back to the highest-indexed file.
+        chosen = obj.chosen(side, spectrum)
+        self.open_directory(
+            obj.dir_for(side, spectrum),
+            preferred_stem=chosen.stem if chosen else None,
+        )
 
     # ---- internals -----------------------------------------------------
 

@@ -36,7 +36,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .load_image_worker import (
-    DecodeMode, LoadImageWorker, LoadImageWorkerResult, SUPPORTED_EXTENSIONS,
+    ImageMode, JPEG_EXTENSIONS, LoadImageWorker, LoadImageWorkerResult,
+    SUPPORTED_EXTENSIONS,
 )
 
 
@@ -349,9 +350,24 @@ class FilmstripWidget(QWidget):
         self.__currentPath: str | None = None
         self.__currentFileSet: set[str] = set()
 
-        # Async thumbnail loading
-        self.__threadpool = QThreadPool()
-        self.__threadpool.setMaxThreadCount(4)
+        # Initial-load state. While `_initial_load_done` is False, the
+        # dispatcher uses ImageMode.THUMB for most files (silent, fast
+        # cache-aware load) and ImageMode.FULL for ONE file — the
+        # preferred-stem match (caller-supplied via `open_directory`)
+        # or, as a fallback, the last file in sort order. That one
+        # file's full-image result is what lands in the viewer at
+        # end of load. After `directory_loaded` fires, the flag flips
+        # and subsequent file arrivals (new captures from the camera
+        # worker) use ImageMode.FULL so they show in the viewer too.
+        self._initial_load_done: bool = False
+        self._preferred_stem: str | None = None
+
+        # Async thumbnail loading — shared global QThreadPool so filmstrip
+        # workers and the bucket-selector's chosen-thumb workers compete
+        # over one budget (capped at idealThreadCount() by Qt). Bounded
+        # peak memory: at most one FULL-mode worker is in flight per
+        # initial directory load (the preferred-or-last file); the rest
+        # are THUMB workers (~30 MB peak each).
         self.__num_images_to_load = 0
         # Generation token: bumps on every open/close so worker results
         # from a superseded directory get dropped at __on_image_loaded.
@@ -382,11 +398,23 @@ class FilmstripWidget(QWidget):
 
     # ---- public API ----------------------------------------------------
 
-    def open_directory(self, dir_path: str) -> None:
+    def open_directory(self, dir_path: str, *,
+                       preferred_stem: str | None = None) -> None:
         """Open a new directory: close any currently-open one, start
-        watching, kick off the initial async thumb load."""
+        watching, kick off the initial async thumb load.
+
+        `preferred_stem` (optional): the basename-without-extension of
+        the file that should land in the viewer at end of load. The
+        dispatcher uses ImageMode.FULL for the matching file and
+        ImageMode.THUMB for everything else. If None (or the stem
+        doesn't match any file in this directory), the dispatcher
+        falls back to the last file in sort order. Used by the
+        papyri filmstrip to surface the bucket's chosen-take when
+        the object opens."""
         if self.__currentPath:
             self.close_directory()
+        self._initial_load_done = False
+        self._preferred_stem = preferred_stem
         self.__currentPath = dir_path
         self.__fileSystemWatcher.addPath(self.__currentPath)
         self.__load_directory()
@@ -403,12 +431,13 @@ class FilmstripWidget(QWidget):
         self.__stop_watching()
         self.__currentPath = None
         self.__currentFileSet.clear()
-        # Drop queued (not-yet-started) workers from the pool. Running
-        # workers will complete on their own; their finished signals
-        # are dropped via the gen check in __on_image_loaded — we
-        # deliberately do NOT call waitForDone() so close returns
-        # promptly and the UI stays responsive on rapid switches.
-        self.__threadpool.clear()
+        # Don't try to clear queued workers — the pool is shared
+        # (QThreadPool.globalInstance()), so clear() would drop other
+        # widgets' queued workers too (e.g. bucket-selector chosen-thumb
+        # loads). Running workers will finish on their own; results
+        # whose gen doesn't match the bumped generation are silently
+        # dropped in __on_image_loaded. close returns promptly without
+        # waitForDone() so the UI stays responsive on rapid switches.
         self.__num_images_to_load = 0
         self._reset_displayed_state()
         if path is not None:
@@ -532,13 +561,21 @@ class FilmstripWidget(QWidget):
             # re-entry would hit slots whose connections are still being
             # set up by later receivers in the same chain.
             path = self.__currentPath
+            self._initial_load_done = True
             QTimer.singleShot(0, lambda: self.directory_loaded.emit(path))
 
         if added_files:
-            for f in added_files:
-                # Browser thumbnails: use the embedded JPEG preview for
-                # RAWs (fast). The full decode is reserved for click.
-                self.__load_image(f, self.__add_image_item, DecodeMode.THUMB)
+            # Decide per file: THUMB (silent, fast) vs BOTH (also pushes
+            # full image to viewer). After initial load, every newly-
+            # arrived file is a new capture from the camera worker and
+            # gets BOTH. During initial load, exactly ONE file gets
+            # BOTH — the preferred-stem match, else the highest-index
+            # file as fallback — so the viewer shows that one image
+            # at end of load instead of nothing or a flash-through.
+            both_targets = self.__pick_both_targets(added_files)
+            for f in sorted(added_files, key=lambda x: (get_file_index(x) or 0, x)):
+                mode = ImageMode.FULL if f in both_targets else ImageMode.THUMB
+                self.__load_image(f, self.__add_image_item, mode=mode)
 
         for f in removed_files:
             for i in range(self.image_file_list.count()):
@@ -550,11 +587,36 @@ class FilmstripWidget(QWidget):
 
         self.__currentFileSet = new_fileset
 
+    def __pick_both_targets(self, added_files: set[str]) -> set[str]:
+        """Decide which files in this batch should get BOTH mode (full
+        decode → viewer). After initial load: every new arrival (each
+        is a fresh capture). During initial load: at most one file —
+        the preferred-stem match, else the highest-index file.
+
+        For a stem match with both JPG + RAW siblings, prefer the JPG
+        (faster decode, same display quality for the viewer)."""
+        if self._initial_load_done:
+            return set(added_files)
+        if not added_files:
+            return set()
+        # Initial load: pick exactly one.
+        if self._preferred_stem is not None:
+            matches = [f for f in added_files
+                       if Path(f).stem == self._preferred_stem]
+            jpegs = [f for f in matches
+                     if Path(f).suffix.lower() in JPEG_EXTENSIONS]
+            chosen = jpegs[0] if jpegs else (matches[0] if matches else None)
+            if chosen is not None:
+                return {chosen}
+        # Fallback: the file with the highest index (= newest capture).
+        ordered = sorted(added_files, key=lambda f: (get_file_index(f) or 0, f))
+        return {ordered[-1]}
+
     def __load_image(
         self,
         file_name: str,
         on_finished_callback: Callable,
-        decode_mode: DecodeMode = DecodeMode.FULL,
+        mode: ImageMode = ImageMode.FULL,
     ) -> None:
         """Queue an async decode worker. Captures the current generation
         token so __on_image_loaded can drop stale results."""
@@ -562,9 +624,8 @@ class FilmstripWidget(QWidget):
 
         worker = LoadImageWorker(
             os.path.join(self.__currentPath, file_name),
-            include_thumbnail=True,
-            thumbnail_size=200,
-            decode_mode=decode_mode,
+            mode=mode,
+            thumb_max_size=200,
         )
         # Each call's `gen` is its own local — Python closures capture by
         # reference but the variable is re-bound per call so each lambda
@@ -573,7 +634,7 @@ class FilmstripWidget(QWidget):
         worker.signals.finished.connect(
             lambda result: self.__on_image_loaded(result, on_finished_callback, gen)
         )
-        self.__threadpool.start(worker)
+        QThreadPool.globalInstance().start(worker)
 
     def __on_image_loaded(
         self,
@@ -591,47 +652,63 @@ class FilmstripWidget(QWidget):
             # Async load complete — emit (deferred via QTimer for the same
             # reason __load_directory's no-diff branch defers).
             path = self.__currentPath
+            self._initial_load_done = True
             QTimer.singleShot(0, lambda: self.directory_loaded.emit(path))
             # Re-scan in case files arrived during loading.
             self.__load_directory()
 
-    def __add_image_item(self, image_worker_result: LoadImageWorkerResult) -> None:
-        """Create a list item for this file and add it (auto-selects last,
-        suppressing the currentItemChanged signal so image_selected only
-        fires on USER click — H22). Emits image_decoded so the viewer
-        shows the latest-loaded image, preserving the as-it-loads UX."""
-        list_item = ImageFileListItem(
-            image_worker_result.path, image_worker_result.thumbnail
-        )
+    def __add_image_item(self, result: LoadImageWorkerResult) -> None:
+        """Create a list item for the file and add it to the strip.
 
-        exposure_time = image_worker_result.exif["ExposureTime"].real
-        f_number = image_worker_result.exif["FNumber"]
-        list_item.setText("%s\nf/%s | %s" % (
-            list_item.file_name, f_number, exposure_time
-        ))
+        Result shape dictates behavior:
+          - `result.thumbnail` is always set → drives the strip card.
+          - `result.image` is set only for BOTH-mode arrivals
+            (one preferred file during initial load, OR any newly
+            arrived capture post-load). When set, this is the file
+            we want the viewer to display — auto-select + cache +
+            emit image_decoded. THUMB-only arrivals (the silent
+            majority of initial loads) just land in the strip.
+
+        The currentItemChanged disconnect/reconnect dance around
+        setCurrentItem keeps the user-click slot quiet during
+        programmatic selection (H22)."""
+        list_item = ImageFileListItem(result.path, result.thumbnail)
+
+        exposure_time = result.exif.get("ExposureTime")
+        f_number = result.exif.get("FNumber")
+        if exposure_time is not None and f_number is not None:
+            list_item.setText("%s\nf/%s | %s" % (
+                list_item.file_name, f_number,
+                getattr(exposure_time, "real", exposure_time),
+            ))
+        else:
+            list_item.setText(list_item.file_name)
 
         # Add the item only if a directory is still open (this callback
         # fires from a worker thread completion; the directory may have
         # been closed in the meantime — extra safety on top of the
         # generation-token gate in __on_image_loaded).
         with QMutexLocker(self.__mutex):
-            if self.__currentPath:
-                self.image_file_list.addItem(list_item)
-                self.image_file_list.sortItems()
-                self.image_file_list.scrollToBottom()
-                self.image_file_list.currentItemChanged.disconnect()
-                self.image_file_list.setCurrentItem(list_item)
-                self.image_file_list.currentItemChanged.connect(
-                    self.__on_select_image_file
-                )
+            if not self.__currentPath:
+                return
+            self.image_file_list.addItem(list_item)
+            self.image_file_list.sortItems()
+            if result.image is None:
+                # THUMB-only: silent fill, no viewer update.
+                return
+            # BOTH-mode arrival: auto-select + push to viewer.
+            self.image_file_list.scrollToBottom()
+            self.image_file_list.currentItemChanged.disconnect()
+            self.image_file_list.setCurrentItem(list_item)
+            self.image_file_list.currentItemChanged.connect(
+                self.__on_select_image_file
+            )
 
-        # Emit for the viewer: cache hit if we somehow have it, else use
-        # the thumb-mode pixmap from the worker result (good enough for
-        # initial display; full decode happens on click).
-        image_path = image_worker_result.path
-        pixmap = (QPixmapCache.find(image_path)
-                  or QPixmap.fromImage(image_worker_result.image))
-        self.image_decoded.emit(image_path, pixmap)
+        pixmap = QPixmap.fromImage(result.image)
+        # Cache so a subsequent click on this thumb skips the full
+        # decode and shows instantly.
+        QPixmapCache.insert(result.path, pixmap)
+        self.image_decoded.emit(result.path, pixmap)
 
     # ---- selection -----------------------------------------------------
 
