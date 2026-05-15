@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ObjectTitleBar</class>
+ <widget class="QWidget" name="ObjectTitleBar">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>72</height>
+   </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+    <horstretch>1</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">#nameField {
+    background: white;
+    color: #0f172a;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+#nameField:focus {
+    border-color: #3b82f6;
+    outline: none;
+}
+#nameField[readOnly=&quot;true&quot;] {
+    background: transparent;
+    border: 1.5px solid transparent;
+    text-decoration: underline;
+}</string>
+  </property>
+  <layout class="QVBoxLayout" name="outerLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout">
+     <item>
+      <widget class="QLineEdit" name="nameField">
+       <property name="font">
+        <font>
+         <pointsize>20</pointsize>
+         <bold>true</bold>
+        </font>
+       </property>
+       <property name="placeholderText">
+        <string>Object name</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="renameButton">
+       <property name="minimumSize">
+        <size>
+         <width>24</width>
+         <height>24</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>24</width>
+         <height>24</height>
+        </size>
+       </property>
+       <property name="visible">
+        <bool>true</bool>
+       </property>
+       <property name="toolTip">
+        <string>Rename object</string>
+       </property>
+       <property name="icon">
+        <iconset>
+         <normaloff>../../ui/rename.svg</normaloff>../../ui/rename.svg</iconset>
+       </property>
+       <property name="iconSize">
+        <size>
+         <width>16</width>
+         <height>16</height>
+        </size>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="closeButton">
+       <property name="minimumSize">
+        <size>
+         <width>24</width>
+         <height>24</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>24</width>
+         <height>24</height>
+        </size>
+       </property>
+       <property name="visible">
+        <bool>true</bool>
+       </property>
+       <property name="toolTip">
+        <string>Close object</string>
+       </property>
+       <property name="icon">
+        <iconset>
+         <normaloff>../../ui/cancel.svg</normaloff>../../ui/cancel.svg</iconset>
+       </property>
+       <property name="iconSize">
+        <size>
+         <width>16</width>
+         <height>16</height>
+        </size>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>renameButton</sender>
+   <signal>clicked()</signal>
+   <receiver>ObjectTitleBar</receiver>
+   <slot>rename_requested()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>50</x>
+     <y>10</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>100</x>
+     <y>10</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>closeButton</sender>
+   <signal>clicked()</signal>
+   <receiver>ObjectTitleBar</receiver>
+   <slot>close_requested()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>50</x>
+     <y>10</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>100</x>
+     <y>10</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>nameField</sender>
+   <signal>returnPressed()</signal>
+   <receiver>ObjectTitleBar</receiver>
+   <slot>_on_name_return()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>50</x>
+     <y>10</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>100</x>
+     <y>10</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <signal>rename_requested()</signal>
+  <signal>close_requested()</signal>
+  <signal>start_object_requested(QString)</signal>
+  <slot>_on_name_return()</slot>
+ </slots>
+</ui>

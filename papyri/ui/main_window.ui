@@ -10,212 +10,300 @@
     <height>900</height>
    </rect>
   </property>
-  <property name="windowTitle">
-   <string>Papyri Capture</string>
-  </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="rootLayout">
+   <layout class="QHBoxLayout" name="rootLayout">
     <property name="spacing">
-     <number>12</number>
+     <number>0</number>
     </property>
     <property name="leftMargin">
-     <number>20</number>
+     <number>0</number>
     </property>
     <property name="topMargin">
-     <number>18</number>
+     <number>0</number>
     </property>
     <property name="rightMargin">
-     <number>20</number>
+     <number>0</number>
     </property>
     <property name="bottomMargin">
-     <number>20</number>
+     <number>0</number>
     </property>
     <item>
-     <layout class="QHBoxLayout" name="topRow">
-      <property name="spacing"><number>12</number></property>
-      <item>
-       <layout class="QHBoxLayout" name="cameraStatesRow">
+     <widget class="QSplitter" name="outerSplitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="handleWidth">
+       <number>6</number>
+      </property>
+      <property name="childrenCollapsible">
+       <bool>false</bool>
+      </property>
+      <widget class="ObjectsSidebar" name="objectsSidebar"/>
+      <widget class="QWidget" name="rightColumn" native="true">
+       <layout class="QVBoxLayout" name="rightLayout">
         <property name="spacing">
-         <number>8</number>
+         <number>0</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
         </property>
         <item>
-         <widget class="CameraStateWidget" name="visibleCameraState" native="true"/>
+         <layout class="QHBoxLayout" name="topRow">
+          <property name="spacing">
+           <number>16</number>
+          </property>
+          <property name="sizeConstraint">
+           <enum>QLayout::SetDefaultConstraint</enum>
+          </property>
+          <property name="rightMargin">
+           <number>8</number>
+          </property>
+          <item>
+           <widget class="ObjectTitleBar" name="objectTitleBar" native="true"/>
+          </item>
+          <item>
+           <widget class="Line" name="line">
+            <property name="orientation">
+             <enum>Qt::Vertical</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="cameraStatesRow">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <widget class="CameraStateWidget" name="visibleCameraState"/>
+            </item>
+            <item>
+             <widget class="CameraStateWidget" name="irCameraState"/>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QPushButton" name="settingsButton">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="toolTip">
+             <string>Settings menu (general settings, advanced camera config)</string>
+            </property>
+            <property name="text">
+             <string/>
+            </property>
+            <property name="icon">
+             <iconset>
+              <normaloff>../../ui/general_settings.svg</normaloff>../../ui/general_settings.svg</iconset>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
         <item>
-         <widget class="CameraStateWidget" name="irCameraState" native="true"/>
+         <widget class="QSplitter" name="metadataSplitter">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="handleWidth">
+           <number>6</number>
+          </property>
+          <property name="childrenCollapsible">
+           <bool>false</bool>
+          </property>
+          <widget class="QWidget" name="mainColumnContainer" native="true">
+           <layout class="QVBoxLayout" name="mainColumn">
+            <property name="spacing">
+             <number>0</number>
+            </property>
+            <property name="leftMargin">
+             <number>8</number>
+            </property>
+            <property name="topMargin">
+             <number>8</number>
+            </property>
+            <property name="rightMargin">
+             <number>8</number>
+            </property>
+            <property name="bottomMargin">
+             <number>8</number>
+            </property>
+            <item>
+             <widget class="BucketSelector" name="bucketSelector" native="true"/>
+            </item>
+            <item>
+             <widget class="FusingPanel" name="fusingPanel">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                <horstretch>0</horstretch>
+                <verstretch>1</verstretch>
+               </sizepolicy>
+              </property>
+              <layout class="QVBoxLayout" name="fusingPanelLayout">
+               <property name="spacing">
+                <number>10</number>
+               </property>
+               <property name="leftMargin">
+                <number>8</number>
+               </property>
+               <property name="topMargin">
+                <number>10</number>
+               </property>
+               <property name="rightMargin">
+                <number>8</number>
+               </property>
+               <property name="bottomMargin">
+                <number>8</number>
+               </property>
+               <item>
+                <widget class="ViewerWidget" name="viewer" native="true">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                   <horstretch>0</horstretch>
+                   <verstretch>1</verstretch>
+                  </sizepolicy>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="captureRow">
+                 <property name="spacing">
+                  <number>12</number>
+                 </property>
+                 <item>
+                  <widget class="QPushButton" name="pauseLiveViewButton">
+                   <property name="toolTip">
+                    <string>Live view is on by default. Pause to freeze the preview (e.g. while browsing prior captures).</string>
+                   </property>
+                   <property name="text">
+                    <string>Pause Live View</string>
+                   </property>
+                   <property name="icon">
+                    <iconset>
+                     <normaloff>../../ui/preview_closed.svg</normaloff>../../ui/preview_closed.svg</iconset>
+                   </property>
+                   <property name="checkable">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="autofocusButton">
+                   <property name="text">
+                    <string>Autofocus</string>
+                   </property>
+                   <property name="icon">
+                    <iconset>
+                     <normaloff>../../ui/focus.svg</normaloff>../../ui/focus.svg</iconset>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="captureRowSpacer">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="captureStatusLabel">
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="Line" name="captureRowLine">
+                   <property name="orientation">
+                    <enum>Qt::Vertical</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="captureButton">
+                   <property name="text">
+                    <string>Capture (JPEG+RAW)</string>
+                   </property>
+                   <property name="icon">
+                    <iconset>
+                     <normaloff>../../ui/capture.svg</normaloff>../../ui/capture.svg</iconset>
+                   </property>
+                   <property name="shortcut">
+                    <string>Space</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="PapyriFilmstrip" name="filmstrip" native="true"/>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="MetadataPane" name="metadataPane">
+           <property name="minimumSize">
+            <size>
+             <width>150</width>
+             <height>0</height>
+            </size>
+           </property>
+          </widget>
+         </widget>
         </item>
        </layout>
-      </item>
-      <item>
-       <spacer name="topRowSpacer">
-        <property name="orientation"><enum>Qt::Horizontal</enum></property>
-        <property name="sizeHint" stdset="0">
-         <size><width>40</width><height>20</height></size>
-        </property>
-       </spacer>
-      </item>
-      <item>
-       <widget class="QPushButton" name="settingsButton">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="toolTip">
-         <string>Settings menu (general settings, advanced camera config)</string>
-        </property>
-        <property name="text">
-         <string/>
-        </property>
-        <property name="icon">
-         <iconset>
-          <normaloff>../../ui/general_settings.svg</normaloff>../../ui/general_settings.svg</iconset>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <item>
-     <layout class="QHBoxLayout" name="mainArea">
-      <property name="spacing"><number>0</number></property>
-      <item>
-       <widget class="ObjectsSidebar" name="objectsSidebar" native="true"/>
-      </item>
-      <item>
-       <widget class="QSplitter" name="metadataSplitter">
-        <property name="orientation"><enum>Qt::Horizontal</enum></property>
-        <property name="childrenCollapsible"><bool>false</bool></property>
-        <property name="handleWidth"><number>6</number></property>
-        <widget class="MetadataPane" name="metadataPane" native="true">
-         <property name="minimumSize">
-          <size><width>150</width><height>0</height></size>
-         </property>
-        </widget>
-        <widget class="QWidget" name="mainColumnContainer" native="true">
-         <layout class="QVBoxLayout" name="mainColumn">
-          <property name="spacing"><number>0</number></property>
-          <property name="leftMargin"><number>14</number></property>
-    <item>
-     <widget class="BucketSelector" name="bucketSelector" native="true"/>
-    </item>
-    <item>
-     <widget class="FusingPanel" name="fusingPanel" native="true">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-        <horstretch>0</horstretch>
-        <verstretch>1</verstretch>
-       </sizepolicy>
-      </property>
-      <layout class="QVBoxLayout" name="fusingPanelLayout">
-       <property name="leftMargin"><number>8</number></property>
-       <property name="topMargin"><number>10</number></property>
-       <property name="rightMargin"><number>8</number></property>
-       <property name="bottomMargin"><number>8</number></property>
-       <property name="spacing"><number>10</number></property>
-       <item>
-        <widget class="ViewerWidget" name="viewer" native="true">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-           <horstretch>0</horstretch>
-           <verstretch>1</verstretch>
-          </sizepolicy>
-         </property>
-        </widget>
-       </item>
-    <item>
-     <layout class="QHBoxLayout" name="captureRow">
-      <property name="spacing">
-       <number>12</number>
-      </property>
-      <item>
-       <widget class="QPushButton" name="pauseLiveViewButton">
-        <property name="toolTip">
-         <string>Live view is on by default. Pause to freeze the preview (e.g. while browsing prior captures).</string>
-        </property>
-        <property name="text">
-         <string>Pause Live View</string>
-        </property>
-        <property name="icon">
-         <iconset>
-          <normaloff>../../ui/preview_closed.svg</normaloff>../../ui/preview_closed.svg</iconset>
-        </property>
-        <property name="checkable">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="autofocusButton">
-        <property name="text">
-         <string>Autofocus</string>
-        </property>
-        <property name="icon">
-         <iconset>
-          <normaloff>../../ui/focus.svg</normaloff>../../ui/focus.svg</iconset>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <spacer name="captureRowSpacer">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>40</width>
-          <height>20</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item>
-       <widget class="QLabel" name="captureStatusLabel">
-        <property name="text">
-         <string/>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="Line" name="captureRowLine">
-        <property name="orientation">
-         <enum>Qt::Vertical</enum>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="captureButton">
-        <property name="text">
-         <string>Capture (JPEG+RAW)</string>
-        </property>
-        <property name="icon">
-         <iconset>
-          <normaloff>../../ui/capture.svg</normaloff>../../ui/capture.svg</iconset>
-        </property>
-        <property name="shortcut">
-         <string>Space</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-       <item>
-        <widget class="PapyriFilmstrip" name="filmstrip" native="true"/>
-       </item>
-      </layout>
+      </widget>
      </widget>
-    </item>
-         </layout>
-        </widget>
-       </widget>
-      </item>
-     </layout>
     </item>
    </layout>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>ObjectsSidebar</class>
+   <extends>QFrame</extends>
+   <header>papyri.objects_sidebar</header>
+   <container>1</container>
+   <slots>
+    <signal>object_selected(QString)</signal>
+    <signal>new_object_requested()</signal>
+   </slots>
+  </customwidget>
+  <customwidget>
+   <class>MetadataPane</class>
+   <extends>QFrame</extends>
+   <header>papyri.metadata_pane</header>
+   <container>1</container>
+   <slots>
+    <signal>metadata_changed()</signal>
+   </slots>
+  </customwidget>
+  <customwidget>
+   <class>CameraStateWidget</class>
+   <extends>QFrame</extends>
+   <header>papyri.camera_state_widget</header>
+   <container>1</container>
+  </customwidget>
   <customwidget>
    <class>ViewerWidget</class>
    <extends>QWidget</extends>
@@ -234,28 +322,6 @@
    </slots>
   </customwidget>
   <customwidget>
-   <class>ObjectsSidebar</class>
-   <extends>QFrame</extends>
-   <header>papyri.objects_sidebar</header>
-   <slots>
-    <signal>object_selected(QString)</signal>
-    <signal>new_object_requested()</signal>
-   </slots>
-  </customwidget>
-  <customwidget>
-   <class>MetadataPane</class>
-   <extends>QFrame</extends>
-   <header>papyri.metadata_pane</header>
-   <slots>
-    <signal>metadata_changed()</signal>
-   </slots>
-  </customwidget>
-  <customwidget>
-   <class>CameraStateWidget</class>
-   <extends>QFrame</extends>
-   <header>papyri.camera_state_widget</header>
-  </customwidget>
-  <customwidget>
    <class>BucketSelector</class>
    <extends>QWidget</extends>
    <header>papyri.bucket_selector</header>
@@ -267,6 +333,17 @@
    <class>FusingPanel</class>
    <extends>QFrame</extends>
    <header>papyri.bucket_selector</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ObjectTitleBar</class>
+   <extends>QWidget</extends>
+   <header>papyri.object_title_bar</header>
+   <slots>
+    <signal>rename_requested()</signal>
+    <signal>close_requested()</signal>
+    <signal>start_object_requested(QString)</signal>
+   </slots>
   </customwidget>
  </customwidgets>
  <resources/>

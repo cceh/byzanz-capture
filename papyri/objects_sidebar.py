@@ -67,7 +67,7 @@ class ObjectsSidebar(QFrame):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self.setMinimumWidth(160)
-        self.setMaximumWidth(200)
+        self.setMaximumWidth(320)
 
         self._working_dir: str | None = None
         self._entries: list[ObjectListEntry] = []

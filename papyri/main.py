@@ -68,6 +68,7 @@ from papyri._layout import (
 from papyri.camera_state_widget import CameraStateWidget
 from papyri.papyri_filmstrip import PapyriFilmstrip
 from papyri.metadata_pane import MetadataPane
+from papyri.object_title_bar import ObjectTitleBar
 from papyri.objects_sidebar import ObjectsSidebar
 from papyri.session_state import SessionState
 from byzanz_camera.profiles.base import Profile
@@ -511,13 +512,18 @@ class PapyriMainWindow(QMainWindow):
         self.settings_button: QPushButton = self.findChild(QPushButton, "settingsButton")
 
         self.objects_sidebar: ObjectsSidebar = self.findChild(ObjectsSidebar, "objectsSidebar")
+        # Outer splitter: ObjectsSidebar (index 0, fixed-ish) | rightColumn
+        # (index 1, grows). Sidebar's own min/max width clamps the drag range.
+        self.outer_splitter: QSplitter = self.findChild(QSplitter, "outerSplitter")
+        self.outer_splitter.setStretchFactor(0, 0)
+        self.outer_splitter.setStretchFactor(1, 1)
         self.metadata_splitter: QSplitter = self.findChild(QSplitter, "metadataSplitter")
-        # Make the workspace absorb extra space; the metadata pane stays at
-        # its sizeHint width (200px) by default and can be dragged in either
-        # direction (down to 150px min, up to whatever the user wants).
-        self.metadata_splitter.setStretchFactor(0, 0)
-        self.metadata_splitter.setStretchFactor(1, 1)
+        # Inner splitter: workspace (index 0, grows) | metadata pane (index 1,
+        # stays at sizeHint by default, draggable down to 150px min).
+        self.metadata_splitter.setStretchFactor(0, 1)
+        self.metadata_splitter.setStretchFactor(1, 0)
         self.metadata_pane: MetadataPane = self.findChild(MetadataPane, "metadataPane")
+        self.title_bar: ObjectTitleBar = self.findChild(ObjectTitleBar, "objectTitleBar")
 
         # BucketSelector — grouped tabbed boxes (Visible | Infrared)
         # paired with a FusingPanel below that contains the viewer +
@@ -580,11 +586,11 @@ class PapyriMainWindow(QMainWindow):
         self.settings_button.clicked.connect(
             lambda: self._popup_below(self.settings_button, self.settings_menu))
 
-        # Metadata pane owns the object-name affordance + close + rename
-        # buttons (they live in its title row).
-        self.metadata_pane.start_object_requested.connect(self.start_object)
-        self.metadata_pane.rename_requested.connect(self.rename_current_object)
-        self.metadata_pane.close_requested.connect(self.close_object)
+        # Title bar owns the object-name affordance + close + rename
+        # buttons (its .ui forwards the QToolButton clicks to these signals).
+        self.title_bar.start_object_requested.connect(self.start_object)
+        self.title_bar.rename_requested.connect(self.rename_current_object)
+        self.title_bar.close_requested.connect(self.close_object)
 
         # Connect/disconnect buttons live inside CameraStateWidget —
         # widget-internal wiring, no main.py plumbing needed.
@@ -728,6 +734,7 @@ class PapyriMainWindow(QMainWindow):
 
         # B5 current_object
         s.current_object_changed.connect(self._refresh_metadata_pane_binding)
+        s.current_object_changed.connect(self._refresh_title_bar_binding)
         s.current_object_changed.connect(self._refresh_objects_sidebar_active)
         s.current_object_changed.connect(self._refresh_objects_sidebar_entries)
         s.current_object_changed.connect(self._refresh_workflow_stepper_counts)
@@ -737,6 +744,7 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._handle_current_object_subscription)
         s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
         self._refresh_metadata_pane_binding()
+        self._refresh_title_bar_binding()
         self._refresh_objects_sidebar_active()
         self._refresh_objects_sidebar_entries()
         self._refresh_workflow_stepper_counts()
@@ -1126,12 +1134,6 @@ class PapyriMainWindow(QMainWindow):
         has_object = self.session.current_object is not None
         object_loaded = has_object and self.session.current_object.dir_loaded
 
-        # ---- object loading state → metadata pane spinner
-        # The pane itself owns name field + rename + close button visibility
-        # (driven by metadata_pane.bind_object). Loading busy is the only bit
-        # that depends on transient state, so we drive it from here.
-        self.metadata_pane.set_loading_busy(has_object and not object_loaded)
-
         # ---- live view + autofocus + capture (bottom row)
         camera_ready = isinstance(camera_state, (
             CameraStates.Ready,
@@ -1362,6 +1364,10 @@ class PapyriMainWindow(QMainWindow):
         """Re-bind metadata pane to current object. Reads B5."""
         self.metadata_pane.bind_object(self.session.current_object)
 
+    def _refresh_title_bar_binding(self) -> None:
+        """Re-bind title bar to current object. Reads B5."""
+        self.title_bar.bind_object(self.session.current_object)
+
     def _refresh_objects_sidebar_active(self) -> None:
         """Active row highlight in the sidebar. Reads B5."""
         obj = self.session.current_object
@@ -1462,10 +1468,10 @@ class PapyriMainWindow(QMainWindow):
 
     def _on_sidebar_new_object(self) -> None:
         """Sidebar '+ New object' clicked: close any current object and focus
-        the metadata pane's name input so the user can type + Enter to create."""
+        the title bar's name input so the user can type + Enter to create."""
         if self.session.current_object is not None:
             self.close_object()
-        self.metadata_pane.focus_name_input()
+        self.title_bar.focus_name_input()
 
     def _on_object_state_changed(self):
         """Single sink for any change in the current object's derived state.
@@ -1624,7 +1630,7 @@ class PapyriMainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setOrganizationName("CCeH")
-    app.setApplicationName("Papyri Capture")
+    app.setApplicationName("Crocodile Capture")
     win = PapyriMainWindow()
     win.show()
     # PAPYRI_AUTO_OPEN=<object_name> auto-opens that object 500ms after
