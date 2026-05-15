@@ -206,6 +206,7 @@ class RTICaptureMainWindow(QMainWindow):
             )
         )
         self.camera_worker.initialized.connect(lambda: self.camera_worker.commands.find_camera.emit())
+        self.camera_worker.usb_offenders_detected.connect(self._on_usb_offenders_detected)
         self.camera_thread.started.connect(self.camera_worker.initialize)
         self.camera_thread.start()
 
@@ -270,6 +271,28 @@ class RTICaptureMainWindow(QMainWindow):
     def get_camera_state(self):
         return self.camera_state
 
+    def _on_usb_offenders_detected(self, offenders: list):
+        """macOS USB-claim recovery couldn't free the camera. While the
+        dialog is on screen, set_camera_state suppresses the auto-
+        reconnect dispatch. Dismissing the dialog re-triggers
+        find_camera to resume."""
+        if getattr(self, "_usb_offender_dialog_open", False):
+            return
+        labels = sorted({label for _, label in offenders})
+        message = (
+            "The camera is being held by another application:\n\n  · "
+            + "\n  · ".join(labels)
+            + "\n\nQuit the listed application(s) and click OK to retry."
+        )
+        self.logger.warning("USB-claim recovery failed; offenders: %s",
+                            ", ".join(labels))
+        self._usb_offender_dialog_open = True
+        try:
+            QMessageBox.warning(self, "Camera is busy", message)
+        finally:
+            self._usb_offender_dialog_open = False
+        self.camera_worker.commands.find_camera.emit()
+
     def set_camera_state(self, state: CameraStates.StateType):
         self.logger.debug("Handle camera state:" + state.__class__.__name__)
         self.camera_state = state
@@ -283,7 +306,12 @@ class RTICaptureMainWindow(QMainWindow):
                 self.connect_camera()
 
             case CameraStates.Disconnected():
-                if state.auto_reconnect:
+                # Suppress auto-reconnect while the "camera is busy"
+                # dialog is on screen. Dismissing the dialog triggers
+                # a manual find_camera in _on_usb_offenders_detected.
+                if state.auto_reconnect and not getattr(
+                    self, "_usb_offender_dialog_open", False
+                ):
                     self.camera_worker.commands.find_camera.emit()
 
             case CameraStates.Connecting():

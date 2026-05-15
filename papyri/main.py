@@ -652,6 +652,9 @@ class PapyriMainWindow(QMainWindow):
         self.visible_worker.initialized.connect(
             lambda: self.visible_worker.commands.find_camera.emit()
         )
+        self.visible_worker.usb_offenders_detected.connect(
+            self._on_usb_offenders_detected
+        )
         self.visible_camera_state.bind_worker(self.visible_worker, "VIS", self.profile)
         self.visible_thread.start()
 
@@ -671,6 +674,9 @@ class PapyriMainWindow(QMainWindow):
             )
             self.ir_worker.initialized.connect(
                 lambda: self.ir_worker.commands.find_camera.emit()
+            )
+            self.ir_worker.usb_offenders_detected.connect(
+                self._on_usb_offenders_detected
             )
             self.ir_camera_state.bind_worker(self.ir_worker, "IR", self.ir_profile)
             self.ir_thread.start()
@@ -983,6 +989,39 @@ class PapyriMainWindow(QMainWindow):
         scan stays intact within each concern."""
         self.session.set_camera_state(spectrum, state)
 
+    def _on_usb_offenders_detected(
+        self, offenders: list[tuple[str, str]]
+    ) -> None:
+        """macOS USB-claim recovery couldn't free the camera. Tell the
+        user which apps to quit. While the dialog is open, the auto-
+        reconnect path in _handle_camera_lifecycle is suppressed via
+        `_usb_offender_dialog_open`. Dismissing the dialog ("user has
+        presumably acted") is the trigger to resume — we re-emit
+        find_camera on all workers since ptpcamerad claims block ALL
+        attached cameras, not just the one whose worker happened to
+        raise first."""
+        if getattr(self, "_usb_offender_dialog_open", False):
+            return
+        labels = sorted({label for _, label in offenders})
+        message = (
+            "The camera is being held by another application:\n\n  · "
+            + "\n  · ".join(labels)
+            + "\n\nQuit the listed application(s) and click OK to retry."
+        )
+        self.logger.warning("USB-claim recovery failed; offenders: %s",
+                            ", ".join(labels))
+        self._usb_offender_dialog_open = True
+        try:
+            QMessageBox.warning(self, "Camera is busy", message)
+        finally:
+            self._usb_offender_dialog_open = False
+        # Resume: re-emit find_camera on every worker. Auto-reconnect
+        # was suppressed while the dialog was on screen, so workers are
+        # sitting in Disconnected — this is the kick they need.
+        for w in (self.visible_worker, self.ir_worker):
+            if w is not None:
+                w.commands.find_camera.emit()
+
     # ---- B3+B4 receivers (camera_state_changed) ------------------------
 
     def _handle_camera_lifecycle(
@@ -1003,6 +1042,13 @@ class PapyriMainWindow(QMainWindow):
                 if profile is not None:
                     worker.commands.connect_camera.emit(profile)
             case CameraStates.Disconnected(auto_reconnect=True):
+                # Suppress auto-reconnect while the "camera is busy"
+                # dialog is on screen. The user needs to act (close the
+                # offending app) before another retry makes sense; the
+                # dialog's OK button is the trigger to resume — see
+                # _on_usb_offenders_detected.
+                if getattr(self, "_usb_offender_dialog_open", False):
+                    return
                 worker.commands.find_camera.emit()
             case CameraStates.Disconnecting():
                 # Per-camera advanced-config dialog auto-rejects — only

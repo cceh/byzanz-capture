@@ -63,6 +63,28 @@ Pre-date the refactor; left untouched per scope discipline. Replace with `logger
 - `byzanz_camera/photo_browser.py`: line ~466, ~545, ~548
 - `byzanz_camera/camera_worker.py`: line ~355, ~542, ~566 (and a couple inside the PTP event handling)
 
+## macOS USB device reset for -10 timeout recovery
+
+**Severity**: low (corner case, only triggers after a failed tier-1/tier-2 macOS USB-claim recovery has left the camera in an unresponsive PTP state).
+
+**Context**: `byzanz_camera/macos_usb_recovery.py` handles libgphoto2 error -53 (USB claim contention) via SIGKILL + throttle / kill loop. SIGKILL is required because SIGTERM doesn't trigger launchd's respawn throttle — but it can leave the camera firmware in a confused half-handshake state, causing the *next* `camera.init()` to fail with **-10 "Timeout reading from or writing to the port"**. The auto-reconnect loop doesn't recover from this; the camera doesn't self-heal in observed cases. Only physical unplug + replug clears it.
+
+**Proposed fix**: a separate **tier-4 recovery** that triggers ONLY on -10 errors that follow a recent macOS USB-claim recovery. Uses macOS's IOKit `IOUSBDeviceInterface::USBDeviceReEnumerate()` to programmatically re-enumerate the offending USB device — the kernel re-binds drivers, equivalent effect to a physical replug.
+
+**Scope**:
+- New module `byzanz_camera/macos_usb_reset.py` (~150–200 lines of ctypes IOKit calls — no new deps; PyObjC alternative ~50 lines if it's already a dep). Identifies the camera's USB device by VID/PID + locationID (necessary for multi-camera setups so we reset the right device).
+- New tier check in `camera_worker.py:__init_with_macos_usb_recovery`: if init raises -10 AND we recently ran tier 1 or 2, invoke the reset, wait ~2s for the device to reappear, retry init once.
+- No UI hookup needed — succeeds silently or falls through to the existing ConnectionError path.
+
+**Caveats**:
+- IOKit reset takes ~1–3 seconds.
+- After reset, ptpcamerad may grab the freshly-enumerated device before libgphoto2 — so this is only useful when the offender (Preview / etc.) is already gone. For the typical case (-10 after the user has closed Preview but the camera is still stuck), it should work.
+- No special privileges required (cameras aren't security-sensitive HID).
+
+**Effort**: ~half a day plus careful testing across multi-camera + hub topologies.
+
+**Defer until**: this -10-fallout case has been observed in production more than once, or stress testing shows it's not rare.
+
 ## Verification gaps from single-camera testing
 
 Cannot directly verify on current hardware (one camera = IR Nikon D800E):
