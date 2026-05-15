@@ -1099,10 +1099,14 @@ class PapyriMainWindow(QMainWindow):
         # whatever's displayed (preview thumbnail, last-paused frame).
         if self.session.live_view_paused:
             return
-        # Live frames: always fit-to-viewport so the user sees the full
-        # frame (matches old PhotoBrowser.show_preview's fitInView call).
+        # Fit-to-viewport only on the first frame of a live-view session
+        # — the transition from any non-"live" view_mode (paused / preview
+        # / empty) into live is the natural trigger. After that, subsequent
+        # frames preserve whatever transform the user set via scroll-wheel
+        # zoom; otherwise every ~50ms a fresh fitInView would clobber it.
+        fit = self.session.view_mode != "live"
         self.viewer.show_image(
-            QPixmap.fromImage(ImageQt(image.image)), fit=True
+            QPixmap.fromImage(ImageQt(image.image)), fit=fit
         )
         # Each arriving live frame asserts "live" — handles transitions
         # away from preview/paused without needing extra plumbing.

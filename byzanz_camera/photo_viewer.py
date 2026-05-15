@@ -111,26 +111,24 @@ class PhotoViewer(QtWidgets.QGraphicsView):
             self.setDragState()
 
     def zoomMinus(self):
-        if self.hasPhoto():
-            rect = QtCore.QRectF(self._photo.pixmap().rect())
-            # self.scale(1 / unity.width(), 1 / unity.height())
-            viewrect = self.viewport().rect()
-            scenerect = self.transform().mapRect(rect)
-            max_factor = min(viewrect.width() / scenerect.width(),
+        if not self.hasPhoto():
+            return
+        rect = QtCore.QRectF(self._photo.pixmap().rect())
+        viewrect = self.viewport().rect()
+        scenerect = self.transform().mapRect(rect)
+        # max_factor = the absolute scale we'd need to apply to the
+        # CURRENT scene rect to make it fit the viewport. Refuse the
+        # zoom-out if the per-step factor is smaller — that would
+        # shrink the image past fit-to-viewport.
+        max_factor = min(viewrect.width()  / scenerect.width(),
                          viewrect.height() / scenerect.height())
-            print(max_factor)
-            factor = 1.0/self.ZOOMFACT #0.8
-            print(factor)
-
-            if factor <= max_factor * 0.8:
-                return
-
-            self._zoomfactor = self._zoomfactor / self.ZOOMFACT
-            print(self._zoomfactor)
-            self._zoom -= 1
-            self.scale(factor, factor)
-            # self.parent.updateStatusBar()
-            self.setDragState()
+        factor = 1.0 / self.ZOOMFACT
+        if factor < max_factor:
+            return
+        self._zoomfactor = self._zoomfactor / self.ZOOMFACT
+        self._zoom -= 1
+        self.scale(factor, factor)
+        self.setDragState()
 
     def wheelEvent(self, event):
         if self.hasPhoto():
