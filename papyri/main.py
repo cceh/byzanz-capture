@@ -49,7 +49,7 @@ from byzanz_camera.camera_worker import (
 )
 from byzanz_camera.filmstrip_widget import get_file_index
 from byzanz_camera.load_image_worker import ImageMode, LoadImageWorker
-from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.helpers import get_app_icon, get_ui_path
 from byzanz_camera.viewer_widget import ViewerWidget
 from papyri._layout import (
     BUCKETS,
@@ -1631,6 +1631,10 @@ def main():
     app = QApplication(sys.argv)
     app.setOrganizationName("CCeH")
     app.setApplicationName("Crocodile Capture")
+    # Multi-resolution icon for dock / taskbar / alt-tab / window
+    # decorations. Set on the QApplication so every window inherits
+    # it, on every platform.
+    app.setWindowIcon(get_app_icon())
     win = PapyriMainWindow()
     win.show()
     # PAPYRI_AUTO_OPEN=<object_name> auto-opens that object 500ms after

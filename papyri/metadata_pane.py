@@ -14,12 +14,14 @@ import json
 import os
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import QPoint, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox, QFormLayout, QFrame, QLabel, QLineEdit, QPlainTextEdit,
     QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from byzanz_camera.helpers import get_ui_path
 from papyri._metadata import DEFAULT_SCHEMA, FieldSchema
 
 if TYPE_CHECKING:
@@ -40,6 +42,14 @@ class MetadataPane(QFrame):
 
     metadata_changed = pyqtSignal()   # emitted after a successful write
 
+    # Bottom-right mascot (sits behind every child widget because
+    # paintEvent runs before child rendering). Constants are the
+    # watermark's max side (px), the corner inset, and the alpha
+    # blend (1.0 = fully opaque).
+    _MASCOT_MAX_PX = 200
+    _MASCOT_MARGIN = 0
+    _MASCOT_OPACITY = 0.5
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("metadataPane")
@@ -56,9 +66,75 @@ class MetadataPane(QFrame):
         self._save_timer.setInterval(_DEBOUNCE_MS)
         self._save_timer.timeout.connect(self._save_now)
 
+        # Watermark pixmap loaded once at native (1031×948) resolution.
+        # `get_ui_path` handles both dev (relative to cwd) and
+        # PyInstaller-frozen (_MEIPASS) cases. We cache a DPR-aware
+        # pre-scaled copy on first paint and invalidate it whenever
+        # the target size or screen DPR changes — see
+        # `_get_scaled_mascot`.
+        self._mascot_pixmap = QPixmap(get_ui_path("papyri/ui/mascot.png"))
+        self._scaled_mascot: QPixmap | None = None
+        self._scaled_mascot_key: tuple | None = None
+
         self._build_ui()
         self._apply_styles()
         self._set_form_enabled(False)
+
+    # ---- watermark -----------------------------------------------------
+
+    def paintEvent(self, event) -> None:
+        """Draw the corner mascot after the QFrame's background. Child
+        widgets paint after this, so they sit on top of the watermark
+        automatically — no z-order plumbing needed."""
+        super().paintEvent(event)
+        if self._mascot_pixmap.isNull():
+            return
+        # Logical target size, aspect-preserved.
+        aspect = self._mascot_pixmap.width() / self._mascot_pixmap.height()
+        if aspect >= 1:
+            w = self._MASCOT_MAX_PX
+            h = int(round(self._MASCOT_MAX_PX / aspect))
+        else:
+            h = self._MASCOT_MAX_PX
+            w = int(round(self._MASCOT_MAX_PX * aspect))
+        scaled = self._get_scaled_mascot(w, h)
+        x = self.width() - w - self._MASCOT_MARGIN
+        y = self.height() - h - self._MASCOT_MARGIN
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setOpacity(self._MASCOT_OPACITY)
+        # drawPixmap(QPoint, QPixmap) uses the pixmap's own DPR-aware
+        # logical size — no further scaling done by the painter, so
+        # we get a single high-quality resample (in _get_scaled_mascot)
+        # instead of two (resample-on-load + resample-on-draw).
+        painter.drawPixmap(QPoint(x, y), scaled)
+
+    def _get_scaled_mascot(self, w: int, h: int) -> QPixmap:
+        """Return a cached, DPR-aware pre-scaled mascot. Re-scales on
+        first call and whenever target size or screen DPR changes.
+
+        Why this matters: on HiDPI, the widget renders to a 2× (or
+        higher) backing surface. If we hand QPainter a full-res 1031×948
+        pixmap and ask it to draw into a 200×183 logical rect, the
+        painter scales once for the screen and the result reads
+        slightly soft. Pre-scaling at the device-pixel resolution and
+        tagging the pixmap with that DPR sidesteps the painter's
+        on-draw scaling — Qt renders the pre-scaled bitmap 1:1 in
+        device pixels."""
+        dpr = self.devicePixelRatioF()
+        key = (w, h, dpr)
+        if self._scaled_mascot is None or self._scaled_mascot_key != key:
+            device_w = int(round(w * dpr))
+            device_h = int(round(h * dpr))
+            pm = self._mascot_pixmap.scaled(
+                QSize(device_w, device_h),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            pm.setDevicePixelRatio(dpr)
+            self._scaled_mascot = pm
+            self._scaled_mascot_key = key
+        return self._scaled_mascot
 
     # ---- public API ----------------------------------------------------
 
