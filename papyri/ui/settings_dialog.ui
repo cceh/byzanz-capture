@@ -104,6 +104,16 @@
         </property>
        </widget>
       </item>
+      <item row="5" column="1">
+       <widget class="QCheckBox" name="enableSharpnessCheckCheckbox">
+        <property name="toolTip">
+         <string>Compute a Laplace-variance sharpness metric on every loaded capture. Adds ~300 ms to first-time loads of each image; cached afterward.</string>
+        </property>
+        <property name="text">
+         <string>Compute sharpness on each capture (detects defocus + vibration)</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

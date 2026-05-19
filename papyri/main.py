@@ -496,10 +496,17 @@ class PapyriMainWindow(QMainWindow):
             "workingDirectory": os.path.expanduser("~"),
             "maxPixmapCache": 256,
             "enableSecondScreenMirror": False,
+            "sharpnessCheckEnabled": True,
         }
         for key, value in defaults.items():
             if self.q_settings.value(key) is None:
                 self.q_settings.setValue(key, value)
+        # Apply the sharpness-check toggle to the worker module-global
+        # so workers spawned anywhere in the app see it.
+        from byzanz_camera.load_image_worker import set_sharpness_enabled
+        set_sharpness_enabled(self.q_settings.value(
+            "sharpnessCheckEnabled", True, type=bool,
+        ))
 
     def _bind_widgets(self):
         self.visible_camera_state: CameraStateWidget = self.findChild(
@@ -1529,6 +1536,9 @@ class PapyriMainWindow(QMainWindow):
                 self.objects_sidebar.set_working_directory(value)
             elif name == "maxPixmapCache":
                 QPixmapCache.setCacheLimit(int(value) * 1024)
+            elif name == "sharpnessCheckEnabled":
+                from byzanz_camera.load_image_worker import set_sharpness_enabled
+                set_sharpness_enabled(bool(value))
 
         # F-PERS-1: irProfile change has no runtime effect — the IR worker
         # is constructed once in _wire_camera at startup based on this

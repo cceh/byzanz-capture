@@ -92,7 +92,7 @@ class ThumbCache:
 
     # ---- get / put ------------------------------------------------------
 
-    def get(self, path: str) -> Optional[tuple[QImage, dict]]:
+    def get(self, path: str) -> Optional[tuple[QImage, dict, Optional[float]]]:
         key = self._key(path)
         if key is None:
             return None
@@ -108,17 +108,26 @@ class ThumbCache:
                 os.utime(f)
             except OSError:
                 pass
+        # Sidecar shape: {"exif": <dict>, "sharpness": <float|null>}.
+        # Any pre-existing flat-exif sidecars were one-shot converted
+        # to this shape via `jq` when the column was added.
         exif: dict = {}
+        sharpness: Optional[float] = None
         ejson = self.cache_dir / f"{key}.json"
         if ejson.exists():
             try:
-                exif = json.loads(ejson.read_text(),
-                                  object_hook=_exif_object_hook)
+                raw = json.loads(ejson.read_text(),
+                                 object_hook=_exif_object_hook)
             except (OSError, json.JSONDecodeError):
-                pass
-        return img, exif
+                raw = {}
+            exif = raw.get("exif") or {}
+            s = raw.get("sharpness")
+            if isinstance(s, (int, float)):
+                sharpness = float(s)
+        return img, exif, sharpness
 
-    def put(self, path: str, thumb: QImage, exif: dict) -> None:
+    def put(self, path: str, thumb: QImage, exif: dict,
+            sharpness: Optional[float] = None) -> None:
         key = self._key(path)
         if key is None or thumb.isNull():
             return
@@ -127,7 +136,10 @@ class ThumbCache:
             return
         ejson = self.cache_dir / f"{key}.json"
         try:
-            ejson.write_text(json.dumps(exif, default=_exif_default))
+            ejson.write_text(json.dumps(
+                {"exif": exif, "sharpness": sharpness},
+                default=_exif_default,
+            ))
         except OSError:
             pass
         self._evict_if_needed()

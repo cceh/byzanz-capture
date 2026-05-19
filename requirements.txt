@@ -6,3 +6,4 @@ Send2Trash~=1.8.3
 qasync~=0.27.1
 rawpy~=0.26.1
 numpy~=2.4.4
+opencv-python-headless~=4.13.0

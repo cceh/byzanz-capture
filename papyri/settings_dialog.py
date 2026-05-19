@@ -62,6 +62,9 @@ class PapyriSettingsDialog(QDialog):
         self.second_screen_checkbox: QCheckBox = self.findChild(
             QCheckBox, "enableSecondScreenMirrorCheckbox"
         )
+        self.sharpness_check_checkbox: QCheckBox = self.findChild(
+            QCheckBox, "enableSharpnessCheckCheckbox"
+        )
 
     def _populate_profiles(self) -> None:
         # Visible: required, all profiles available.
@@ -101,6 +104,11 @@ class PapyriSettingsDialog(QDialog):
                 "enableSecondScreenMirror", self.second_screen_checkbox.isChecked()
             )
         )
+        self.sharpness_check_checkbox.stateChanged.connect(
+            lambda: self._set(
+                "sharpnessCheckEnabled", self.sharpness_check_checkbox.isChecked()
+            )
+        )
 
     def _load_current(self) -> None:
         self.workdir_input.setText(self._q_settings.value("workingDirectory", ""))
@@ -117,6 +125,9 @@ class PapyriSettingsDialog(QDialog):
         )
         self.second_screen_checkbox.setChecked(
             self._q_settings.value("enableSecondScreenMirror", False, type=bool)
+        )
+        self.sharpness_check_checkbox.setChecked(
+            self._q_settings.value("sharpnessCheckEnabled", True, type=bool)
         )
 
     @staticmethod
