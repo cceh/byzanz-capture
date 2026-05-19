@@ -18,6 +18,7 @@ or  python papyri/main.py
 import json
 import logging
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 
@@ -36,7 +37,9 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s: %(messag
 from pathlib import Path
 
 from PIL.ImageQt import ImageQt
-from PyQt6.QtCore import QObject, QSettings, QSize, QThread, QThreadPool, pyqtSignal
+from PyQt6.QtCore import (
+    QObject, QRunnable, QSettings, QSize, QThread, QThreadPool, pyqtSignal,
+)
 from PyQt6.QtGui import QAction, QCloseEvent, QIcon, QPixmap, QPixmapCache
 from PyQt6.QtWidgets import (
     QApplication, QInputDialog, QLabel, QMainWindow, QMenu,
@@ -162,6 +165,42 @@ class Capture:
         return os.path.basename(self.primary_path)
 
 
+class _CopyRunnerSignals(QObject):
+    """QRunnable can't host signals directly — pyqtSignal needs a
+    QObject base, and inheriting both QObject + QRunnable confuses
+    Qt's metaobject system. Standard workaround: a one-purpose
+    QObject sidecar that holds the signals."""
+    failed = pyqtSignal(Path)  # the dest path whose copy failed
+
+
+class _CopyRunner(QRunnable):
+    """Atomic copy on a worker thread: src → dest.part → rename dest.
+    The atomic rename means the FS watcher sees the final file all-at-
+    once instead of mid-write partial states (which the load worker
+    would otherwise try to decode and fail on).
+
+    On OSError, `signals.failed` fires with the dest path so the
+    caller can clean up its placeholder."""
+    def __init__(self, src: Path, dest: Path):
+        super().__init__()
+        self._src = src
+        self._dest = dest
+        self.signals = _CopyRunnerSignals()
+
+    def run(self):
+        tmp = self._dest.with_suffix(self._dest.suffix + ".part")
+        try:
+            shutil.copy2(self._src, tmp)
+            tmp.replace(self._dest)
+        except OSError as e:
+            print(f"drop-copy failed for {self._src.name}: {e!r}")
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self.signals.failed.emit(self._dest)
+
+
 class Object(QObject):
     """A single papyri capture object: its directory, four (side, spectrum)
     capture buckets, metadata.
@@ -182,6 +221,10 @@ class Object(QObject):
     """
 
     state_changed = pyqtSignal()
+    # Emitted when a `_CopyRunner` queued by `import_files` raises —
+    # the dest path was never materialised, so any placeholder seeded
+    # for it is orphaned and the caller (filmstrip) should drop it.
+    import_failed = pyqtSignal(Path)
 
     # File-name infixes used in `next_template`.
     _SIDE_INFIX = {SIDE_A: "a", SIDE_B: "b"}
@@ -253,18 +296,85 @@ class Object(QObject):
         self.dir_loaded = True
         self.refresh()
 
-    def next_template(self, side: str, spectrum: str) -> str:
-        """Compute the file-path template for the next capture in `(side, spectrum)`.
-        Filename format: `<name>_<side_letter>_<spectrum_infix>_NNN.${extension}`.
+    def next_stem(self, side: str, spectrum: str) -> tuple[str, str]:
+        """Reserve the next `(stem, bucket_dir)` for `(side, spectrum)`.
 
-        Uses `max_index + 1` (not `count + 1`) so it survives gaps caused by
-        deletes or moves between buckets — otherwise after deleting take 002
-        of [001, 002, 003] the next take would collide with the existing 003."""
+        Single source of truth for capture naming — used both by the
+        camera-driven `next_template` (which suffixes `${extension}`
+        for the worker to substitute) and by the filmstrip's
+        drag-and-drop import path (which already knows each file's
+        extension and just needs the stem to copy under).
+
+        Filename stem format: `<name>_<side_letter>_<spectrum_infix>_NNN`.
+
+        Uses `max_index + 1` (not `count + 1`) so it survives gaps
+        caused by deletes or moves between buckets — otherwise after
+        deleting take 002 of [001, 002, 003] the next take would
+        collide with the existing 003."""
         n = self._max_index_on_disk(side, spectrum) + 1
         s_inf = self._SIDE_INFIX[side]
         sp_inf = self._SPECTRUM_INFIX[spectrum]
-        filename = f"{self.name}_{s_inf}_{sp_inf}_{n:03d}${{extension}}"
-        return os.path.join(self.dir_for(side, spectrum), filename)
+        stem = f"{self.name}_{s_inf}_{sp_inf}_{n:03d}"
+        return stem, self.dir_for(side, spectrum)
+
+    def next_template(self, side: str, spectrum: str) -> str:
+        """File-path template for the camera worker. `${extension}`
+        is substituted per file as it's written."""
+        stem, bucket_dir = self.next_stem(side, spectrum)
+        return os.path.join(bucket_dir, f"{stem}${{extension}}")
+
+    def import_files(
+        self, side: str, spectrum: str, sources: list,
+    ) -> list[Path]:
+        """Plan + queue async file copies for drop-import. Returns the
+        list of dest paths so the caller can seed placeholders for
+        immediate visual feedback while the copies are still in flight.
+
+        Owns naming, grouping, sequencing, and threadpool dispatch —
+        the filmstrip just renders the returned dests as placeholders.
+        Returns `[]` (and is a no-op) when no source is a supported
+        image file."""
+        plan = self._plan_import(side, spectrum, sources)
+        pool = QThreadPool.globalInstance()
+        for src, dest in plan:
+            runner = _CopyRunner(src, dest)
+            # Re-emit per-runner failures as `import_failed` so a
+            # single Object-level signal covers all queued copies.
+            runner.signals.failed.connect(self.import_failed)
+            pool.start(runner)
+        return [dest for _, dest in plan]
+
+    def _plan_import(
+        self, side: str, spectrum: str, sources: list,
+    ) -> list[tuple[Path, Path]]:
+        """Group sources by stem, reserve a fresh sequence number per
+        group, return `[(src, dest), …]` without touching the
+        filesystem. Single-pass index reservation (`_max_index_on_disk`
+        + offsets) avoids re-reading the directory between groups —
+        necessary because writes haven't happened yet so a per-group
+        `next_stem` would collide."""
+        groups: dict[str, list[Path]] = {}
+        for p in sources:
+            p = Path(p)
+            if not p.is_file():
+                continue
+            ext = p.suffix.lower()
+            if ext not in JPG_EXTENSIONS and ext not in RAW_EXTENSIONS:
+                continue
+            groups.setdefault(p.stem, []).append(p)
+        if not groups:
+            return []
+        base = self._max_index_on_disk(side, spectrum)
+        s_inf = self._SIDE_INFIX[side]
+        sp_inf = self._SPECTRUM_INFIX[spectrum]
+        bucket_dir = Path(self.dir_for(side, spectrum))
+        os.makedirs(bucket_dir, exist_ok=True)
+        plan: list[tuple[Path, Path]] = []
+        for i, paths in enumerate(groups.values()):
+            stem = f"{self.name}_{s_inf}_{sp_inf}_{base + i + 1:03d}"
+            for src in paths:
+                plan.append((src, bucket_dir / f"{stem}{src.suffix}"))
+        return plan
 
     def move(self, src_side: str, src_spectrum: str, stem: str,
              dest_side: str) -> None:
@@ -430,14 +540,18 @@ class Object(QObject):
     def _resolve_chosen(
         self, side: str, spectrum: str, captures: list[Capture]
     ) -> Capture | None:
-        """Read `_chosen_<spectrum>.txt` (a stem); fall back to first capture
-        if absent/stale."""
+        """Read `_chosen_<spectrum>.txt` (a stem); fall back to the LATEST
+        capture if absent/stale. Latest-as-default mirrors the user's
+        likely intent: the newest take is presumably the keeper until
+        they decide otherwise (via right-click → mark chosen, which
+        persists to `_chosen_*.txt` and pins their choice across new
+        arrivals)."""
         preferred = self._read_chosen_pref(side, spectrum)
         if preferred:
             for c in captures:
                 if c.stem == preferred:
                     return c
-        return captures[0] if captures else None
+        return captures[-1] if captures else None
 
     def _read_chosen_pref(self, side: str, spectrum: str) -> str | None:
         path = self.chosen_path_for(side, spectrum)

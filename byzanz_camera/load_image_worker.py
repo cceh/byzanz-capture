@@ -72,6 +72,32 @@ def set_sharpness_enabled(enabled: bool) -> None:
     _SHARPNESS_ENABLED = bool(enabled)
 
 
+def _resolved_sharpness(
+    path: str, thumb: Optional[QImage], exif: dict,
+    cached: Optional[float],
+) -> Optional[float]:
+    """Return the sharpness value to surface in a load result, given
+    whatever was found in the cache for this path:
+
+      - feature globally disabled → return None (any cached value is
+        suppressed; caller should not propagate it)
+      - cached value present → return it as-is
+      - cached value absent → compute now, top up the sidecar, return
+        the new value (or None if compute failed)
+
+    The thumb/exif arguments are only used when the function has to
+    write back to the cache; pass the freshly-decoded versions you
+    already have on hand."""
+    if not _SHARPNESS_ENABLED:
+        return None
+    if cached is not None:
+        return cached
+    sharp = compute_sharpness(path)
+    if sharp is not None and thumb is not None:
+        thumb_cache().put(path, thumb, exif, sharp)
+    return sharp
+
+
 def compute_sharpness(path: str) -> Optional[float]:
     """Laplace variance on a center-crop of a half-res decode of the
     capture's JPEG. Designed to catch both subtle defocus and
@@ -159,16 +185,7 @@ def extract_thumb_with_exif(
     hit = cache.get(path)
     if hit is not None:
         img, exif, cached_sharp = hit
-        # If sharpness is enabled but the cached entry pre-dates the
-        # column, top it up now so subsequent hits are complete.
-        sharp = cached_sharp
-        if _SHARPNESS_ENABLED and sharp is None:
-            sharp = compute_sharpness(path)
-            if sharp is not None:
-                cache.put(path, img, exif, sharp)
-        elif not _SHARPNESS_ENABLED:
-            sharp = None   # deliberately suppress cached value
-        return img, exif, sharp
+        return img, exif, _resolved_sharpness(path, img, exif, cached_sharp)
     try:
         if is_raw(path):
             img, exif = _extract_raw_thumb(path, max_size)
@@ -350,15 +367,9 @@ class LoadImageWorker(QRunnable):
                         sharpness = (compute_sharpness(self.path)
                                      if _SHARPNESS_ENABLED else None)
                         cache.put(self.path, thumbnail, exif, sharpness)
-                    # Same top-up rule as extract_thumb_with_exif so a
-                    # FULL load after the user enables the setting fills
-                    # in sharpness for previously-cached entries.
-                    if _SHARPNESS_ENABLED and sharpness is None:
-                        sharpness = compute_sharpness(self.path)
-                        if sharpness is not None and thumbnail is not None:
-                            cache.put(self.path, thumbnail, exif, sharpness)
-                    elif not _SHARPNESS_ENABLED:
-                        sharpness = None
+                    sharpness = _resolved_sharpness(
+                        self.path, thumbnail, exif, sharpness,
+                    )
 
             self.signals.finished.emit(LoadImageWorkerResult(
                 image=image, thumbnail=thumbnail, exif=exif, path=self.path,

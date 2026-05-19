@@ -18,13 +18,14 @@ Subclasses extend behavior via:
 from __future__ import annotations
 
 import os
+import time
 from os import listdir
 from pathlib import Path
 from typing import Callable, Optional
 
 from PyQt6.QtCore import (
-    QFileSystemWatcher, QMutex, QMutexLocker, QPoint, QRect, QSize, Qt,
-    QThreadPool, QTimer, pyqtSignal,
+    QFileSystemWatcher, QMutex, QMutexLocker, QPoint, QRect, QRectF,
+    QSize, Qt, QThreadPool, QTimer, pyqtSignal,
 )
 from PyQt6.QtGui import (
     QColor, QIcon, QImage, QLinearGradient, QPainter, QPalette, QPixmap,
@@ -107,7 +108,32 @@ class CaptionDelegate(QStyledItemDelegate):
         item = index.data(Qt.ItemDataRole.UserRole)
         if not isinstance(item, ImageFileListItem):
             return
-        self._paint_caption(painter, self._thumb_rect(option), item)
+        if item.is_placeholder:
+            self._paint_placeholder_spinner(painter, self._thumb_rect(option))
+        else:
+            self._paint_caption(painter, self._thumb_rect(option), item)
+
+    @staticmethod
+    def _paint_placeholder_spinner(painter: QPainter, thumb_rect: QRect) -> None:
+        """Macos-style rotating spoke spinner painted directly into the
+        cell. Angle derives from wall clock so all visible placeholders
+        rotate in sync. Animation is driven by FilmstripWidget's
+        repaint timer; this method just paints the current frame."""
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate(thumb_rect.x() + thumb_rect.width() / 2,
+                          thumb_rect.y() + thumb_rect.height() / 2)
+        n = 10
+        phase = int((time.time() * n) % n)
+        for i in range(n):
+            painter.save()
+            painter.rotate(i * (360.0 / n))
+            alpha = int(40 + 215 * ((i - phase) % n) / (n - 1))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(40, 40, 40, alpha))
+            painter.drawRoundedRect(QRectF(3, -1.6, 8, 3.2), 1.5, 1.5)
+            painter.restore()
+        painter.restore()
 
     @staticmethod
     def _thumb_rect(option: QStyleOptionViewItem) -> QRect:
@@ -200,14 +226,17 @@ class ImageFileListItem(QListWidgetItem):
     which would defeat the gridSize > iconSize inter-thumb gap. Custom
     delegates can read this back via `index.data(Qt.ItemDataRole.UserRole)`."""
 
-    def __init__(self, path: str, thumbnail: QPixmap | QImage):
+    def __init__(self, path: str, thumbnail: QPixmap | QImage | None = None,
+                 *, is_placeholder: bool = False):
         super().__init__()
         self.path: str = path
         self.file_name = Path(path).name
         self.index = get_file_index(self.file_name)
-        pixmap = (QPixmap.fromImage(thumbnail)
-                  if isinstance(thumbnail, QImage) else thumbnail)
-        self.setIcon(QIcon(pixmap))
+        self.is_placeholder: bool = is_placeholder
+        if thumbnail is not None:
+            pixmap = (QPixmap.fromImage(thumbnail)
+                      if isinstance(thumbnail, QImage) else thumbnail)
+            self.setIcon(QIcon(pixmap))
 
     def __lt__(self, other):
         return self.index < other.index
@@ -394,6 +423,22 @@ class FilmstripWidget(QWidget):
         # Subclass extension points
         self.__ctx_menu_provider: Optional[Callable[[ImageFileListItem], Optional[QMenu]]] = None
 
+        # Drives the delegate-painted placeholder spinner. Runs only
+        # while at least one placeholder exists; viewport.update()
+        # each tick lets the delegate paint a fresh frame.
+        self._placeholder_anim_timer = QTimer(self)
+        self._placeholder_anim_timer.setInterval(80)
+        self._placeholder_anim_timer.timeout.connect(
+            self.image_file_list.viewport().update
+        )
+
+        # Flat-grey pixmap reused by every placeholder. Built once
+        # here (QPixmap needs QGuiApplication so it can't live at
+        # class scope); implicit-sharing keeps the memory cost flat
+        # regardless of placeholder count.
+        self._placeholder_pixmap = QPixmap(THUMB_WIDTH, THUMB_HEIGHT)
+        self._placeholder_pixmap.fill(QColor(220, 220, 220))
+
         self.image_file_list.currentItemChanged.connect(self.__on_select_image_file)
 
     # ---- public API ----------------------------------------------------
@@ -472,20 +517,80 @@ class FilmstripWidget(QWidget):
             self.__load_image(current.path, self.__show_and_cache)
         return current.file_name
 
-    def current_path(self) -> Optional[str]:
-        """The currently-bound directory path, or None."""
-        return self.__currentPath
+    def scroll_to_end(self) -> None:
+        """Scroll horizontally so the last item is visible. Used after
+        drop-import so the user sees the spinner placeholders that
+        were just inserted.
 
-    def num_files(self) -> int:
-        return self.image_file_list.count()
+        Deferred one tick because the list lays out newly-added items
+        asynchronously — `horizontalScrollBar().maximum()` doesn't
+        reflect the new content until layout settles. Calling
+        `scrollToBottom` on a horizontal-flow list isn't reliable
+        across Qt versions, so we drive the scrollbar directly."""
+        def _scroll():
+            bar = self.image_file_list.horizontalScrollBar()
+            bar.setValue(bar.maximum())
+        QTimer.singleShot(0, _scroll)
 
-    def files(self) -> list[str]:
-        return [self.image_file_list.item(row).path
-                for row in range(self.image_file_list.count())]
+    def __find_placeholder(self, path: str) -> Optional["ImageFileListItem"]:
+        for row in range(self.image_file_list.count()):
+            item = self.image_file_list.item(row)
+            if (isinstance(item, ImageFileListItem)
+                    and item.is_placeholder and item.path == path):
+                return item
+        return None
 
-    def last_index(self) -> int:
-        n = self.image_file_list.count()
-        return self.image_file_list.item(n - 1).index if n > 0 else 0
+    def _start_placeholder_anim(self) -> None:
+        if not self._placeholder_anim_timer.isActive():
+            self._placeholder_anim_timer.start()
+
+    def _stop_placeholder_anim_if_done(self) -> None:
+        for row in range(self.image_file_list.count()):
+            item = self.image_file_list.item(row)
+            if (isinstance(item, ImageFileListItem) and item.is_placeholder):
+                return
+        self._placeholder_anim_timer.stop()
+
+    def add_placeholder(self, path: str) -> None:
+        """Insert a placeholder for an incoming file. When the real
+        thumb later arrives via the FS watcher, `__add_image_item`
+        removes this placeholder and inserts a fresh item at the
+        sorted position. Used by the papyri drop-import flow to give
+        the user instant visual feedback before the file copy + decode
+        complete.
+
+        The placeholder icon is a flat-grey pixmap shared across all
+        placeholder instances (see `_placeholder_pixmap` init) — it
+        matches the uniform cell size, so QListWidget's
+        `setUniformItemSizes(True)` cache stays correct. The animated
+        spoke-spinner overlay is painted by the delegate; a QTimer
+        drives viewport repaints while placeholders exist."""
+        item = ImageFileListItem(path, self._placeholder_pixmap,
+                                 is_placeholder=True)
+        with QMutexLocker(self.__mutex):
+            if not self.__currentPath:
+                return
+            self.image_file_list.addItem(item)
+            self.image_file_list.sortItems()
+        self._start_placeholder_anim()
+        # Scroll here, at insert time, rather than later when the
+        # decoder swaps in the real thumb — the placeholder is the
+        # user-visible signal that "your file is incoming," so it
+        # should be onscreen the moment it appears.
+        self.scroll_to_end()
+
+    def remove_placeholder(self, path: str) -> None:
+        """Drop the placeholder for `path` if one exists. No-op
+        otherwise. Used when an incoming copy fails — the placeholder
+        was seeded synchronously but no real thumb will ever arrive."""
+        with QMutexLocker(self.__mutex):
+            placeholder = self.__find_placeholder(path)
+            if placeholder is None:
+                return
+            self.image_file_list.takeItem(
+                self.image_file_list.row(placeholder)
+            )
+        self._stop_placeholder_anim_if_done()
 
     # ---- subclass / extension API --------------------------------------
 
@@ -557,10 +662,24 @@ class FilmstripWidget(QWidget):
     # ---- async load -----------------------------------------------------
 
     def __load_directory(self) -> None:
-        """Diff disk against the last-known fileset. Queue thumbnail
-        decodes for new files; remove items for vanished files. Emit
-        directory_loaded if there's nothing to load (and any time
-        __num_images_to_load reaches 0 in __on_image_loaded)."""
+        """Diff disk against the last-known fileset; seed placeholders +
+        queue decoders for added files; remove items for vanished files.
+        Empty-diff emits `directory_loaded` immediately; otherwise the
+        emit fires from `__on_image_loaded` when the last worker
+        finishes."""
+        added, removed = self.__diff_disk()
+        if not added and not removed:
+            self.__emit_directory_loaded()
+            return
+        self.__seed_placeholders(added)
+        self.__queue_decoders(added)
+        self.__remove_items(removed)
+
+    def __diff_disk(self) -> tuple[set[str], set[str]]:
+        """Re-read the watched directory; return `(added, removed)`
+        filenames against the last-known fileset; update the fileset
+        in place. A missing path is treated as empty (so stale items
+        get cleared if the directory disappears)."""
         if os.path.isdir(self.__currentPath):
             new_files = [
                 f for f in listdir(self.__currentPath)
@@ -568,38 +687,42 @@ class FilmstripWidget(QWidget):
                 and get_file_index(f) is not None
             ]
         else:
-            # Watched path is gone (deleted, or never existed). Treat as
-            # empty so the diff below clears any stale items rather than
-            # leaving them lying around.
             new_files = []
-
         new_fileset = set(new_files)
-        added_files = new_fileset - self.__currentFileSet
-        removed_files = self.__currentFileSet - new_fileset
+        added = new_fileset - self.__currentFileSet
+        removed = self.__currentFileSet - new_fileset
+        self.__currentFileSet = new_fileset
+        return added, removed
 
-        if not added_files and not removed_files:
-            # Defer to the event loop so the emit lands AFTER whatever
-            # receiver chain triggered this load completes — synchronous
-            # re-entry would hit slots whose connections are still being
-            # set up by later receivers in the same chain.
-            path = self.__currentPath
-            self._initial_load_done = True
-            QTimer.singleShot(0, lambda: self.directory_loaded.emit(path))
+    def __seed_placeholders(self, added: set[str]) -> None:
+        """Seed a spinner placeholder per incoming file. Runs for
+        initial load AND post-load arrivals — during initial load the
+        placeholders establish the final sort order up front so thumbs
+        fill in place rather than shuffling on each async insert.
+        Idempotent against drop-import's synchronous pre-seed via
+        `__find_placeholder`."""
+        for f in sorted(added):
+            full = os.path.join(self.__currentPath, f)
+            if not self.__find_placeholder(full):
+                self.add_placeholder(full)
 
-        if added_files:
-            # Decide per file: THUMB (silent, fast) vs BOTH (also pushes
-            # full image to viewer). After initial load, every newly-
-            # arrived file is a new capture from the camera worker and
-            # gets BOTH. During initial load, exactly ONE file gets
-            # BOTH — the preferred-stem match, else the highest-index
-            # file as fallback — so the viewer shows that one image
-            # at end of load instead of nothing or a flash-through.
-            both_targets = self.__pick_both_targets(added_files)
-            for f in sorted(added_files, key=lambda x: (get_file_index(x) or 0, x)):
-                mode = ImageMode.FULL if f in both_targets else ImageMode.THUMB
-                self.__load_image(f, self.__add_image_item, mode=mode)
+    def __queue_decoders(self, added: set[str]) -> None:
+        """Decide per file: THUMB (silent, fast) vs FULL (also pushes
+        full image to viewer). After initial load every new arrival
+        gets FULL — each is a fresh capture and should be auto-shown.
+        During initial load exactly ONE file gets FULL (preferred-stem
+        match or highest-index fallback) so the viewer settles on a
+        single image instead of flashing through them."""
+        if not added:
+            return
+        both_targets = self.__pick_both_targets(added)
+        for f in sorted(added, key=lambda x: (get_file_index(x) or 0, x)):
+            mode = ImageMode.FULL if f in both_targets else ImageMode.THUMB
+            self.__load_image(f, self.__add_image_item, mode=mode)
 
-        for f in removed_files:
+    def __remove_items(self, removed: set[str]) -> None:
+        """Take out list items whose files vanished from disk."""
+        for f in removed:
             for i in range(self.image_file_list.count()):
                 item = self.image_file_list.item(i)
                 if isinstance(item, ImageFileListItem) and item.file_name == f:
@@ -607,7 +730,14 @@ class FilmstripWidget(QWidget):
                     del item
                     break
 
-        self.__currentFileSet = new_fileset
+    def __emit_directory_loaded(self) -> None:
+        """Mark initial load complete and emit `directory_loaded`
+        deferred via QTimer — synchronous emit would land on slots
+        whose connections are still being wired up by later receivers
+        in the same chain."""
+        path = self.__currentPath
+        self._initial_load_done = True
+        QTimer.singleShot(0, lambda: self.directory_loaded.emit(path))
 
     def __pick_both_targets(self, added_files: set[str]) -> set[str]:
         """Decide which files in this batch should get BOTH mode (full
@@ -671,11 +801,7 @@ class FilmstripWidget(QWidget):
         on_finished_callback(result)
         self.__num_images_to_load -= 1
         if self.__num_images_to_load == 0:
-            # Async load complete — emit (deferred via QTimer for the same
-            # reason __load_directory's no-diff branch defers).
-            path = self.__currentPath
-            self._initial_load_done = True
-            QTimer.singleShot(0, lambda: self.directory_loaded.emit(path))
+            self.__emit_directory_loaded()
             # Re-scan in case files arrived during loading.
             self.__load_directory()
 
@@ -691,20 +817,30 @@ class FilmstripWidget(QWidget):
             emit image_decoded. THUMB-only arrivals (the silent
             majority of initial loads) just land in the strip.
 
-        The currentItemChanged disconnect/reconnect dance around
+        If a placeholder item exists for this path (drop-import
+        flow), it is removed before the fresh item is inserted;
+        sortItems re-positions the new item. Mutating the placeholder
+        in place was tried first but Qt's IconMode +
+        setUniformItemSizes view-state cache mis-rendered re-used
+        items.
+
+        The currentItemChanged disconnect/reconnect around
         setCurrentItem keeps the user-click slot quiet during
-        programmatic selection (H22)."""
-        list_item = ImageFileListItem(result.path, result.thumbnail)
+        programmatic selection."""
+        pixmap = (QPixmap.fromImage(result.thumbnail)
+                  if isinstance(result.thumbnail, QImage)
+                  else result.thumbnail)
 
         exposure_time = result.exif.get("ExposureTime")
         f_number = result.exif.get("FNumber")
-        if exposure_time is not None and f_number is not None:
-            list_item.setText("%s\nf/%s | %s" % (
-                list_item.file_name, f_number,
+        caption = (
+            "%s\nf/%s | %s" % (
+                Path(result.path).name, f_number,
                 getattr(exposure_time, "real", exposure_time),
-            ))
-        else:
-            list_item.setText(list_item.file_name)
+            )
+            if exposure_time is not None and f_number is not None
+            else Path(result.path).name
+        )
 
         # Add the item only if a directory is still open (this callback
         # fires from a worker thread completion; the directory may have
@@ -713,18 +849,43 @@ class FilmstripWidget(QWidget):
         with QMutexLocker(self.__mutex):
             if not self.__currentPath:
                 return
+            # Drop any existing placeholder for this path — fresh
+            # ImageFileListItem rebuild is more reliable than mutating
+            # an existing item in place (Qt's view-state caching in
+            # IconMode + setUniformItemSizes can leave invalid sizing
+            # for re-used items).
+            placeholder = self.__find_placeholder(result.path)
+            if placeholder is not None:
+                self.image_file_list.takeItem(
+                    self.image_file_list.row(placeholder)
+                )
+            list_item = ImageFileListItem(result.path, pixmap)
+            list_item.setText(caption)
             self.image_file_list.addItem(list_item)
             self.image_file_list.sortItems()
+            self._stop_placeholder_anim_if_done()
             if result.image is None:
                 # THUMB-only: silent fill, no viewer update.
                 return
             # BOTH-mode arrival: auto-select + push to viewer.
-            self.image_file_list.scrollToBottom()
-            self.image_file_list.currentItemChanged.disconnect()
-            self.image_file_list.setCurrentItem(list_item)
-            self.image_file_list.currentItemChanged.connect(
+            # Disconnect the specific slot (not all slots — a subclass
+            # may have its own listener) so the programmatic select
+            # doesn't fire image_selected.
+            self.image_file_list.currentItemChanged.disconnect(
                 self.__on_select_image_file
             )
+            try:
+                self.image_file_list.setCurrentItem(list_item)
+            finally:
+                self.image_file_list.currentItemChanged.connect(
+                    self.__on_select_image_file
+                )
+            # Scroll only when no placeholder existed — placeholders
+            # already scrolled at seed time. Initial-load preferred
+            # file is the typical case here (no placeholder seeded
+            # during initial load).
+            if placeholder is None:
+                self.scroll_to_end()
 
         pixmap = QPixmap.fromImage(result.image)
         # Cache so a subsequent click on this thumb skips the full
