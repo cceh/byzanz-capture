@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from .photo_viewer import PhotoViewer
 from .spinner import Spinner
+from .zoom_control_bar import ZoomControlBar
 
 
 # ---- view-state pill (corner indicator) ---------------------------------
@@ -122,28 +123,54 @@ class ViewerWidget(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         self.photo_viewer = PhotoViewer(self)
         self.photo_viewer.setObjectName("photoViewer")
-        layout.addWidget(self.photo_viewer)
+        layout.addWidget(self.photo_viewer, 1)
 
-        # Corner pill — parented to the QGraphicsView's viewport so the
-        # pill's local coords are just (viewport.width - pill.width - inset,
-        # inset), never overlapping a scrollbar and clipped to the visible
-        # image area automatically.
+        # Zoom control bar — embedded so any host gets it for free.
+        # Wired bidirectionally to the photo viewer so the bar mirrors
+        # whatever transform the viewer holds (scroll wheel, fitInView,
+        # ± click, slider drag — all go through the same source of
+        # truth).
+        self.zoom_bar = ZoomControlBar(self)
+        layout.addWidget(self.zoom_bar, 0)
+        self.photo_viewer.zoom_changed.connect(self._sync_zoom_bar)
+        # Fit / 1:1 buttons get the animated variants — they're
+        # discrete jumps where the transition helps orientation. The
+        # ± step buttons and slider drag stay instant (animating
+        # those feels laggy when the user is actively driving them).
+        self.zoom_bar.fit_requested.connect(self.photo_viewer.animated_fit_in_view)
+        self.zoom_bar.one_to_one_requested.connect(
+            self.photo_viewer.animated_to_one_to_one
+        )
+        self.zoom_bar.zoom_in_requested.connect(self.photo_viewer.zoomPlus)
+        self.zoom_bar.zoom_out_requested.connect(self.photo_viewer.zoomMinus)
+        self.zoom_bar.absolute_zoom_requested.connect(
+            self.photo_viewer.set_absolute_scale
+        )
+
+        # Corner pill — parented to the PhotoViewer itself (the scroll
+        # area), NOT to its viewport. Parenting to the viewport would
+        # make `QAbstractScrollArea.scrollContentsBy()` translate the
+        # pill along with the scene during trackpad pan, drifting it
+        # out of position. Parenting to the scroll area keeps it pinned
+        # regardless of pan. We still use the viewport's geometry as
+        # the position reference (the pill sits inside the viewport's
+        # rect, not over the scrollbars).
         self._view_state: str = "empty"
         self._view_state_label: str = ""
-        self._pill = _ViewStatePill(self.photo_viewer.viewport())
+        self._pill = _ViewStatePill(self.photo_viewer)
 
-        # Busy spinner — overlaid in the center of the viewport during
-        # full-image decode (clicked-thumb load). Hidden by default;
-        # caller drives via show_busy / hide_busy. show_image also
-        # auto-hides on arrival of a pixmap.
-        self._spinner = Spinner(self.photo_viewer.viewport(), Spinner.m_light_color)
+        # Busy spinner — same reasoning as the pill: child of the scroll
+        # area, positioned relative to the viewport rect.
+        self._spinner = Spinner(self.photo_viewer, Spinner.m_light_color)
         self._spinner.isAnimated = False
         self._reposition_spinner()
 
         self.photo_viewer.viewport().installEventFilter(self)
         self._refresh_indicator()
+        self.zoom_bar.set_photo_present(False)
 
     # ---- public API -----------------------------------------------------
 
@@ -157,6 +184,11 @@ class ViewerWidget(QWidget):
         if pixmap is not None and fit:
             self.photo_viewer.fitInView()
         self._spinner.stopAnimation()
+        self.zoom_bar.set_photo_present(pixmap is not None)
+        # setPhoto / fitInView already emit zoom_changed, but cover the
+        # no-photo and same-size cases (where setPhoto doesn't re-fit)
+        # so the bar's mirror stays consistent.
+        self._sync_zoom_bar()
 
     def show_busy(self) -> None:
         """Show the centered spinner overlay. Use during async loads
@@ -221,17 +253,33 @@ class ViewerWidget(QWidget):
     def _reposition_pill(self) -> None:
         if not self._pill.isVisible():
             return
-        viewport = self.photo_viewer.viewport()
+        # The pill is now a child of PhotoViewer, not its viewport, so
+        # we position it in PhotoViewer coords using the viewport rect
+        # as the reference (keeps the pill inside the image area and
+        # off the scrollbars).
+        vp_rect = self.photo_viewer.viewport().geometry()
         self._pill.move(
-            max(0, viewport.width() - self._pill.width() - self._PILL_INSET),
-            self._PILL_INSET,
+            max(0, vp_rect.right() - self._pill.width() - self._PILL_INSET),
+            vp_rect.top() + self._PILL_INSET,
         )
 
+    def _sync_zoom_bar(self, scale: float | None = None) -> None:
+        """Push the photo viewer's current scale + fit-scale into the
+        zoom bar. Called from photo_viewer.zoom_changed and also
+        on-demand from show_image (which covers the no-photo case
+        and the same-size-pixmap path where fitInView isn't fired)."""
+        if scale is None:
+            scale = self.photo_viewer.current_scale()
+        self.zoom_bar.set_current_zoom(scale, self.photo_viewer.fit_scale())
+
     def _reposition_spinner(self) -> None:
-        viewport = self.photo_viewer.viewport()
+        # Spinner is also a child of PhotoViewer now — center it on
+        # the viewport rect (which excludes the scrollbars), expressed
+        # in PhotoViewer coords.
+        vp_rect = self.photo_viewer.viewport().geometry()
         size = self._SPINNER_SIZE
-        x = max(0, (viewport.width() - size) // 2)
-        y = max(0, (viewport.height() - size) // 2)
+        x = vp_rect.left() + max(0, (vp_rect.width() - size) // 2)
+        y = vp_rect.top() + max(0, (vp_rect.height() - size) // 2)
         self._spinner.setGeometry(x, y, size, size)
         self._spinner.raise_()
 
