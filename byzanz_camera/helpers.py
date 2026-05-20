@@ -1,5 +1,8 @@
 from os import path
 import sys
+from typing import Any
+
+from PyQt6.QtWidgets import QWidget
 
 def get_ui_path(file: str):
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -16,6 +19,23 @@ def get_ui_path(file: str):
 # platform-bundle formats (.icns / .ico) live alongside these PNGs for
 # packaging time but aren't loaded into QIcon.
 _APP_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256, 512)
+
+
+def set_state(widget: QWidget, name: str, value: Any) -> None:
+    """Set a Qt dynamic property and force a style re-polish so any
+    `QSomething[name="value"]` rules in the app stylesheet take effect.
+
+    Qt doesn't re-evaluate selectors on property change the way the
+    browser does on `data-*` attribute change — without the unpolish/
+    polish dance, the property is set but visuals stay stale. This
+    helper centralises the dance so call sites read like web-dev
+    attribute toggles: `set_state(viewer, "viewState", "live")`.
+
+    No theme knowledge here — just the Qt plumbing. The QSS rules
+    that match the property live in the host app's stylesheet."""
+    widget.setProperty(name, value)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
 
 
 def get_app_icon():

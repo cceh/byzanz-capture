@@ -95,3 +95,7 @@ class Profile(ABC):
     @abstractmethod
     def capture_format_jpeg_and_raw_settings(self):
         pass
+
+    @abstractmethod
+    def capture_format_raw_settings(self):
+        pass

@@ -360,7 +360,11 @@ class BucketSelector(QWidget):
             f"<span style='color:{accent.name()};letter-spacing:1.5px;"
             f"font-weight:600;'>{group.label.upper()}</span>"
         )
-        header.setStyleSheet("font-size: 9pt; padding: 2px 0 4px 4px;")
+        # Font size + padding rules live in papyri/ui/app.qss against
+        # the #bucketGroupHeader object name. The accent color stays
+        # inline in the HTML span because it's per-instance and
+        # bucket-selector painting is custom (not QSS-themable).
+        header.setObjectName("bucketGroupHeader")
         col_layout.addWidget(header)
 
         bar = BucketTabBar(self)

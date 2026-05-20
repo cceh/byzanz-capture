@@ -70,7 +70,6 @@ class ZoomControlBar(QWidget):
         self._suppress_slider = False
 
         self._build_ui()
-        self._apply_styles()
         self._refresh()
 
     # ---- public API ----------------------------------------------------
@@ -156,64 +155,8 @@ class ZoomControlBar(QWidget):
         btn.setMinimumWidth(40)
         return btn
 
-    def _apply_styles(self) -> None:
-        # Match the existing slate/teal vocabulary. Active pill
-        # toggles via the dynamic `active` property + QSS attribute
-        # selector — same pattern as #metadataNameField[readOnly].
-        self.setStyleSheet("""
-            #zoomControlBar {
-                background: #f8fafc;
-                border-top: 1px solid #e2e8f0;
-            }
-            QPushButton#zoomPill {
-                background: white;
-                color: #0f172a;
-                border: 1px solid #cbd5e1;
-                border-radius: 12px;
-                padding: 0 10px;
-                font-weight: 600;
-                font-size: 9pt;
-            }
-            QPushButton#zoomPill:hover {
-                background: #f1f5f9;
-            }
-            QPushButton#zoomPill[active="true"] {
-                background: #0f172a;
-                color: white;
-                border-color: #0f172a;
-            }
-            QPushButton#zoomStepButton {
-                background: white;
-                color: #0f172a;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                font-weight: 700;
-            }
-            QPushButton#zoomStepButton:hover {
-                background: #f1f5f9;
-            }
-            QPushButton#zoomStepButton:disabled {
-                color: #cbd5e1;
-            }
-            QLabel#zoomPercent {
-                color: #475569;
-            }
-            QSlider::groove:horizontal {
-                background: #e2e8f0;
-                height: 3px;
-                border-radius: 1px;
-            }
-            QSlider::handle:horizontal {
-                background: #0f172a;
-                width: 12px;
-                height: 12px;
-                margin: -5px 0;
-                border-radius: 6px;
-            }
-            QSlider::handle:horizontal:hover {
-                background: #334155;
-            }
-        """)
+    # Styles live in papyri/ui/app.qss — including the `[active="true"]`
+    # property-driven Fit/1:1 pill toggle.
 
     # ---- refresh ------------------------------------------------------
 

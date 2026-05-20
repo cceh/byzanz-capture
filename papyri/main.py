@@ -52,7 +52,7 @@ from byzanz_camera.camera_worker import (
 )
 from byzanz_camera.filmstrip_widget import get_file_index
 from byzanz_camera.load_image_worker import ImageMode, LoadImageWorker
-from byzanz_camera.helpers import get_app_icon, get_ui_path
+from byzanz_camera.helpers import get_app_icon, get_ui_path, set_state
 from byzanz_camera.viewer_widget import ViewerWidget
 from papyri._layout import (
     BUCKETS,
@@ -71,6 +71,7 @@ from papyri._layout import (
 from papyri.camera_state_widget import CameraStateWidget
 from papyri.papyri_filmstrip import PapyriFilmstrip
 from papyri.metadata_pane import MetadataPane
+from papyri.no_object_overlay import NoObjectOverlay
 from papyri.object_title_bar import ObjectTitleBar
 from papyri.objects_sidebar import ObjectsSidebar
 from papyri.session_state import SessionState
@@ -661,6 +662,14 @@ class PapyriMainWindow(QMainWindow):
         self.fusing_panel.set_bucket_selector(self.bucket_selector)
         self.bucket_selector.step_clicked.connect(self._on_workflow_step_clicked)
         self.viewer: ViewerWidget = self.findChild(ViewerWidget, "viewer")
+        # Inject the papyri-specific "no object open" CTA into the
+        # generic viewer's overlay slot. Drives via show_overlay /
+        # show_photo from `_refresh_no_object_lockout`.
+        self._no_object_overlay = NoObjectOverlay()
+        self._no_object_overlay.new_object_requested.connect(
+            self._on_sidebar_new_object
+        )
+        self.viewer.set_overlay_widget(self._no_object_overlay)
         self.filmstrip: PapyriFilmstrip = self.findChild(PapyriFilmstrip, "filmstrip")
 
         self.pause_live_view_button: QPushButton = self.findChild(QPushButton, "pauseLiveViewButton")
@@ -742,8 +751,6 @@ class PapyriMainWindow(QMainWindow):
         )
         self.objects_sidebar.object_selected.connect(self._on_sidebar_object_selected)
         self.objects_sidebar.new_object_requested.connect(self._on_sidebar_new_object)
-        # No-object CTA in the viewer routes to the same handler.
-        self.viewer.new_object_requested.connect(self._on_sidebar_new_object)
 
         # Metadata changes flip the sidebar badge between `??` and `✓` —
         # keep them in sync without manual refresh.
@@ -1307,7 +1314,7 @@ class PapyriMainWindow(QMainWindow):
                 self.autofocus_button.setEnabled(True)
                 if not success:
                     self.capture_status_label.setText("Could not focus.")
-                    self.capture_status_label.setStyleSheet("color: red;")
+                    set_state(self.capture_status_label, "state", "error")
 
             case CameraStates.LiveViewStopped():
                 self.autofocus_button.setEnabled(False)
@@ -1318,7 +1325,7 @@ class PapyriMainWindow(QMainWindow):
             case CameraStates.CaptureInProgress():
                 self.autofocus_button.setEnabled(False)
                 self.capture_status_label.setText("Capturing…")
-                self.capture_status_label.setStyleSheet("")
+                set_state(self.capture_status_label, "state", None)
 
             case CameraStates.CaptureFinished(file_paths=paths):
                 if paths:
@@ -1326,15 +1333,15 @@ class PapyriMainWindow(QMainWindow):
                     self.capture_status_label.setText(f"Captured: {names}")
                 else:
                     self.capture_status_label.setText("Captured.")
-                self.capture_status_label.setStyleSheet("color: palette(mid);")
+                set_state(self.capture_status_label, "state", "done")
 
             case CameraStates.CaptureCanceled():
                 self.capture_status_label.setText("Capture canceled.")
-                self.capture_status_label.setStyleSheet("color: red;")
+                set_state(self.capture_status_label, "state", "error")
 
             case CameraStates.CaptureError(error=err):
                 self.capture_status_label.setText(f"Error: {err}")
-                self.capture_status_label.setStyleSheet("color: red;")
+                set_state(self.capture_status_label, "state", "error")
 
     # ------------------------------------------------------------- handlers
 
@@ -1538,23 +1545,26 @@ class PapyriMainWindow(QMainWindow):
             new.refresh()
 
     def _handle_current_object_view_mode_reset(self) -> None:
-        """B5 → None: flip view_mode to "no_object" so the viewer's
-        CTA card replaces whatever was on screen. B5 → object: clear
-        a stale "no_object" so the CTA goes away before any live
-        frame / capture arrives to assert a different mode."""
+        """When the object closes (B5 → None), reset view_mode to "empty"
+        so the stale preview / live indicator doesn't persist with no
+        listing. The no-object CTA overlay is handled separately via
+        `_refresh_no_object_lockout`."""
         if self.session.current_object is None:
-            self.viewer.show_image(None)
-            self.session.set_view_mode("no_object")
-        elif self.session.view_mode == "no_object":
             self.session.set_view_mode("empty")
 
     def _refresh_no_object_lockout(self) -> None:
-        """When no object is open the bucket selector is disabled
-        (Qt blocks input + paintEvent dims the cards). When an object
-        is loaded it re-enables. The viewer's CTA card is driven via
-        the "no_object" view_mode in `_handle_current_object_view_mode_reset`."""
+        """No object → bucket selector disabled (Qt blocks input +
+        BucketSelector.paintEvent dims the cards) + viewer shows the
+        host-installed overlay page. Object loaded → re-enable + show
+        photo. The overlay was installed once at startup via
+        `viewer.set_overlay_widget(NoObjectOverlay(...))`."""
         has_object = self.session.current_object is not None
         self.bucket_selector.setEnabled(has_object)
+        if has_object:
+            self.viewer.show_photo()
+        else:
+            self.viewer.show_image(None)
+            self.viewer.show_overlay()
 
     # ---- B6 receivers (live_view_paused_changed) -----------------------
 
@@ -1783,6 +1793,10 @@ def main():
     # decorations. Set on the QApplication so every window inherits
     # it, on every platform.
     app.setWindowIcon(get_app_icon())
+    # Centralised stylesheet + hot-reload on file change.
+    # See papyri/styles.py + papyri/ui/app.qss.
+    from papyri.styles import install_app_stylesheet
+    install_app_stylesheet(app)
     win = PapyriMainWindow()
     win.show()
     # PAPYRI_AUTO_OPEN=<object_name> auto-opens that object 500ms after

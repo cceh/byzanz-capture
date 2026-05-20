@@ -349,10 +349,9 @@ class FilmstripWidget(QWidget):
         self.image_file_list.setFrameShape(QFrame.Shape.NoFrame)
         # Transparent so STRIP_BG_COLOR shows through the contentsMargins
         # (the visible strip margin) and through the cell-vs-icon padding
-        # (the visible inter-thumb gap).
-        self.image_file_list.setStyleSheet(
-            "QListWidget { background: transparent; }"
-        )
+        # (the visible inter-thumb gap). Rule lives in papyri/ui/app.qss
+        # against the #filmstripList object name.
+        self.image_file_list.setObjectName("filmstripList")
         layout.addWidget(self.image_file_list)
 
         # The horizontal scrollbar shows up inside the QListWidget viewport

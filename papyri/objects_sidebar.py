@@ -74,7 +74,6 @@ class ObjectsSidebar(QFrame):
         self._active_name: str | None = None
 
         self._build_ui()
-        self._apply_styles()
 
     # ---- public API --------------------------------------------------
 
@@ -133,42 +132,9 @@ class ObjectsSidebar(QFrame):
         self._new_button.clicked.connect(self.new_object_requested.emit)
         layout.addWidget(self._new_button)
 
-    def _apply_styles(self) -> None:
-        self.setStyleSheet("""
-            #objectsSidebar {
-                background: #f1f5f9;
-                border-right: 1px solid #cbd5e1;
-            }
-            #sidebarHeader {
-                color: #475569;
-                font-weight: 700;
-                font-size: 10pt;
-                letter-spacing: 1px;
-                padding: 0 6px 4px 6px;
-            }
-            #sidebarList {
-                background: transparent;
-                border: none;
-                font-size: 11pt;
-            }
-            #sidebarList::item {
-                padding: 6px 6px;
-                border-radius: 4px;
-            }
-            #sidebarList::item:selected {
-                background: #2563eb;
-                color: white;
-            }
-            #sidebarWorkdir {
-                color: #94a3b8;
-                font-size: 8pt;
-                padding: 4px 6px 0 6px;
-            }
-            #sidebarNewButton {
-                padding: 6px 10px;
-                color: #475569;
-            }
-        """)
+    # Styles for #objectsSidebar / #sidebarHeader / #sidebarList /
+    # #sidebarWorkdir / #sidebarNewButton live in papyri/ui/app.qss —
+    # installed once at app startup.
 
     def _populate(self) -> None:
         self._list.blockSignals(True)

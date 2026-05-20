@@ -10,15 +10,13 @@ capture controls) between the viewer and the thumbnail strip.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QRectF, QSize, Qt
 from PyQt6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap,
 )
-from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStackedWidget,
-    QVBoxLayout, QWidget,
-)
+from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
+from .helpers import set_state
 from .photo_viewer import PhotoViewer
 from .spinner import Spinner
 from .zoom_control_bar import ZoomControlBar
@@ -99,104 +97,6 @@ class _ViewStatePill(QWidget):
         p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._text)
 
 
-# ---- no-object overlay card ---------------------------------------------
-
-class _NoObjectCard(QFrame):
-    """Centered card shown when the host app has no current object.
-    Replaces the photo with a headline + CTA so the user has an
-    obvious next step rather than staring at a blank viewer."""
-
-    new_object_clicked = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("noObjectCard")
-        self.setStyleSheet("""
-            QFrame#noObjectCard {
-                background: white;
-                border: 1px solid #e2e8f0;
-                border-radius: 12px;
-            }
-            QLabel#noObjectTitle {
-                font-size: 18pt;
-                font-weight: 600;
-                color: #1c1c1c;
-            }
-            QLabel#noObjectSubtitle {
-                font-size: 11pt;
-                color: #5a5a5a;
-            }
-            QPushButton#noObjectCta {
-                background: #1c4a48;
-                color: white;
-                padding: 8px 22px;
-                border-radius: 6px;
-                font-weight: 600;
-                font-size: 11pt;
-                border: none;
-            }
-            QPushButton#noObjectCta:hover {
-                background: #2c5f5c;
-            }
-        """)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 32, 40, 32)
-        layout.setSpacing(10)
-
-        title = QLabel("No object open")
-        title.setObjectName("noObjectTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-
-        subtitle = QLabel(
-            "Start a new one or pick an existing one from the sidebar →"
-        )
-        subtitle.setObjectName("noObjectSubtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
-
-        layout.addSpacing(8)
-
-        button = QPushButton("Start new object")
-        button.setObjectName("noObjectCta")
-        button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.clicked.connect(self.new_object_clicked)
-        layout.addWidget(button, 0, Qt.AlignmentFlag.AlignCenter)
-        # Card hugs its content (don't stretch to fill the page).
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-
-
-class _NoObjectPage(QWidget):
-    """Fills the stacked-widget page; centers the card horizontally
-    and vertically via stretches — pure layout, no geometry math.
-
-    Matches the empty PhotoViewer's dark background + 1px border so
-    the page swap is seamless (only the card differs visually)."""
-
-    def __init__(self, card: _NoObjectCard, parent=None):
-        super().__init__(parent)
-        self.setObjectName("noObjectPage")
-        # Plain QWidget doesn't paint stylesheet backgrounds without
-        # this attribute (it defaults to "let the system style draw").
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet("""
-            QWidget#noObjectPage {
-                background: rgb(30, 30, 30);
-                border: 1px solid #e2e8f0;
-                border-radius: 3px;
-            }
-        """)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addStretch(1)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        row.addWidget(card)
-        row.addStretch(1)
-        outer.addLayout(row)
-        outer.addStretch(1)
-
-
 # ---- the widget --------------------------------------------------------
 
 class ViewerWidget(QWidget):
@@ -206,25 +106,21 @@ class ViewerWidget(QWidget):
     signals, doesn't know about directories, files, or async loading.
     Caller handles all decision logic about what to display.
 
-    Pill colors per state — cyan for live (red would collide with IR's
-    amber identity), amber for paused, grey for preview.
+    Host apps can inject an extra "overlay" page (e.g. a "no object
+    open" CTA) via `set_overlay_widget(...)` and toggle visibility
+    with `show_overlay()` / `show_photo()`. Border-tint per viewState
+    is property-driven against the host's stylesheet — see
+    `#photoViewer[viewState="live"]` etc.
     """
-    _VIEW_STATE_BORDERS = {
-        "live":      "1.5px solid #06b6d4",
-        "paused":    "1px dashed #cbd5e1",
-        "preview":   "1.5px solid #94a3b8",
-        "empty":     "1px solid #e2e8f0",
-        "no_object": "1px solid #e2e8f0",
-    }
+    # Pill colors — cyan for live (red would collide with IR's amber
+    # identity), amber for paused, grey for preview. Kept here because
+    # the pill is a self-painted widget (not QSS-themable).
     _LIVE_DOT_COLOR    = "#06b6d4"
     _PAUSED_ICON_COLOR = "#fbbf24"
+    _PREVIEW_BORDER    = "#94a3b8"
     _PILL_INSET = 12
     _SPINNER_SIZE = 120
-
-    # Emitted when the user clicks the "Start new object" CTA in the
-    # no_object overlay. The host wires this to whatever action focuses
-    # the new-object input (e.g. title bar).
-    new_object_requested = pyqtSignal()
+    _VALID_VIEW_STATES = ("live", "paused", "preview", "empty")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -232,19 +128,15 @@ class ViewerWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Photo + no-object CTA live as siblings in a QStackedWidget so
-        # we can swap pages declaratively — no manual geometry sync for
-        # the CTA card (its centering is layout-driven inside its page).
+        # Photo lives in a QStackedWidget so host apps can inject
+        # an optional "overlay" page (e.g. a no-object CTA) via
+        # set_overlay_widget — show via show_overlay / show_photo.
         self.photo_viewer = PhotoViewer(self)
         self.photo_viewer.setObjectName("photoViewer")
-
-        self._no_object_card = _NoObjectCard()
-        self._no_object_page = _NoObjectPage(self._no_object_card)
-
         self._viewer_stack = QStackedWidget(self)
-        self._viewer_stack.addWidget(self.photo_viewer)   # index 0
-        self._viewer_stack.addWidget(self._no_object_page)  # index 1
+        self._viewer_stack.addWidget(self.photo_viewer)
         layout.addWidget(self._viewer_stack, 1)
+        self._overlay_widget: QWidget | None = None
 
         # Zoom control bar — embedded so any host gets it for free.
         # Wired bidirectionally to the photo viewer so the bar mirrors
@@ -286,13 +178,9 @@ class ViewerWidget(QWidget):
         self._spinner.isAnimated = False
         self._reposition_spinner()
 
-        # CTA button click → re-emit at the widget level.
-        self._no_object_card.new_object_clicked.connect(
-            self.new_object_requested
-        )
-
         self.photo_viewer.viewport().installEventFilter(self)
-        self._refresh_indicator()
+        # Initial view-state paint — sets viewState property + pill.
+        self.set_view_state("empty")
         self.zoom_bar.set_photo_present(False)
 
     # ---- public API -----------------------------------------------------
@@ -325,14 +213,43 @@ class ViewerWidget(QWidget):
         self._spinner.stopAnimation()
 
     def set_view_state(self, mode: str, label: str = "") -> None:
-        """Update the corner-pill / border-tint indicator. `mode` ∈
-        {live, paused, preview, empty}. `label` is shown inside the pill
-        for "preview" (typically the file stem); ignored for other modes."""
-        if mode not in self._VIEW_STATE_BORDERS:
+        """Update the corner-pill + border tint. `mode` ∈
+        {live, paused, preview, empty}. `label` is shown inside the
+        pill for "preview" (typically the file stem); ignored
+        otherwise. Border styles live in the host app's stylesheet
+        against `#photoViewer[viewState="..."]`."""
+        if mode not in self._VALID_VIEW_STATES:
             return
         self._view_state = mode
         self._view_state_label = label
-        self._refresh_indicator()
+        set_state(self.photo_viewer, "viewState", mode)
+        self._refresh_pill()
+
+    def set_overlay_widget(self, widget: QWidget) -> None:
+        """Install a host-supplied widget as the "non-photo" page of
+        the viewer (e.g. a "no object open" CTA). Shown via
+        `show_overlay()`, hidden via `show_photo()`. Pass the same
+        widget again to replace; pass `None` to remove."""
+        if self._overlay_widget is not None:
+            self._viewer_stack.removeWidget(self._overlay_widget)
+            self._overlay_widget.setParent(None)
+        self._overlay_widget = widget
+        if widget is not None:
+            self._viewer_stack.addWidget(widget)
+
+    def show_overlay(self) -> None:
+        """Switch to the host-installed overlay page (no-op if none
+        installed). Hides the corner pill while shown."""
+        if self._overlay_widget is None:
+            return
+        self._viewer_stack.setCurrentWidget(self._overlay_widget)
+        self._pill.hide()
+
+    def show_photo(self) -> None:
+        """Switch back to the photo page. Pill reappears per the
+        current view-state."""
+        self._viewer_stack.setCurrentWidget(self.photo_viewer)
+        self._refresh_pill()
 
     def clear(self) -> None:
         """Reset to defaults: blank viewer + hide pill. Single chokepoint
@@ -348,21 +265,10 @@ class ViewerWidget(QWidget):
 
     # ---- internals ------------------------------------------------------
 
-    def _refresh_indicator(self) -> None:
-        # Page swap: no_object → CTA page; anything else → photo page.
-        # Done first so the pill below doesn't briefly show over the
-        # wrong page during a transition.
-        self._viewer_stack.setCurrentWidget(
-            self._no_object_page if self._view_state == "no_object"
-            else self.photo_viewer
-        )
-        # Border tint on the QGraphicsView itself.
-        border = self._VIEW_STATE_BORDERS[self._view_state]
-        self.photo_viewer.setStyleSheet(
-            f"QGraphicsView#photoViewer {{ border: {border}; border-radius: 3px; }}"
-        )
-        # Pill content + accent border. Hidden for empty / no_object.
-        if self._view_state in ("empty", "no_object"):
+    def _refresh_pill(self) -> None:
+        """Sync pill visibility/content with the current view state.
+        Border tint on the photo viewer is QSS-driven (see set_view_state)."""
+        if self._view_state == "empty":
             self._pill.hide()
             return
         if self._view_state == "live":
@@ -374,7 +280,7 @@ class ViewerWidget(QWidget):
         elif self._view_state == "preview":
             label = self._view_state_label or "Preview"
             self._pill.setText(f"📷 {label}")
-            self._pill.set_border_color("#94a3b8")
+            self._pill.set_border_color(self._PREVIEW_BORDER)
         self._pill.adjustSize()
         self._pill.show()
         self._pill.raise_()

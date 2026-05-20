@@ -1,0 +1,258 @@
+/* Papyri app stylesheet — single source of truth for static QSS.
+
+   State-driven rules use property selectors. Toggle them via
+   `papyri.styles.set_state(widget, name, value)` which sets the Qt
+   dynamic property AND re-polishes the widget so the new rule fires
+   (Qt doesn't auto-reevaluate selectors on property change).
+
+   Color placeholders use `$$name` (string.Template syntax — written
+   `$$` here so this comment survives substitution) and are
+   substituted at load time from `papyri.styles.COLORS`. The
+   single-`$$` prefix keeps the QSS file valid for editor highlighters.
+   Wrap with braces (`$${name}`) when the next character is
+   alphanumeric and ambiguous.
+*/
+
+
+/* ===== Metadata pane ============================================== */
+
+#metadataPane {
+    background: $bg_pane;
+    border-left: 1px solid $line;
+}
+#metadataHeader {
+    color: $ink_2;
+    font-weight: 700;
+    font-size: 10pt;
+    letter-spacing: 1px;
+    padding: 0 0 4px 0;
+}
+#metadataLabel {
+    color: $ink_2;
+    font-size: 10pt;
+}
+
+
+/* ===== Objects sidebar ============================================ */
+
+#objectsSidebar {
+    background: $bg_pane_alt;
+    border-right: 1px solid $line;
+}
+#sidebarHeader {
+    color: $ink_2;
+    font-weight: 700;
+    font-size: 10pt;
+    letter-spacing: 1px;
+    padding: 0 6px 4px 6px;
+}
+#sidebarList {
+    background: transparent;
+    border: none;
+    font-size: 11pt;
+}
+#sidebarList::item {
+    padding: 6px 6px;
+    border-radius: 4px;
+}
+#sidebarList::item:selected {
+    background: $slate_select;
+    color: white;
+}
+#sidebarWorkdir {
+    color: $ink_3;
+    font-size: 8pt;
+    padding: 4px 6px 0 6px;
+}
+#sidebarNewButton {
+    padding: 6px 10px;
+    color: $ink_2;
+}
+
+
+/* ===== Zoom control bar =========================================== */
+
+#zoomControlBar {
+    background: $bg_pane;
+    border-top: 1px solid $line_soft;
+}
+QPushButton#zoomPill {
+    background: $bg_card;
+    color: $ink;
+    border: 1px solid $line;
+    border-radius: 12px;
+    padding: 0 10px;
+    font-weight: 600;
+    font-size: 9pt;
+}
+QPushButton#zoomPill:hover {
+    background: $bg_pane_alt;
+}
+QPushButton#zoomPill[active="true"] {
+    background: $ink;
+    color: white;
+    border-color: $ink;
+}
+QPushButton#zoomStepButton {
+    background: $bg_card;
+    color: $ink;
+    border: 1px solid $line;
+    border-radius: 6px;
+    font-weight: 700;
+}
+QPushButton#zoomStepButton:hover {
+    background: $bg_pane_alt;
+}
+QPushButton#zoomStepButton:disabled {
+    color: $line;
+}
+QLabel#zoomPercent {
+    color: $ink_2;
+}
+#zoomControlBar QSlider::groove:horizontal {
+    background: $line_soft;
+    height: 3px;
+    border-radius: 1px;
+}
+#zoomControlBar QSlider::handle:horizontal {
+    background: $ink;
+    width: 12px;
+    height: 12px;
+    margin: -5px 0;
+    border-radius: 6px;
+}
+#zoomControlBar QSlider::handle:horizontal:hover {
+    background: $slate_hover;
+}
+
+
+/* ===== Filmstrip ================================================== */
+
+QListWidget#filmstripList {
+    background: transparent;
+}
+
+
+/* ===== Viewer — no-object overlay ================================= */
+
+QFrame#noObjectCard {
+    background: $bg_card;
+    border: 1px solid $line_soft;
+    border-radius: 12px;
+}
+QLabel#noObjectTitle {
+    font-size: 18pt;
+    font-weight: 600;
+    color: $ink_card_title;
+}
+QLabel#noObjectSubtitle {
+    font-size: 11pt;
+    color: $ink_card_sub;
+}
+QPushButton#noObjectCta {
+    background: $accent;
+    color: white;
+    padding: 8px 22px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 11pt;
+    border: none;
+}
+QPushButton#noObjectCta:hover {
+    background: $accent_hover;
+}
+
+QWidget#noObjectPage {
+    background: $bg_dark_viewer;
+    border: 1px solid $line_soft;
+    border-radius: 3px;
+}
+
+
+/* ===== Viewer — photo border tint (state-driven) ================== */
+
+QGraphicsView#photoViewer {
+    border-radius: 3px;
+    border: 1px solid $line_soft;     /* default = empty / no_object */
+}
+QGraphicsView#photoViewer[viewState="live"] {
+    border: 1.5px solid $live_dot;
+}
+QGraphicsView#photoViewer[viewState="paused"] {
+    border: 1px dashed $line;
+}
+QGraphicsView#photoViewer[viewState="preview"] {
+    border: 1.5px solid $preview_pill;
+}
+
+
+/* ===== Camera state widget ======================================== */
+
+QFrame#cameraStateWidget {
+    background: $bg_card;
+    border-radius: 8px;
+    border: 1px solid $line_soft;
+}
+QFrame#cameraStateWidget[emphasized="true"][spectrum="VIS"] {
+    border: 2px solid $vis;
+}
+QFrame#cameraStateWidget[emphasized="true"][spectrum="IR"] {
+    border: 2px solid $ir;
+}
+
+#cameraSideBadge {
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 9pt;
+    letter-spacing: 1px;
+    background: $slate_neutral;       /* fallback when spectrum unset */
+}
+#cameraSideBadge[spectrum="VIS"] {
+    background: $vis;
+}
+#cameraSideBadge[spectrum="IR"] {
+    background: $ir;
+}
+
+
+/* ===== Capture status label (state-driven) ======================== */
+
+#captureStatusLabel {
+    color: $ink;
+}
+#captureStatusLabel[state="error"] {
+    color: $status_error;
+}
+#captureStatusLabel[state="done"] {
+    color: $ink_3;
+}
+
+
+/* ===== Bucket-selector group header =============================== */
+
+QLabel#bucketGroupHeader {
+    font-size: 9pt;
+    padding: 2px 0 4px 4px;
+}
+
+
+/* ===== Object title bar — name field (was inline in .ui) ========= */
+
+#nameField {
+    background: $bg_card;
+    color: $ink;
+    border: 1.5px solid $line;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+#nameField:focus {
+    border-color: $vis;
+    outline: none;
+}
+#nameField[readOnly="true"] {
+    background: transparent;
+    border: 1.5px solid transparent;
+    text-decoration: underline;
+}

@@ -16,24 +16,7 @@
     <verstretch>0</verstretch>
    </sizepolicy>
   </property>
-  <property name="styleSheet">
-   <string notr="true">#nameField {
-    background: white;
-    color: #0f172a;
-    border: 1.5px solid #cbd5e1;
-    border-radius: 6px;
-    padding: 4px 8px;
-}
-#nameField:focus {
-    border-color: #3b82f6;
-    outline: none;
-}
-#nameField[readOnly=&quot;true&quot;] {
-    background: transparent;
-    border: 1.5px solid transparent;
-    text-decoration: underline;
-}</string>
-  </property>
+  <!-- #nameField QSS lives in papyri/ui/app.qss — installed app-wide. -->
   <layout class="QVBoxLayout" name="outerLayout">
    <property name="spacing">
     <number>4</number>

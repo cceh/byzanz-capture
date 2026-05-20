@@ -18,20 +18,12 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy
 
 from byzanz_camera.camera_worker import CameraStates
-from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.helpers import get_ui_path, set_state
 from byzanz_camera.spinner import Spinner
 
 if TYPE_CHECKING:
     from byzanz_camera.camera_worker import CameraWorker
     from byzanz_camera.profiles.base import Profile
-
-
-# Spectrum identity colors — match the workflow stepper exactly so the
-# camera-state pill and the active stepper chevron read as the same color.
-_BADGE_BG = {
-    "VIS": "#3b82f6",   # blue-500
-    "IR":  "#ea580c",   # orange-600 (was violet — see workflow_stepper palette)
-}
 
 
 class CameraStateWidget(QFrame):
@@ -72,12 +64,10 @@ class CameraStateWidget(QFrame):
         self._side_label = side_label
 
         self._side_badge.setText(side_label)
-        bg = _BADGE_BG.get(side_label, "#64748b")
-        self._side_badge.setStyleSheet(
-            f"background: {bg}; color: white; padding: 2px 6px;"
-            f"border-radius: 4px; font-weight: 700; font-size: 9pt;"
-            f"letter-spacing: 1px;"
-        )
+        # Spectrum identity is property-driven against the host
+        # stylesheet — `#cameraSideBadge[spectrum="VIS"]` etc.
+        set_state(self._side_badge, "spectrum", side_label)
+        set_state(self, "spectrum", side_label)
 
         worker.state_changed.connect(self._on_state)
         # Initial paint matches the worker's "just initialized" state.
@@ -93,17 +83,10 @@ class CameraStateWidget(QFrame):
         self._refresh_chrome()
 
     def _refresh_chrome(self) -> None:
-        """Apply the (possibly-emphasized) outer border. Always scoped to
-        #cameraStateWidget so it doesn't bleed into child widgets."""
-        if self._emphasized and self._side_label in _BADGE_BG:
-            color = _BADGE_BG[self._side_label]
-            border_rule = f"border: 2px solid {color};"
-        else:
-            border_rule = "border: 1px solid #e2e8f0;"
-        self.setStyleSheet(
-            f"QFrame#cameraStateWidget {{ background: white;"
-            f" border-radius: 8px; {border_rule} }}"
-        )
+        """Apply the (possibly-emphasized) outer border via property
+        selectors in the host stylesheet — see
+        `#cameraStateWidget[emphasized="true"][spectrum="VIS"]` etc."""
+        set_state(self, "emphasized", self._emphasized)
 
     # ---- ui construction -------------------------------------------
 
@@ -113,6 +96,7 @@ class CameraStateWidget(QFrame):
         outer.setSpacing(8)
 
         self._side_badge = QLabel("?")
+        self._side_badge.setObjectName("cameraSideBadge")
         self._side_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         outer.addWidget(self._side_badge, 0, Qt.AlignmentFlag.AlignVCenter)
 

@@ -77,7 +77,6 @@ class MetadataPane(QFrame):
         self._scaled_mascot_key: tuple | None = None
 
         self._build_ui()
-        self._apply_styles()
         self._set_form_enabled(False)
 
     # ---- watermark -----------------------------------------------------
@@ -195,25 +194,6 @@ class MetadataPane(QFrame):
             w.textChanged.connect(self._on_text_changed)  # debounced
             return w
         raise ValueError(f"unknown field type: {schema.type!r}")
-
-    def _apply_styles(self) -> None:
-        self.setStyleSheet("""
-            #metadataPane {
-                background: #f8fafc;
-                border-left: 1px solid #cbd5e1;
-            }
-            #metadataHeader {
-                color: #475569;
-                font-weight: 700;
-                font-size: 10pt;
-                letter-spacing: 1px;
-                padding: 0 0 4px 0;
-            }
-            #metadataLabel {
-                color: #475569;
-                font-size: 10pt;
-            }
-        """)
 
     # ---- save plumbing -------------------------------------------------
 
