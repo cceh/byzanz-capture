@@ -97,12 +97,15 @@
            </layout>
           </item>
           <item>
-           <widget class="QPushButton" name="settingsButton">
+           <widget class="QToolButton" name="settingsButton">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
               <horstretch>0</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
+            </property>
+            <property name="cursor">
+             <cursorShape>PointingHandCursor</cursorShape>
             </property>
             <property name="toolTip">
              <string>Settings menu (general settings, advanced camera config)</string>
@@ -113,6 +116,9 @@
             <property name="icon">
              <iconset>
               <normaloff>../../ui/general_settings.svg</normaloff>../../ui/general_settings.svg</iconset>
+            </property>
+            <property name="autoRaise">
+             <bool>true</bool>
             </property>
            </widget>
           </item>

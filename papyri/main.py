@@ -43,7 +43,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QAction, QCloseEvent, QIcon, QPixmap, QPixmapCache
 from PyQt6.QtWidgets import (
     QApplication, QInputDialog, QLabel, QMainWindow, QMenu,
-    QMessageBox, QPushButton, QSplitter,
+    QMessageBox, QPushButton, QSplitter, QToolButton,
 )
 from PyQt6.uic import loadUi
 
@@ -631,7 +631,7 @@ class PapyriMainWindow(QMainWindow):
             CameraStateWidget, "irCameraState"
         )
 
-        self.settings_button: QPushButton = self.findChild(QPushButton, "settingsButton")
+        self.settings_button: QToolButton = self.findChild(QToolButton, "settingsButton")
 
         self.objects_sidebar: ObjectsSidebar = self.findChild(ObjectsSidebar, "objectsSidebar")
         # Outer splitter: ObjectsSidebar (index 0, fixed-ish) | rightColumn

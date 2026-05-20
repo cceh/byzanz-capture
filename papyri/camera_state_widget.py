@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy
+from PyQt6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton,
+)
 
 from byzanz_camera.camera_worker import CameraStates
 from byzanz_camera.helpers import get_ui_path, set_state
@@ -132,11 +134,16 @@ class CameraStateWidget(QFrame):
         outer.addWidget(self._disconnect_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
     @staticmethod
-    def _make_icon_button(icon_path: str, tooltip: str) -> QPushButton:
-        btn = QPushButton()
+    def _make_icon_button(icon_path: str, tooltip: str) -> QToolButton:
+        # QToolButton + autoRaise matches the title-bar rename/close
+        # buttons. The app QSS strips Qt's framed chrome and adds a
+        # faint pill background so the click target is visible; the
+        # pointer cursor confirms "this is interactive" on hover.
+        btn = QToolButton()
         btn.setIcon(QIcon(get_ui_path(icon_path)))
         btn.setIconSize(QSize(18, 18))
-        btn.setFixedSize(30, 30)
+        btn.setAutoRaise(True)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setToolTip(tooltip)
         return btn
 

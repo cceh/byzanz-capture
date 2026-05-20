@@ -64,65 +64,35 @@
     font-size: 8pt;
     padding: 4px 6px 0 6px;
 }
-#sidebarNewButton {
-    padding: 6px 10px;
-    color: $ink_2;
-}
+/* #sidebarNewButton uses native QPushButton styling. */
 
 
-/* ===== Zoom control bar =========================================== */
+/* Zoom control bar — uses native widget styling. No QSS needed. */
 
-#zoomControlBar {
-    background: $bg_pane;
-    border-top: 1px solid $line_soft;
+
+/* ===== Icon-only tool buttons (autoRaise) ========================= */
+
+/* `QToolButton[autoRaise=true]` is Qt's "flat icon button" convention
+   — title bar rename/close, camera widget connect/disconnect, top-
+   right settings cog. Qt's macOS style still draws a frame for them
+   though; strip it so they read as toolbar-style icons (transparent
+   bg, subtle wash on hover, slight darken on press). */
+
+QToolButton {
+    background: rgba(0, 0, 0, 0.04);    /* faint pill so the click
+                                            target is visible at rest */
+    border: none;
+    padding: 4px;
+    border-radius: 4px;
 }
-QPushButton#zoomPill {
-    background: $bg_card;
-    color: $ink;
-    border: 1px solid $line;
-    border-radius: 12px;
-    padding: 0 10px;
-    font-weight: 600;
-    font-size: 9pt;
+QToolButton:hover {
+    background: rgba(0, 0, 0, 0.10);
 }
-QPushButton#zoomPill:hover {
-    background: $bg_pane_alt;
+QToolButton:pressed {
+    background: rgba(0, 0, 0, 0.18);
 }
-QPushButton#zoomPill[active="true"] {
-    background: $ink;
-    color: white;
-    border-color: $ink;
-}
-QPushButton#zoomStepButton {
-    background: $bg_card;
-    color: $ink;
-    border: 1px solid $line;
-    border-radius: 6px;
-    font-weight: 700;
-}
-QPushButton#zoomStepButton:hover {
-    background: $bg_pane_alt;
-}
-QPushButton#zoomStepButton:disabled {
-    color: $line;
-}
-QLabel#zoomPercent {
-    color: $ink_2;
-}
-#zoomControlBar QSlider::groove:horizontal {
-    background: $line_soft;
-    height: 3px;
-    border-radius: 1px;
-}
-#zoomControlBar QSlider::handle:horizontal {
-    background: $ink;
-    width: 12px;
-    height: 12px;
-    margin: -5px 0;
-    border-radius: 6px;
-}
-#zoomControlBar QSlider::handle:horizontal:hover {
-    background: $slate_hover;
+QToolButton:disabled {
+    background: transparent;
 }
 
 
@@ -238,19 +208,11 @@ QLabel#bucketGroupHeader {
 }
 
 
-/* ===== Object title bar — name field (was inline in .ui) ========= */
+/* ===== Object title bar — name field display mode ================ */
 
-#nameField {
-    background: $bg_card;
-    color: $ink;
-    border: 1.5px solid $line;
-    border-radius: 6px;
-    padding: 4px 8px;
-}
-#nameField:focus {
-    border-color: $vis;
-    outline: none;
-}
+/* Editable state uses native QLineEdit styling. Read-only state
+   (object loaded, name displayed not edited) drops the input chrome
+   and underlines the text so it reads as a heading instead. */
 #nameField[readOnly="true"] {
     background: transparent;
     border: 1.5px solid transparent;

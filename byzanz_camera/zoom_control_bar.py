@@ -94,22 +94,26 @@ class ZoomControlBar(QWidget):
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(12)
+        layout.setSpacing(8)
 
-        # ---- left: named-level pills
-        self._fit_btn = self._mk_pill("Fit", "Fit image to viewport")
+        # All buttons + slider use native styling — the bar is system
+        # chrome, not branded. Fit/1:1 are checkable so the OS shows
+        # which level the current zoom matches; clicks always emit the
+        # action signal (`_refresh` re-syncs the checked state).
+        self._fit_btn = QPushButton("Fit")
+        self._fit_btn.setCheckable(True)
+        self._fit_btn.setToolTip("Fit image to viewport")
         self._fit_btn.clicked.connect(self.fit_requested.emit)
-        self._one_btn = self._mk_pill("1:1", "Zoom to 100% (1 image px = 1 screen px)")
+        self._one_btn = QPushButton("1:1")
+        self._one_btn.setCheckable(True)
+        self._one_btn.setToolTip("Zoom to 100% (1 image px = 1 screen px)")
         self._one_btn.clicked.connect(self.one_to_one_requested.emit)
         layout.addWidget(self._fit_btn)
         layout.addWidget(self._one_btn)
 
         layout.addStretch(1)
 
-        # ---- center: − slider +
         self._minus_btn = QPushButton("−")
-        self._minus_btn.setObjectName("zoomStepButton")
-        self._minus_btn.setFixedSize(24, 24)
         self._minus_btn.setToolTip("Zoom out (one step)")
         self._minus_btn.clicked.connect(self.zoom_out_requested.emit)
         layout.addWidget(self._minus_btn)
@@ -122,17 +126,13 @@ class ZoomControlBar(QWidget):
         layout.addWidget(self._slider)
 
         self._plus_btn = QPushButton("+")
-        self._plus_btn.setObjectName("zoomStepButton")
-        self._plus_btn.setFixedSize(24, 24)
         self._plus_btn.setToolTip("Zoom in (one step)")
         self._plus_btn.clicked.connect(self.zoom_in_requested.emit)
         layout.addWidget(self._plus_btn)
 
         layout.addStretch(1)
 
-        # ---- right: percentage readout
         self._pct_label = QLabel("100%")
-        self._pct_label.setObjectName("zoomPercent")
         self._pct_label.setMinimumWidth(48)
         self._pct_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         # Monospace digits → no width jitter on each scroll tick.
@@ -145,18 +145,6 @@ class ZoomControlBar(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(32)
-
-    def _mk_pill(self, text: str, tooltip: str) -> QPushButton:
-        btn = QPushButton(text)
-        btn.setObjectName("zoomPill")
-        btn.setToolTip(tooltip)
-        btn.setCheckable(False)
-        btn.setFixedHeight(24)
-        btn.setMinimumWidth(40)
-        return btn
-
-    # Styles live in papyri/ui/app.qss — including the `[active="true"]`
-    # property-driven Fit/1:1 pill toggle.
 
     # ---- refresh ------------------------------------------------------
 
@@ -179,23 +167,9 @@ class ZoomControlBar(QWidget):
         self._minus_btn.setEnabled(self._current > self._fit + _EQ_EPSILON)
         self._plus_btn.setEnabled(self._current < self._max - _EQ_EPSILON)
 
-        # Named-level active highlights
-        self._set_pill_active(self._fit_btn,
-                              abs(self._current - self._fit) < _EQ_EPSILON)
-        self._set_pill_active(self._one_btn,
-                              abs(self._current - 1.0) < _EQ_EPSILON)
-
-    @staticmethod
-    def _set_pill_active(btn: QPushButton, active: bool) -> None:
-        # Dynamic property + repolish so the QSS [active="true"]
-        # selector re-evaluates. Same pattern as the metadata pane's
-        # read-only name field.
-        was = btn.property("active")
-        if (was is True) == active:
-            return
-        btn.setProperty("active", active)
-        btn.style().unpolish(btn)
-        btn.style().polish(btn)
+        # Named-level active highlights — native checkable button state.
+        self._fit_btn.setChecked(abs(self._current - self._fit) < _EQ_EPSILON)
+        self._one_btn.setChecked(abs(self._current - 1.0) < _EQ_EPSILON)
 
     # ---- slider <-> log-scale mapping --------------------------------
 
