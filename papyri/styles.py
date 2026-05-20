@@ -1,26 +1,29 @@
 """Centralized styling for the papyri app — palette + stylesheet loader.
 
-- `COLORS` — single palette dict. Anything referenced from QSS via
-  `$name` (`string.Template` syntax — keeps the QSS file valid for
-  editor highlighters, unlike f-string braces) lives here, so
-  swapping a theme means swapping one dict.
-
-- `load_app_stylesheet()` — reads `ui/app.qss`, substitutes the
-  placeholders, returns the final stylesheet string.
-
-- `install_app_stylesheet(app)` — applies the stylesheet AND attaches
-  a file watcher so edits to `app.qss` hot-reload during development.
+- `COLORS` — light-mode palette. Identity colors (spectrum, CTA, state
+  indicators) and the photo-viewer dark backdrop live here unchanged.
+- `_DARK_OVERRIDES` — entries that flip in dark mode (bg / text / line /
+  soft tints). Anything not overridden inherits from `COLORS`.
+- `current_palette()` — returns the merged palette for whichever color
+  scheme Qt currently reports. Reads via `app.styleHints().colorScheme()`.
+- `load_app_stylesheet()` — reads `ui/app.qss` and substitutes the
+  active palette via `string.Template` ($name) syntax — keeps the QSS
+  file valid for editor highlighters.
+- `install_app_stylesheet(app)` — applies the stylesheet AND watches
+  both the .qss file (hot-reload during dev) and the system color
+  scheme (auto re-apply when the user toggles dark/light mode).
 
 The property-driven styling helper (`set_state`) lives in
-`byzanz_camera.helpers` since it's a pure Qt utility with no theme
-knowledge — usable from any host app, not just papyri.
+`byzanz_camera.helpers` — pure Qt utility, no theme knowledge.
 """
 from __future__ import annotations
 from pathlib import Path
 from string import Template
 
-from PyQt6.QtCore import QFileSystemWatcher
+from PyQt6.QtCore import QFileSystemWatcher, Qt
 from PyQt6.QtWidgets import QApplication
+
+from byzanz_camera.helpers import refresh_themed_icons
 
 
 # ---- palette ------------------------------------------------------------
@@ -68,30 +71,64 @@ COLORS: dict[str, str] = {
 }
 
 
+# Dark-mode overrides. Only entries that need to flip live here —
+# everything else (spectrum hues, accent, state indicators, photo
+# backdrop) is theme-independent and inherited from `COLORS`.
+_DARK_OVERRIDES: dict[str, str] = {
+    "bg_pane":         "#1e1e1e",
+    "bg_pane_alt":     "#262626",
+    "bg_card":         "#2a2a2a",
+    "line_soft":       "#333333",
+    "line":            "#404040",
+    "ink":             "#e5e5e5",
+    "ink_2":           "#a3a3a3",
+    "ink_3":           "#737373",
+    "ink_card_title":  "#f5f5f5",
+    "ink_card_sub":    "#d4d4d4",
+    # Soft tints flip: light pastels become deep tones; the dark-text
+    # paired color flips to a light tint so contrast works on the new bg.
+    "vis_soft":        "#1e3a5c",
+    "vis_text_dark":   "#bfdbfe",
+    "ir_soft":         "#5c2f15",
+    "ir_text_dark":    "#fdba74",
+}
+
+
+def current_palette() -> dict[str, str]:
+    """Active palette for the current Qt color scheme. Custom-painter
+    code (e.g. bucket cards) should read colors via this function at
+    paint time so they track theme switches automatically."""
+    app = QApplication.instance()
+    if app is not None and app.styleHints().colorScheme() == Qt.ColorScheme.Dark:
+        return {**COLORS, **_DARK_OVERRIDES}
+    return COLORS
+
+
 # ---- API ---------------------------------------------------------------
 
 _QSS_PATH = Path(__file__).parent / "ui" / "app.qss"
 
 
 def load_app_stylesheet() -> str:
-    """Read `ui/app.qss` and substitute `$name` placeholders from
-    `COLORS`. Raises `KeyError` if the QSS references a name not in
-    `COLORS` — preferred over silent fallback so missing keys fail
-    loud. Prefer `install_app_stylesheet(app)` over calling this
-    directly so file changes hot-reload during development."""
-    return Template(_QSS_PATH.read_text()).substitute(COLORS)
+    """Read `ui/app.qss` and substitute `$name` placeholders from the
+    active palette (`current_palette()` — light or dark depending on
+    system scheme). Raises `KeyError` if the QSS references a name not
+    in the palette — preferred over silent fallback so missing keys
+    fail loud. Prefer `install_app_stylesheet(app)` over calling this
+    directly so file changes AND scheme changes hot-reload."""
+    return Template(_QSS_PATH.read_text()).substitute(current_palette())
 
 
 def install_app_stylesheet(app: QApplication) -> QFileSystemWatcher:
-    """Apply the app stylesheet and watch the .qss file for edits;
-    re-apply automatically on change. Returns the watcher so the
-    caller can keep a reference (Qt parent the app, so its lifetime
-    matches the app's).
+    """Apply the app stylesheet. Re-applies automatically when:
+    - the .qss file changes (dev hot-reload), OR
+    - the system color scheme flips (dark/light toggle).
 
-    Hot-reload is always on — the cost is one file watcher + an I/O
-    re-read on save, both trivial. Editors that replace-on-save
-    (vim, JetBrains, etc.) drop the watch; we re-add the path after
-    every fileChanged so the watch survives those saves."""
+    Returns the file watcher so the caller can keep a reference
+    (Qt-parented to the app, so lifetime matches).
+
+    Editors that replace-on-save (vim, JetBrains, etc.) drop the
+    watch; we re-add after every fileChanged to survive those."""
     def _apply() -> None:
         try:
             app.setStyleSheet(load_app_stylesheet())
@@ -107,6 +144,13 @@ def install_app_stylesheet(app: QApplication) -> QFileSystemWatcher:
             watcher.addPath(str(_QSS_PATH))
 
     watcher.fileChanged.connect(_on_file_changed)
+
+    def _on_scheme_change(_scheme) -> None:
+        # Icons first — re-render with the new theme color so the next
+        # paint includes them; then re-substitute the QSS palette.
+        refresh_themed_icons()
+        _apply()
+    app.styleHints().colorSchemeChanged.connect(_on_scheme_change)
     return watcher
 
 

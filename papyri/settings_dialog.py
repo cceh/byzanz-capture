@@ -11,13 +11,13 @@ from __future__ import annotations
 from typing import Any
 
 from PyQt6.QtCore import QSettings, Qt
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QFileDialog, QLineEdit, QSpinBox, QToolButton,
 )
 from PyQt6.uic import loadUi
 
-from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.helpers import get_ui_path, set_themed_icon
 from byzanz_camera.profiles.base import Profile
 
 
@@ -78,7 +78,7 @@ class PapyriSettingsDialog(QDialog):
     def _wire_actions(self) -> None:
         # Folder picker as a trailing action on the workdir field
         choose = QAction("Choose…", self)
-        choose.setIcon(QIcon(get_ui_path("ui/folder-open.svg")))
+        set_themed_icon(choose.setIcon, get_ui_path("ui/folder-open.svg"))
         choose.triggered.connect(self._choose_working_directory)
         self.workdir_input.addAction(
             choose, QLineEdit.ActionPosition.TrailingPosition

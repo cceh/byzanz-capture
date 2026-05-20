@@ -52,7 +52,9 @@ from byzanz_camera.camera_worker import (
 )
 from byzanz_camera.filmstrip_widget import get_file_index
 from byzanz_camera.load_image_worker import ImageMode, LoadImageWorker
-from byzanz_camera.helpers import get_app_icon, get_ui_path, set_state
+from byzanz_camera.helpers import (
+    get_app_icon, get_ui_path, set_state, set_themed_icon,
+)
 from byzanz_camera.viewer_widget import ViewerWidget
 from papyri._layout import (
     BUCKETS,
@@ -677,6 +679,14 @@ class PapyriMainWindow(QMainWindow):
         self.capture_status_label: QLabel = self.findChild(QLabel, "captureStatusLabel")
         self.capture_button: QPushButton = self.findChild(QPushButton, "captureButton")
 
+        # Override raw .ui-set icons with themed versions so they
+        # follow light/dark. capture_button gets its themed icon via
+        # `_refresh_capture_button_label` (state-dependent); the others
+        # are set once here.
+        set_themed_icon(self.settings_button.setIcon, get_ui_path("ui/general_settings.svg"))
+        set_themed_icon(self.pause_live_view_button.setIcon, get_ui_path("ui/preview_closed.svg"))
+        set_themed_icon(self.autofocus_button.setIcon, get_ui_path("ui/focus.svg"))
+
         # Settings menu (popup off the "Settings" button)
         self.open_program_settings_action = self._action(
             "General settings", self.open_settings, icon="ui/general_settings.svg")
@@ -706,7 +716,7 @@ class PapyriMainWindow(QMainWindow):
         action = QAction(label, self)
         action.triggered.connect(slot)
         if icon:
-            action.setIcon(QIcon(get_ui_path(icon)))
+            set_themed_icon(action.setIcon, get_ui_path(icon))
         return action
 
     def _popup_below(self, button, menu: QMenu):
@@ -1012,7 +1022,7 @@ class PapyriMainWindow(QMainWindow):
             capture icon."""
         if self.session.current_object is None:
             self.capture_button.setText("Open an object to capture")
-            self.capture_button.setIcon(QIcon(get_ui_path("ui/capture.svg")))
+            set_themed_icon(self.capture_button.setIcon, get_ui_path("ui/capture.svg"))
             return
         spectrum_label = (
             "Visible" if self.session.active_spectrum == SPECTRUM_VISIBLE
@@ -1020,7 +1030,7 @@ class PapyriMainWindow(QMainWindow):
         )
         if not self._active_camera_ready():
             self.capture_button.setText(f"{spectrum_label} camera not connected")
-            self.capture_button.setIcon(QIcon(get_ui_path("ui/camera_not_ok.svg")))
+            set_themed_icon(self.capture_button.setIcon, get_ui_path("ui/camera_not_ok.svg"))
             return
         side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
         self.capture_button.setText(f"Capture · {side_label} · {spectrum_label}")

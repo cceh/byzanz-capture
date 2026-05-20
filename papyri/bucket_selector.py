@@ -37,14 +37,17 @@ from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
 
 # ---- palette / sizing -----------------------------------------------------
 
-_BG_APP        = QColor("#f1efea")
-_BG_SURFACE    = QColor("#ffffff")
-_LINE          = QColor("#c9c4ba")
-_LINE_SOFT     = QColor("#e3dfd6")
-_INK           = QColor("#1c1c1c")
-_INK_3         = QColor("#9a9a9a")
-_ACCENT_FALLBACK = QColor("#1c4a48")      # slate-teal, used when no
-                                          # group-specific accent is set
+# Theme-independent — the slate-teal default accent is used when no
+# group has been bound yet (e.g. initial paint before set_groups).
+_ACCENT_FALLBACK = QColor("#1c4a48")
+
+
+def _palette_qcolor(key: str) -> QColor:
+    """Read a color from the active app palette at paint time so the
+    cards / fusing panel track dark-mode switches automatically. See
+    `papyri.styles.current_palette()`."""
+    from papyri.styles import current_palette
+    return QColor(current_palette()[key])
 
 CARD_W   = 168
 CARD_H   = 56
@@ -222,9 +225,16 @@ class BucketTabBar(QTabBar):
             rect.height(),         # bottom flush — fuses with the panel
         )
 
+        # Theme-aware palette — fetched once per paint so dark/light
+        # toggles are picked up automatically.
+        bg_card = _palette_qcolor("bg_card")
+        line = _palette_qcolor("line")
+        ink = _palette_qcolor("ink")
+        ink_3 = _palette_qcolor("ink_3")
+
         # Fill.
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(_BG_SURFACE))
+        p.setBrush(QBrush(bg_card))
         p.drawRoundedRect(body, radius, radius)
 
         # Border: rounded top, two verticals, NO bottom segment.
@@ -238,7 +248,7 @@ class BucketTabBar(QTabBar):
                           2 * radius, 2 * radius), 90, -90)
         path.lineTo(body.right(), body.bottom())
 
-        p.setPen(QPen(self._accent_color if active else _LINE, stroke))
+        p.setPen(QPen(self._accent_color if active else line, stroke))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(path)
         if not active:
@@ -250,7 +260,7 @@ class BucketTabBar(QTabBar):
                             rect.y() + (rect.height() - THUMB_H) / 2,
                             THUMB_W, THUMB_H)
         if not has_thumb:
-            p.setPen(QPen(_LINE, 1.0, Qt.PenStyle.DashLine))
+            p.setPen(QPen(line, 1.0, Qt.PenStyle.DashLine))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(thumb_rect, 2, 2)
         else:
@@ -300,7 +310,7 @@ class BucketTabBar(QTabBar):
         font.setBold(True)
         p.setFont(font)
         p.setPen(QPen(self._accent_color if active
-                      else (_INK_3 if dimmed else _INK)))
+                      else (ink_3 if dimmed else ink)))
         p.drawText(QRectF(text_x, rect.y(), text_w, rect.height()),
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                    data.label)
@@ -512,7 +522,7 @@ class FusingPanel(QFrame):
     def paintEvent(self, _evt) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), _BG_SURFACE)
+        p.fillRect(self.rect(), _palette_qcolor("bg_card"))
 
         y_top = 0.75
         accent = (self._selector.active_accent_color()

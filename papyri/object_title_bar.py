@@ -19,7 +19,7 @@ from PyQt6 import uic
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QLineEdit, QToolButton, QWidget
 
-from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.helpers import get_ui_path, set_themed_icon
 
 if TYPE_CHECKING:
     from papyri.main import Object
@@ -48,6 +48,12 @@ class ObjectTitleBar(QWidget):
         self.nameField: QLineEdit
         self.renameButton: QToolButton
         self.closeButton: QToolButton
+
+        # The icons set in the .ui are raw — override with themed
+        # versions so they track light/dark, registering for live
+        # refresh on scheme change.
+        set_themed_icon(self.renameButton.setIcon, get_ui_path("ui/rename.svg"))
+        set_themed_icon(self.closeButton.setIcon, get_ui_path("ui/cancel.svg"))
 
         self._obj: "Object | None" = None
         self._refresh_title_row()

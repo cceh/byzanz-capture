@@ -14,13 +14,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton,
 )
 
 from byzanz_camera.camera_worker import CameraStates
-from byzanz_camera.helpers import get_ui_path, set_state
+from byzanz_camera.helpers import (
+    get_ui_path, set_state, set_themed_icon, set_themed_pixmap,
+)
 from byzanz_camera.spinner import Spinner
 
 if TYPE_CHECKING:
@@ -111,7 +112,7 @@ class CameraStateWidget(QFrame):
         self._icon = QLabel()
         self._icon.setFixedSize(20, 20)
         self._icon.setScaledContents(True)
-        self._icon.setPixmap(QPixmap(get_ui_path("ui/camera_waiting.png")))
+        set_themed_pixmap(self._icon.setPixmap, get_ui_path("ui/camera_waiting.svg"))
         outer.addWidget(self._icon, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._text = QLabel("Searching…")
@@ -140,7 +141,7 @@ class CameraStateWidget(QFrame):
         # faint pill background so the click target is visible; the
         # pointer cursor confirms "this is interactive" on hover.
         btn = QToolButton()
-        btn.setIcon(QIcon(get_ui_path(icon_path)))
+        set_themed_icon(btn.setIcon, get_ui_path(icon_path))
         btn.setIconSize(QSize(18, 18))
         btn.setAutoRaise(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -151,12 +152,12 @@ class CameraStateWidget(QFrame):
 
     def _on_state(self, state) -> None:
         if isinstance(state, CameraStates.Waiting):
-            self._set_icon("camera_waiting.png")
+            self._set_icon("camera_waiting.svg")
             self._text.setText("Searching…")
             self._spinner.isAnimated = True
             self._connect_btn.setVisible(False)
         elif isinstance(state, CameraStates.Found):
-            self._set_icon("camera_waiting.png")
+            self._set_icon("camera_waiting.svg")
             self._text.setText(f"Found: <b>{state.camera_name}</b>")
             self._spinner.isAnimated = True
             self._connect_btn.setVisible(False)
@@ -169,14 +170,14 @@ class CameraStateWidget(QFrame):
             self._spinner.isAnimated = True
             self._connect_btn.setVisible(False)
         elif isinstance(state, CameraStates.Disconnected):
-            self._set_icon("camera_not_ok.png")
+            self._set_icon("camera_not_ok.svg")
             name = state.camera_name or ""
             self._text.setText(f"<b>{name.replace("Corporation ", "")}</b>")
             self._spinner.isAnimated = False
             self._connect_btn.setVisible(True)
             self._connect_btn.setEnabled(True)
         elif isinstance(state, CameraStates.ConnectionError):
-            self._set_icon("camera_not_ok.png")
+            self._set_icon("camera_not_ok.svg")
             self._text.setText(f"Error: {state.error}")
             self._spinner.isAnimated = False
             self._connect_btn.setVisible(True)
@@ -184,13 +185,17 @@ class CameraStateWidget(QFrame):
         else:
             # Ready / LiveView* / Capture* / Focus* — all "connected and idle/working" states.
             name = self._worker.camera_name if self._worker and self._worker.camera_name else ""
-            self._set_icon("camera_ok.png")
+            self._set_icon("camera_ok.svg")
             self._text.setText(f"<b>{name.replace("Corporation ", "")}</b>")
             self._spinner.isAnimated = False
             self._connect_btn.setVisible(False)
 
     def _set_icon(self, name: str) -> None:
-        self._icon.setPixmap(QPixmap(get_ui_path(f"ui/{name}")))
+        # The themed-icon registry is keyed by setter, so calling
+        # set_themed_pixmap on every state change REPLACES the prior
+        # registration for self._icon — no unbounded growth and we get
+        # live theme-refresh for free.
+        set_themed_pixmap(self._icon.setPixmap, get_ui_path(f"ui/{name}"))
 
     # ---- button handlers -------------------------------------------
 

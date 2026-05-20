@@ -28,8 +28,7 @@ from PyQt6.QtCore import (
     QSize, Qt, QThreadPool, QTimer, pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QColor, QIcon, QImage, QLinearGradient, QPainter, QPalette, QPixmap,
-    QPixmapCache,
+    QColor, QIcon, QImage, QLinearGradient, QPainter, QPixmap, QPixmapCache,
 )
 from PyQt6.QtWidgets import (
     QFrame, QListView, QListWidget, QListWidgetItem, QMenu,
@@ -62,9 +61,8 @@ CELL_HEIGHT = THUMB_HEIGHT
 # FilmstripWidget's distinct background color).
 STRIP_MARGIN = 8
 
-# Background color for the strip — explicitly white so the STRIP_MARGIN
-# around the thumbs is clearly distinct from the surrounding window gray.
-STRIP_BG_COLOR = QColor(255, 255, 255)
+# Strip background is set via QSS against the `#filmstrip` object
+# name — see the host app stylesheet (`papyri/ui/app.qss`).
 
 # Note: total strip height is computed at runtime in FilmstripWidget.__init__
 # because it needs the horizontal scrollbar's pixel extent, which only the
@@ -73,7 +71,7 @@ STRIP_BG_COLOR = QColor(255, 255, 255)
 
 # ---- caption overlay (drawn by the default delegate) -------------------
 
-_CAPTION_HEIGHT = 34
+_CAPTION_HEIGHT = 22
 _CAPTION_GRADIENT_TOP = QColor(0, 0, 0, 0)         # transparent at top
 _CAPTION_GRADIENT_BOTTOM = QColor(0, 0, 0, 150)    # ~60% black at bottom
 
@@ -151,15 +149,10 @@ class CaptionDelegate(QStyledItemDelegate):
     def _paint_caption(
         painter: QPainter, thumb_rect: QRect, item: ImageFileListItem
     ) -> None:
-        """Two-line caption: stem on top (bold), EXIF line below (regular)."""
-        stem = stem_of(item.file_name)
-        text_lines = item.text().split("\n")
-        exif_line = text_lines[1] if len(text_lines) > 1 else ""
-
-        # Overlay matches the thumbnail's rect exactly — covers the bottom
-        # 34px of the icon area. The inter-overlay gap visually equals the
-        # inter-thumbnail gap (THUMB_GAP), since both come from gridSize
-        # being wider than iconSize.
+        """Single-line caption: the capture's trailing index (e.g. "017").
+        Full filename + EXIF live in the item's tooltip — set in
+        FilmstripWidget.__add_image_item — so the thumb stays
+        readable at strip scale."""
         strip = QRect(
             thumb_rect.x(),
             thumb_rect.bottom() - _CAPTION_HEIGHT + 1,
@@ -181,27 +174,10 @@ class CaptionDelegate(QStyledItemDelegate):
         font.setPointSize(10)
         font.setBold(True)
         painter.setFont(font)
-
-        elided_stem = painter.fontMetrics().elidedText(
-            stem, Qt.TextElideMode.ElideMiddle, strip.width() - 8
-        )
-        stem_rect = QRect(strip.x() + 4, strip.y() + 2,
-                          strip.width() - 8, 16)
         painter.drawText(
-            stem_rect,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
-            elided_stem,
-        )
-
-        font.setPointSize(8)
-        font.setBold(False)
-        painter.setFont(font)
-        exif_rect = QRect(strip.x() + 4, strip.y() + 18,
-                          strip.width() - 8, 14)
-        painter.drawText(
-            exif_rect,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
-            exif_line,
+            strip,
+            Qt.AlignmentFlag.AlignCenter,
+            item.text(),
         )
         painter.restore()
 
@@ -298,13 +274,15 @@ class FilmstripWidget(QWidget):
         super().__init__(parent)
 
         # Distinct background so STRIP_MARGIN is visible against the parent
-        # window (otherwise the margin is the parent's color and disappears).
-        # The QListWidget below is made transparent so the strip color shows
-        # through the margin area and the gap between thumbs.
-        self.setAutoFillBackground(True)
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, STRIP_BG_COLOR)
-        self.setPalette(palette)
+        # window. The actual color is set via the host app stylesheet
+        # against the `#filmstrip` object name — palette-driven
+        # `setPalette` was tried but doesn't re-flip on dark/light
+        # toggle (palette is sampled once at __init__). QSS re-applies
+        # automatically via `install_app_stylesheet`'s colorSchemeChanged
+        # hook. The QListWidget below is transparent so this bg shows
+        # through the margin and the inter-thumb gap.
+        self.setObjectName("filmstrip")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
@@ -832,14 +810,14 @@ class FilmstripWidget(QWidget):
 
         exposure_time = result.exif.get("ExposureTime")
         f_number = result.exif.get("FNumber")
-        caption = (
-            "%s\nf/%s | %s" % (
-                Path(result.path).name, f_number,
-                getattr(exposure_time, "real", exposure_time),
-            )
-            if exposure_time is not None and f_number is not None
-            else Path(result.path).name
-        )
+        # On-thumb caption is the trailing capture index only (e.g.
+        # "017") — short enough to read at thumbnail scale. Full
+        # filename + EXIF live in the tooltip below.
+        idx = get_file_index(result.path)
+        caption = f"{idx:03d}" if idx is not None else Path(result.path).stem
+        tooltip = Path(result.path).name
+        if exposure_time is not None and f_number is not None:
+            tooltip += f"\nf/{f_number} | {getattr(exposure_time, 'real', exposure_time)}"
 
         # Add the item only if a directory is still open (this callback
         # fires from a worker thread completion; the directory may have
@@ -860,6 +838,7 @@ class FilmstripWidget(QWidget):
                 )
             list_item = ImageFileListItem(result.path, pixmap)
             list_item.setText(caption)
+            list_item.setToolTip(tooltip)
             self.image_file_list.addItem(list_item)
             self.image_file_list.sortItems()
             self._stop_placeholder_anim_if_done()

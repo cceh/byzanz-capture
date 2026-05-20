@@ -104,6 +104,11 @@ QToolButton:disabled {
 
 /* ===== Filmstrip ================================================== */
 
+/* Outer strip — bg distinct from the surrounding pane so STRIP_MARGIN
+   reads as a visible border. `bg_card` flips for light/dark. */
+QWidget#filmstrip {
+    background: $bg_card;
+}
 QListWidget#filmstripList {
     background: transparent;
 }
