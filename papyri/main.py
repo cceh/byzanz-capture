@@ -893,6 +893,12 @@ class PapyriMainWindow(QMainWindow):
         s.camera_state_changed.connect(self._handle_camera_lifecycle)
         s.camera_state_changed.connect(self._handle_active_camera_state)
         s.camera_state_changed.connect(self._refresh_camera_dependent_ui)
+        # Camera-state also drives the capture-button caption (flips
+        # to "<X> camera not connected" when the active camera isn't
+        # ready). Filtered to the active spectrum inside the slot.
+        s.camera_state_changed.connect(
+            lambda *_: self._refresh_capture_button_label()
+        )
         # Also depends on object loaded state for capture-button enable.
         s.current_object_changed.connect(self._refresh_camera_dependent_ui)
         # Don't init-paint _handle_camera_lifecycle / _handle_active_camera_state
@@ -998,13 +1004,32 @@ class PapyriMainWindow(QMainWindow):
         )
 
     def _refresh_capture_button_label(self) -> None:
-        """Capture button caption. Reads B1+B2."""
-        side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
+        """Capture button caption. Reads B1+B2 (active bucket) and
+        B3+B4 (active camera state). When the active spectrum's camera
+        isn't ready, the caption flips to a "<X> camera not connected"
+        message so the disabled button explains itself."""
         spectrum_label = (
             "Visible" if self.session.active_spectrum == SPECTRUM_VISIBLE
             else "Infrared"
         )
+        if not self._active_camera_ready():
+            self.capture_button.setText(f"{spectrum_label} camera not connected")
+            return
+        side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
         self.capture_button.setText(f"Capture · {side_label} · {spectrum_label}")
+
+    def _active_camera_ready(self) -> bool:
+        """True iff the active spectrum's camera is in a state where
+        capture / focus / live view are actually possible (vs Waiting,
+        Connecting, Disconnected, ConnectionError, etc.)."""
+        return isinstance(self.session.active_camera_state, (
+            CameraStates.Ready,
+            CameraStates.LiveViewStarted,
+            CameraStates.LiveViewActive,
+            CameraStates.FocusStarted,
+            CameraStates.FocusFinished,
+            CameraStates.CaptureFinished,
+        ))
 
     def _refresh_camera_state_emphasis(self) -> None:
         """Top-bar camera-state pill emphasis: the active spectrum's
@@ -1256,14 +1281,7 @@ class PapyriMainWindow(QMainWindow):
         object_loaded = has_object and self.session.current_object.dir_loaded
 
         # ---- live view + autofocus + capture (bottom row)
-        camera_ready = isinstance(camera_state, (
-            CameraStates.Ready,
-            CameraStates.LiveViewStarted,
-            CameraStates.LiveViewActive,
-            CameraStates.FocusStarted,
-            CameraStates.FocusFinished,
-            CameraStates.CaptureFinished,
-        ))
+        camera_ready = self._active_camera_ready()
         self.pause_live_view_button.setEnabled(camera_ready)
         self.capture_button.setEnabled(camera_ready and object_loaded)
 
