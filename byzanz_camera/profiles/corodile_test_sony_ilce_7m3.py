@@ -99,3 +99,8 @@ class MoritzA7MIII(Profile):
         return {
             "imagequality": "RAW+JPEG"
         }
+
+    def capture_format_raw_settings(self):
+        return {
+            "imagequality": "RAW"
+        }

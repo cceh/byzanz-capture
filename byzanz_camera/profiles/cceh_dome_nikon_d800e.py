@@ -107,3 +107,8 @@ class CCeHDomeNikonD800E(Profile):
         return {
             "imagequality": "JPEG Fine"
         }
+
+    def capture_format_raw_settings(self):
+        return {
+            "imagequality": "NEF (Raw)"
+        }

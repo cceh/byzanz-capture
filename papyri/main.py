@@ -1621,7 +1621,7 @@ class PapyriMainWindow(QMainWindow):
                 self.session.active_side, self.session.active_spectrum
             ),
             num_images=1,
-            image_quality=CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW,
+            image_quality=CaptureImagesRequest.CaptureFormat.RAW,
             manual_trigger=False,
         )
         self.active_worker.commands.capture_images.emit(req)

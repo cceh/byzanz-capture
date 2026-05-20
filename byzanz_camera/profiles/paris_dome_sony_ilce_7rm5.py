@@ -101,3 +101,8 @@ class ParisDomeSonyIlce7RM5(Profile):
         return {
             "imagequality": "RAW+JPEG"
         }
+
+    def capture_format_raw_settings(self):
+        return {
+            "imagequality": "RAW"
+        }

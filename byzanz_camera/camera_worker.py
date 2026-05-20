@@ -54,6 +54,7 @@ EVENT_DESCRIPTIONS = {
     gp.GP_EVENT_TIMEOUT: "Timeout"
 }
 
+
 class ConfigProtocol(Protocol):
     def get_child_by_name(self, name: str): ...
     def get_value(self): ...
@@ -93,6 +94,7 @@ class CaptureImagesRequest():
     class CaptureFormat(Enum):
         JPEG = "jpeg"
         JPEG_AND_RAW = "jpeg_and_raw"
+        RAW = "raw"
 
     class Signal(QObject):
         file_received = pyqtSignal(str)
@@ -231,6 +233,15 @@ class CameraEvents(QObject):
 
 
 class CameraWorker(QObject):
+    FORMAT_SETTINGS_MAP = {
+        CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW:
+            lambda profile: profile.capture_format_jpeg_and_raw_settings(),
+        CaptureImagesRequest.CaptureFormat.JPEG:
+            lambda profile: profile.capture_format_jpeg_settings(),
+        CaptureImagesRequest.CaptureFormat.RAW:
+            lambda profile: profile.capture_format_raw_settings(),
+    }
+
     initialized = pyqtSignal()
     state_changed = pyqtSignal(object)
     property_changed = pyqtSignal(PropertyChangeEvent)
@@ -717,10 +728,10 @@ class CameraWorker(QObject):
 
             self.__apply_settings(self.profile.start_capture_settings())
 
-            if capture_req.image_quality == CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW:
-                self.__apply_settings(self.profile.capture_format_jpeg_and_raw_settings())
-            elif capture_req.image_quality == CaptureImagesRequest.CaptureFormat.JPEG:
-                self.__apply_settings(self.profile.capture_format_jpeg_settings())
+            # Then in the code:
+            settings_getter = self.FORMAT_SETTINGS_MAP.get(capture_req.image_quality)
+            if settings_getter:
+                self.__apply_settings(settings_getter(self.profile))
 
             # Two outer-loop strategies depending on the profile:
             # 1. Burst (Nikon dome): one trigger fires N shots and we don't
