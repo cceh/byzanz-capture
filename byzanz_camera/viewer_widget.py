@@ -10,11 +10,14 @@ capture controls) between the viewer and the thumbnail strip.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QRectF, QSize, Qt
+from PyQt6.QtCore import QEvent, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap,
 )
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStackedWidget,
+    QVBoxLayout, QWidget,
+)
 
 from .photo_viewer import PhotoViewer
 from .spinner import Spinner
@@ -96,6 +99,104 @@ class _ViewStatePill(QWidget):
         p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._text)
 
 
+# ---- no-object overlay card ---------------------------------------------
+
+class _NoObjectCard(QFrame):
+    """Centered card shown when the host app has no current object.
+    Replaces the photo with a headline + CTA so the user has an
+    obvious next step rather than staring at a blank viewer."""
+
+    new_object_clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("noObjectCard")
+        self.setStyleSheet("""
+            QFrame#noObjectCard {
+                background: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+            }
+            QLabel#noObjectTitle {
+                font-size: 18pt;
+                font-weight: 600;
+                color: #1c1c1c;
+            }
+            QLabel#noObjectSubtitle {
+                font-size: 11pt;
+                color: #5a5a5a;
+            }
+            QPushButton#noObjectCta {
+                background: #1c4a48;
+                color: white;
+                padding: 8px 22px;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 11pt;
+                border: none;
+            }
+            QPushButton#noObjectCta:hover {
+                background: #2c5f5c;
+            }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 32, 40, 32)
+        layout.setSpacing(10)
+
+        title = QLabel("No object open")
+        title.setObjectName("noObjectTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Start a new one or pick an existing one from the sidebar →"
+        )
+        subtitle.setObjectName("noObjectSubtitle")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(subtitle)
+
+        layout.addSpacing(8)
+
+        button = QPushButton("Start new object")
+        button.setObjectName("noObjectCta")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(self.new_object_clicked)
+        layout.addWidget(button, 0, Qt.AlignmentFlag.AlignCenter)
+        # Card hugs its content (don't stretch to fill the page).
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+
+class _NoObjectPage(QWidget):
+    """Fills the stacked-widget page; centers the card horizontally
+    and vertically via stretches — pure layout, no geometry math.
+
+    Matches the empty PhotoViewer's dark background + 1px border so
+    the page swap is seamless (only the card differs visually)."""
+
+    def __init__(self, card: _NoObjectCard, parent=None):
+        super().__init__(parent)
+        self.setObjectName("noObjectPage")
+        # Plain QWidget doesn't paint stylesheet backgrounds without
+        # this attribute (it defaults to "let the system style draw").
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("""
+            QWidget#noObjectPage {
+                background: rgb(30, 30, 30);
+                border: 1px solid #e2e8f0;
+                border-radius: 3px;
+            }
+        """)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addStretch(1)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(card)
+        row.addStretch(1)
+        outer.addLayout(row)
+        outer.addStretch(1)
+
+
 # ---- the widget --------------------------------------------------------
 
 class ViewerWidget(QWidget):
@@ -109,24 +210,41 @@ class ViewerWidget(QWidget):
     amber identity), amber for paused, grey for preview.
     """
     _VIEW_STATE_BORDERS = {
-        "live":    "1.5px solid #06b6d4",
-        "paused":  "1px dashed #cbd5e1",
-        "preview": "1.5px solid #94a3b8",
-        "empty":   "1px solid #e2e8f0",
+        "live":      "1.5px solid #06b6d4",
+        "paused":    "1px dashed #cbd5e1",
+        "preview":   "1.5px solid #94a3b8",
+        "empty":     "1px solid #e2e8f0",
+        "no_object": "1px solid #e2e8f0",
     }
     _LIVE_DOT_COLOR    = "#06b6d4"
     _PAUSED_ICON_COLOR = "#fbbf24"
     _PILL_INSET = 12
     _SPINNER_SIZE = 120
 
+    # Emitted when the user clicks the "Start new object" CTA in the
+    # no_object overlay. The host wires this to whatever action focuses
+    # the new-object input (e.g. title bar).
+    new_object_requested = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        # Photo + no-object CTA live as siblings in a QStackedWidget so
+        # we can swap pages declaratively — no manual geometry sync for
+        # the CTA card (its centering is layout-driven inside its page).
         self.photo_viewer = PhotoViewer(self)
         self.photo_viewer.setObjectName("photoViewer")
-        layout.addWidget(self.photo_viewer, 1)
+
+        self._no_object_card = _NoObjectCard()
+        self._no_object_page = _NoObjectPage(self._no_object_card)
+
+        self._viewer_stack = QStackedWidget(self)
+        self._viewer_stack.addWidget(self.photo_viewer)   # index 0
+        self._viewer_stack.addWidget(self._no_object_page)  # index 1
+        layout.addWidget(self._viewer_stack, 1)
 
         # Zoom control bar — embedded so any host gets it for free.
         # Wired bidirectionally to the photo viewer so the bar mirrors
@@ -167,6 +285,11 @@ class ViewerWidget(QWidget):
         self._spinner = Spinner(self.photo_viewer, Spinner.m_light_color)
         self._spinner.isAnimated = False
         self._reposition_spinner()
+
+        # CTA button click → re-emit at the widget level.
+        self._no_object_card.new_object_clicked.connect(
+            self.new_object_requested
+        )
 
         self.photo_viewer.viewport().installEventFilter(self)
         self._refresh_indicator()
@@ -226,13 +349,20 @@ class ViewerWidget(QWidget):
     # ---- internals ------------------------------------------------------
 
     def _refresh_indicator(self) -> None:
+        # Page swap: no_object → CTA page; anything else → photo page.
+        # Done first so the pill below doesn't briefly show over the
+        # wrong page during a transition.
+        self._viewer_stack.setCurrentWidget(
+            self._no_object_page if self._view_state == "no_object"
+            else self.photo_viewer
+        )
         # Border tint on the QGraphicsView itself.
         border = self._VIEW_STATE_BORDERS[self._view_state]
         self.photo_viewer.setStyleSheet(
             f"QGraphicsView#photoViewer {{ border: {border}; border-radius: 3px; }}"
         )
-        # Pill content + accent border.
-        if self._view_state == "empty":
+        # Pill content + accent border. Hidden for empty / no_object.
+        if self._view_state in ("empty", "no_object"):
             self._pill.hide()
             return
         if self._view_state == "live":

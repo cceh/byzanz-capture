@@ -181,6 +181,11 @@ class BucketTabBar(QTabBar):
     def paintEvent(self, _evt) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Whole-bar dim when the host disables the selector (e.g. no
+        # object loaded). Qt already blocks input on disabled widgets;
+        # this just gives a visual cue.
+        if not self.isEnabled():
+            p.setOpacity(0.45)
 
         active_idx = -1 if self._inactive_group else self.currentIndex()
         for i in range(self.count()):

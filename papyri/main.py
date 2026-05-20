@@ -742,6 +742,8 @@ class PapyriMainWindow(QMainWindow):
         )
         self.objects_sidebar.object_selected.connect(self._on_sidebar_object_selected)
         self.objects_sidebar.new_object_requested.connect(self._on_sidebar_new_object)
+        # No-object CTA in the viewer routes to the same handler.
+        self.viewer.new_object_requested.connect(self._on_sidebar_new_object)
 
         # Metadata changes flip the sidebar badge between `??` and `✓` —
         # keep them in sync without manual refresh.
@@ -863,6 +865,8 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._refresh_filmstrip_binding)
         s.current_object_changed.connect(self._handle_current_object_subscription)
         s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
+        s.current_object_changed.connect(self._refresh_no_object_lockout)
+        s.current_object_changed.connect(self._refresh_capture_button_label)
         self._refresh_metadata_pane_binding()
         self._refresh_title_bar_binding()
         self._refresh_objects_sidebar_active()
@@ -871,6 +875,7 @@ class PapyriMainWindow(QMainWindow):
         # _refresh_filmstrip_binding already called above (B1+B2 init)
         self._handle_current_object_subscription()
         self._handle_current_object_view_mode_reset()
+        self._refresh_no_object_lockout()
 
         # B6 live_view_paused
         s.live_view_paused_changed.connect(self._refresh_pause_button_text)
@@ -991,10 +996,13 @@ class PapyriMainWindow(QMainWindow):
         )
 
     def _refresh_capture_button_label(self) -> None:
-        """Capture button caption. Reads B1+B2 (active bucket) and
-        B3+B4 (active camera state). When the active spectrum's camera
-        isn't ready, the caption flips to a "<X> camera not connected"
-        message so the disabled button explains itself."""
+        """Capture button caption. Priority order:
+        (1) no object loaded → instruct the user to open one;
+        (2) active spectrum's camera not ready → name the missing camera;
+        (3) normal → "Capture · Side X · Visible/Infrared"."""
+        if self.session.current_object is None:
+            self.capture_button.setText("Open an object to capture")
+            return
         spectrum_label = (
             "Visible" if self.session.active_spectrum == SPECTRUM_VISIBLE
             else "Infrared"
@@ -1530,11 +1538,23 @@ class PapyriMainWindow(QMainWindow):
             new.refresh()
 
     def _handle_current_object_view_mode_reset(self) -> None:
-        """When the object closes (B5 → None), reset view_mode to "empty"
-        so the stale preview / live indicator doesn't persist with no
-        listing."""
+        """B5 → None: flip view_mode to "no_object" so the viewer's
+        CTA card replaces whatever was on screen. B5 → object: clear
+        a stale "no_object" so the CTA goes away before any live
+        frame / capture arrives to assert a different mode."""
         if self.session.current_object is None:
+            self.viewer.show_image(None)
+            self.session.set_view_mode("no_object")
+        elif self.session.view_mode == "no_object":
             self.session.set_view_mode("empty")
+
+    def _refresh_no_object_lockout(self) -> None:
+        """When no object is open the bucket selector is disabled
+        (Qt blocks input + paintEvent dims the cards). When an object
+        is loaded it re-enables. The viewer's CTA card is driven via
+        the "no_object" view_mode in `_handle_current_object_view_mode_reset`."""
+        has_object = self.session.current_object is not None
+        self.bucket_selector.setEnabled(has_object)
 
     # ---- B6 receivers (live_view_paused_changed) -----------------------
 
