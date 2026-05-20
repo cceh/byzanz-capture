@@ -32,7 +32,13 @@ class CameraStateWidget(QFrame):
     """One camera's connection status panel.
 
     Layout (horizontal):
-        [VIS badge] [icon] [state text] [spinner] [connect btn] [disconnect btn]
+        [VIS badge] [icon] [state text] [spinner] [connect btn]
+
+    Connect is visible only when the camera is disconnected / in
+    error — when connected the worker handles the live view itself
+    and the user has no reason to break that. Disconnect was removed
+    because it was visual noise in the success path; reconnecting on
+    purpose can still go through Settings.
 
     Optional `set_emphasized(True)` highlights the whole pill with a 2px
     spectrum-colored border — used by main.py to mark "this camera is the
@@ -103,7 +109,7 @@ class CameraStateWidget(QFrame):
         outer.addWidget(self._side_badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._icon = QLabel()
-        self._icon.setFixedSize(28, 28)
+        self._icon.setFixedSize(20, 20)
         self._icon.setScaledContents(True)
         self._icon.setPixmap(QPixmap(get_ui_path("ui/camera_waiting.png")))
         outer.addWidget(self._icon, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -127,12 +133,6 @@ class CameraStateWidget(QFrame):
         self._connect_btn.clicked.connect(self._on_connect_clicked)
         outer.addWidget(self._connect_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._disconnect_btn = self._make_icon_button(
-            "ui/disconnect-camera.svg", "Disconnect"
-        )
-        self._disconnect_btn.clicked.connect(self._on_disconnect_clicked)
-        outer.addWidget(self._disconnect_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-
     @staticmethod
     def _make_icon_button(icon_path: str, tooltip: str) -> QToolButton:
         # QToolButton + autoRaise matches the title-bar rename/close
@@ -152,51 +152,42 @@ class CameraStateWidget(QFrame):
     def _on_state(self, state) -> None:
         if isinstance(state, CameraStates.Waiting):
             self._set_icon("camera_waiting.png")
-            self._text.setText("Searching for camera…")
+            self._text.setText("Searching…")
             self._spinner.isAnimated = True
             self._connect_btn.setVisible(False)
-            self._disconnect_btn.setVisible(False)
         elif isinstance(state, CameraStates.Found):
             self._set_icon("camera_waiting.png")
             self._text.setText(f"Found: <b>{state.camera_name}</b>")
             self._spinner.isAnimated = True
             self._connect_btn.setVisible(False)
-            self._disconnect_btn.setVisible(False)
         elif isinstance(state, CameraStates.Connecting):
-            self._text.setText(f"Connecting…<br><b>{state.camera_name}</b>")
+            self._text.setText(f"Connecting…")
             self._spinner.isAnimated = True
             self._connect_btn.setVisible(False)
-            self._disconnect_btn.setVisible(False)
         elif isinstance(state, CameraStates.Disconnecting):
             self._text.setText("Disconnecting…")
             self._spinner.isAnimated = True
             self._connect_btn.setVisible(False)
-            self._disconnect_btn.setVisible(True)
-            self._disconnect_btn.setEnabled(False)
         elif isinstance(state, CameraStates.Disconnected):
             self._set_icon("camera_not_ok.png")
             name = state.camera_name or ""
-            self._text.setText(f"Disconnected: <b>{name.replace("Corporation ", "")}</b>")
+            self._text.setText(f"<b>{name.replace("Corporation ", "")}</b>")
             self._spinner.isAnimated = False
             self._connect_btn.setVisible(True)
             self._connect_btn.setEnabled(True)
-            self._disconnect_btn.setVisible(False)
         elif isinstance(state, CameraStates.ConnectionError):
             self._set_icon("camera_not_ok.png")
             self._text.setText(f"Error: {state.error}")
             self._spinner.isAnimated = False
             self._connect_btn.setVisible(True)
             self._connect_btn.setEnabled(True)
-            self._disconnect_btn.setVisible(False)
         else:
             # Ready / LiveView* / Capture* / Focus* — all "connected and idle/working" states.
             name = self._worker.camera_name if self._worker and self._worker.camera_name else ""
             self._set_icon("camera_ok.png")
-            self._text.setText(f"Connected:<br><b>{name.replace("Corporation ", "")}</b>")
+            self._text.setText(f"<b>{name.replace("Corporation ", "")}</b>")
             self._spinner.isAnimated = False
             self._connect_btn.setVisible(False)
-            self._disconnect_btn.setVisible(True)
-            self._disconnect_btn.setEnabled(True)
 
     def _set_icon(self, name: str) -> None:
         self._icon.setPixmap(QPixmap(get_ui_path(f"ui/{name}")))
@@ -206,7 +197,3 @@ class CameraStateWidget(QFrame):
     def _on_connect_clicked(self) -> None:
         if self._worker and self._profile:
             self._worker.commands.connect_camera.emit(self._profile)
-
-    def _on_disconnect_clicked(self) -> None:
-        if self._worker:
-            self._worker.commands.disconnect_camera.emit()

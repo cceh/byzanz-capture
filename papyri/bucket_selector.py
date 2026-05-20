@@ -104,11 +104,16 @@ class BucketTabBar(QTabBar):
         self.setMouseTracking(True)
         self._inactive_group = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        # The group's accent — used for the active card's border + text,
-        # the per-card VIS/IR badge fill, and queried by FusingPanel
-        # for its frame. Set by BucketSelector.set_groups from
+        # The group's accent — used for the ACTIVE card's border + text
+        # + VIS/IR badge fill, and queried by FusingPanel for its
+        # frame. Set by BucketSelector.set_groups from
         # `WorkflowGroup.base_color`.
         self._accent_color: QColor = _ACCENT_FALLBACK
+        # Soft variants for INACTIVE card badges — same hue family,
+        # low weight so the four-tab strip doesn't pulse with
+        # competing saturated badges.
+        self._soft_color: QColor = QColor("#e2e8f0")
+        self._soft_text: QColor = QColor("#475569")
         # Short spectrum label ("VIS" / "IR") rendered as a small pill
         # on each card, matching the camera-state widget's badge.
         self._short_label: str = ""
@@ -118,6 +123,13 @@ class BucketTabBar(QTabBar):
 
     def set_accent_color(self, color: QColor) -> None:
         self._accent_color = color
+        self.update()
+
+    def set_soft_colors(self, bg: QColor, text: QColor) -> None:
+        """Inactive-state badge colors (low-emphasis variant of the
+        group accent). Typically `WorkflowGroup.bg_done` + `text_dark`."""
+        self._soft_color = bg
+        self._soft_text = text
         self.update()
 
     def short_label(self) -> str:
@@ -254,8 +266,9 @@ class BucketTabBar(QTabBar):
                                         Qt.TransformationMode.SmoothTransformation))
 
         # Labels (right) — badge + side label, both vertically centered
-        # in the card. The badge matches the camera-state widget pill:
-        # accent-colored rounded rect, white bold text.
+        # in the card. Active card gets saturated accent badge; inactive
+        # cards get the soft variant so the four-tab strip doesn't pulse
+        # with competing saturated badges.
         text_x = thumb_rect.right() + 10
         badge_h = 16
         badge_label = self._short_label
@@ -269,10 +282,14 @@ class BucketTabBar(QTabBar):
                 rect.y() + (rect.height() - badge_h) / 2,
                 badge_text_w + 12, badge_h,
             )
+            if active:
+                badge_bg, badge_fg = self._accent_color, QColor("white")
+            else:
+                badge_bg, badge_fg = self._soft_color, self._soft_text
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(self._accent_color))
+            p.setBrush(QBrush(badge_bg))
             p.drawRoundedRect(badge_rect, 4, 4)
-            p.setPen(QColor("white"))
+            p.setPen(badge_fg)
             p.setFont(badge_font)
             p.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_label)
             text_x = badge_rect.right() + 6
@@ -369,6 +386,7 @@ class BucketSelector(QWidget):
 
         bar = BucketTabBar(self)
         bar.set_accent_color(accent)
+        bar.set_soft_colors(QColor(group.bg_done), QColor(group.text_dark))
         bar.set_short_label(group.short_label)
         for step in group.steps:
             side = "A" if "A" in step.label else "B"

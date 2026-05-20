@@ -35,6 +35,12 @@ COLORS: dict[str, str] = {
     # accents, fusing-panel border, capture-area chrome.
     "vis":             "#3b82f6",
     "ir":              "#ea580c",
+    # Soft variants for low-emphasis treatments (sidebar selection,
+    # inactive bucket tab badges).
+    "vis_soft":        "#dbeafe",   # vis-100
+    "vis_text_dark":   "#1e3a8a",   # vis-800 — text on vis_soft
+    "ir_soft":         "#ffedd5",   # ir-100
+    "ir_text_dark":    "#9a3412",   # ir-800 — text on ir_soft
     # Generic neutrals.
     "bg_pane":         "#f8fafc",
     "bg_pane_alt":     "#f1f5f9",

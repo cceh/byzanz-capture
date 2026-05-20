@@ -56,8 +56,10 @@
     border-radius: 4px;
 }
 #sidebarList::item:selected {
-    background: $slate_select;
-    color: white;
+    background: $vis_soft;       /* low-weight tint, identifies the
+                                    selected row without competing
+                                    with the photo viewer below */
+    color: $vis_text_dark;
 }
 #sidebarWorkdir {
     color: $ink_3;
@@ -67,7 +69,11 @@
 /* #sidebarNewButton uses native QPushButton styling. */
 
 
-/* Zoom control bar — uses native widget styling. No QSS needed. */
+/* Zoom control bar — uses native widget styling. The macOS accent
+   blue on the checked Fit/1:1 button can't be subdued cleanly:
+   touching the `:checked` state via QSS makes Qt strip native chrome
+   from the unchecked state too. Accepting the native blue is the
+   right call vs. half-styling. */
 
 
 /* ===== Icon-only tool buttons (autoRaise) ========================= */
@@ -212,9 +218,15 @@ QLabel#bucketGroupHeader {
 
 /* Editable state uses native QLineEdit styling. Read-only state
    (object loaded, name displayed not edited) drops the input chrome
-   and underlines the text so it reads as a heading instead. */
+   so the bold name reads as a heading — the adjacent rename button
+   carries the "you can change this" affordance. */
 #nameField[readOnly="true"] {
     background: transparent;
     border: 1.5px solid transparent;
-    text-decoration: underline;
+}
+
+/* ===== Top bar ================ */
+
+#topRow {
+    margin-top: 5px;
 }

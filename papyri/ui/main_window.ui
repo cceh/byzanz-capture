@@ -70,7 +70,13 @@
           <property name="sizeConstraint">
            <enum>QLayout::SetDefaultConstraint</enum>
           </property>
+          <property name="topMargin">
+           <number>8</number>
+          </property>
           <property name="rightMargin">
+           <number>8</number>
+          </property>
+          <property name="bottomMargin">
            <number>8</number>
           </property>
           <item>

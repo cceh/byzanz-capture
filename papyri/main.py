@@ -1003,12 +1003,16 @@ class PapyriMainWindow(QMainWindow):
         )
 
     def _refresh_capture_button_label(self) -> None:
-        """Capture button caption. Priority order:
+        """Capture button caption + icon. Priority order:
         (1) no object loaded → instruct the user to open one;
-        (2) active spectrum's camera not ready → name the missing camera;
-        (3) normal → "Capture · Side X · Visible/Infrared"."""
+        (2) active spectrum's camera not ready → name the missing camera
+            AND swap to the camera-not-ok icon so the disabled button
+            reads as a warning hint, not a static label;
+        (3) normal → "Capture · Side X · Visible/Infrared" with the
+            capture icon."""
         if self.session.current_object is None:
             self.capture_button.setText("Open an object to capture")
+            self.capture_button.setIcon(QIcon(get_ui_path("ui/capture.svg")))
             return
         spectrum_label = (
             "Visible" if self.session.active_spectrum == SPECTRUM_VISIBLE
@@ -1016,9 +1020,11 @@ class PapyriMainWindow(QMainWindow):
         )
         if not self._active_camera_ready():
             self.capture_button.setText(f"{spectrum_label} camera not connected")
+            self.capture_button.setIcon(QIcon(get_ui_path("ui/camera_not_ok.svg")))
             return
         side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
         self.capture_button.setText(f"Capture · {side_label} · {spectrum_label}")
+        self.capture_button.setIcon(QIcon(get_ui_path("ui/capture.svg")))
 
     def _active_camera_ready(self) -> bool:
         """True iff the active spectrum's camera is in a state where
