@@ -858,7 +858,6 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._refresh_title_bar_binding)
         s.current_object_changed.connect(self._refresh_objects_sidebar_active)
         s.current_object_changed.connect(self._refresh_objects_sidebar_entries)
-        s.current_object_changed.connect(self._refresh_workflow_stepper_counts)
         s.current_object_changed.connect(self._refresh_workflow_stepper_active)
         s.current_object_changed.connect(self._refresh_bucket_chosen_thumbs)
         s.current_object_changed.connect(self._refresh_filmstrip_binding)
@@ -868,7 +867,6 @@ class PapyriMainWindow(QMainWindow):
         self._refresh_title_bar_binding()
         self._refresh_objects_sidebar_active()
         self._refresh_objects_sidebar_entries()
-        self._refresh_workflow_stepper_counts()
         self._refresh_bucket_chosen_thumbs()
         # _refresh_filmstrip_binding already called above (B1+B2 init)
         self._handle_current_object_subscription()
@@ -929,17 +927,6 @@ class PapyriMainWindow(QMainWindow):
         return self.visible_worker
 
     # ---- B1+B2 receivers (active_bucket_changed) -----------------------
-
-    def _refresh_workflow_stepper_counts(self) -> None:
-        """Per-bucket capture counts. Reads B5 (current_object). Subscribed
-        to both current_object_changed (object swap) and obj.state_changed
-        via _on_object_state_changed (capture lands, set_chosen, etc.)."""
-        for (side, spectrum), step_id in _STEP_ID_BY_BUCKET.items():
-            count = (
-                self.session.current_object.count(side, spectrum)
-                if self.session.current_object is not None else 0
-            )
-            self.bucket_selector.set_count(step_id, count)
 
     def _refresh_bucket_chosen_thumbs(self) -> None:
         """Update each bucket card's thumb to its chosen-take preview.
@@ -1616,7 +1603,6 @@ class PapyriMainWindow(QMainWindow):
         """Single sink for any change in the current object's derived state.
         Components that mirror that state (side cards, objects sidebar badge,
         metadata pane subtitle) re-read from `self.session.current_object` here."""
-        self._refresh_workflow_stepper_counts()
         self._refresh_bucket_chosen_thumbs()
         # The active object's `· → ?? → ✓` badge in the sidebar can flip
         # when captures land. Cheap re-scan; no FS watcher needed.

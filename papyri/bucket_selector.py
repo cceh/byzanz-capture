@@ -7,9 +7,9 @@ on the right. The user clicks a tab to activate that bucket;
 exactly one tab across both bars is "globally active". The active
 tab's bottom edge visually fuses into the FusingPanel below.
 
-Drop-in replacement for WorkflowStepper as far as MainWindow is
-concerned — same WorkflowGroup / WorkflowStep input model, same
-public API (set_groups, set_count, set_active, step_clicked signal).
+Public API: `set_groups`, `set_active`, `set_chosen_thumb`,
+`step_clicked` signal. Same WorkflowGroup / WorkflowStep input model
+as the legacy WorkflowStepper so MainWindow can pass the same dataclass.
 
 Chosen-thumb support is opt-in via set_chosen_thumb(step_id, pixmap)
 — passing None or omitting it leaves the tab in its empty state.
@@ -19,8 +19,8 @@ from typing import Optional, Sequence
 
 from PyQt6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
-    QBrush, QColor, QFont, QImage, QMouseEvent, QPainter, QPainterPath,
-    QPen, QPixmap, QRadialGradient,
+    QBrush, QColor, QFont, QFontMetricsF, QImage, QMouseEvent, QPainter,
+    QPainterPath, QPen, QPixmap, QRadialGradient,
 )
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QSizePolicy, QTabBar, QVBoxLayout, QWidget,
@@ -28,8 +28,10 @@ from PyQt6.QtWidgets import (
 
 # We borrow the WorkflowGroup/WorkflowStep input dataclasses so the
 # caller (MainWindow) can pass exactly the same data structure used
-# with WorkflowStepper. The color tints are ignored — BucketSelector
-# uses a single slate-teal accent and the parchment / off-white surface.
+# with WorkflowStepper. Each group's `base_color` is honored as the
+# accent for that group's tab cards + the fusing-panel border when
+# one of its tabs is active (so VIS-active draws blue chrome, IR-
+# active draws orange) — matches the camera-state pill colours.
 from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
 
 
@@ -40,9 +42,9 @@ _BG_SURFACE    = QColor("#ffffff")
 _LINE          = QColor("#c9c4ba")
 _LINE_SOFT     = QColor("#e3dfd6")
 _INK           = QColor("#1c1c1c")
-_INK_2         = QColor("#5a5a5a")
 _INK_3         = QColor("#9a9a9a")
-_ACCENT        = QColor("#1c4a48")        # slate-teal, active state
+_ACCENT_FALLBACK = QColor("#1c4a48")      # slate-teal, used when no
+                                          # group-specific accent is set
 
 CARD_W   = 168
 CARD_H   = 56
@@ -75,13 +77,12 @@ def _placeholder_thumb(rect: QRectF, side: str, p: QPainter) -> None:
 
 class _BucketTab:
     """Internal per-tab state stored as tabData on the BucketTabBar."""
-    __slots__ = ("step_id", "label", "take_count", "chosen_thumb", "side")
+    __slots__ = ("step_id", "label", "chosen_thumb", "side")
 
     def __init__(self, step_id: str, label: str, side: str):
         self.step_id = step_id
         self.label = label
         self.side = side
-        self.take_count = 0
         self.chosen_thumb: Optional[QPixmap] = None
 
 
@@ -102,6 +103,29 @@ class BucketTabBar(QTabBar):
         self.setDocumentMode(True)
         self.setMouseTracking(True)
         self._inactive_group = False
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # The group's accent — used for the active card's border + text,
+        # the per-card VIS/IR badge fill, and queried by FusingPanel
+        # for its frame. Set by BucketSelector.set_groups from
+        # `WorkflowGroup.base_color`.
+        self._accent_color: QColor = _ACCENT_FALLBACK
+        # Short spectrum label ("VIS" / "IR") rendered as a small pill
+        # on each card, matching the camera-state widget's badge.
+        self._short_label: str = ""
+
+    def accent_color(self) -> QColor:
+        return self._accent_color
+
+    def set_accent_color(self, color: QColor) -> None:
+        self._accent_color = color
+        self.update()
+
+    def short_label(self) -> str:
+        return self._short_label
+
+    def set_short_label(self, label: str) -> None:
+        self._short_label = label
+        self.update()
 
     def set_inactive_group(self, inactive: bool) -> None:
         if inactive == self._inactive_group:
@@ -197,7 +221,7 @@ class BucketTabBar(QTabBar):
                           2 * radius, 2 * radius), 90, -90)
         path.lineTo(body.right(), body.bottom())
 
-        p.setPen(QPen(_ACCENT if active else _LINE, stroke))
+        p.setPen(QPen(self._accent_color if active else _LINE, stroke))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(path)
         if not active:
@@ -224,37 +248,49 @@ class BucketTabBar(QTabBar):
                                         Qt.AspectRatioMode.KeepAspectRatio,
                                         Qt.TransformationMode.SmoothTransformation))
 
-        # Labels (right).
+        # Labels (right) — badge + side label, both vertically centered
+        # in the card. The badge matches the camera-state widget pill:
+        # accent-colored rounded rect, white bold text.
         text_x = thumb_rect.right() + 10
-        text_w = rect.right() - text_x - 8
+        badge_h = 16
+        badge_label = self._short_label
+        if badge_label:
+            badge_font = p.font()
+            badge_font.setPointSize(8)
+            badge_font.setBold(True)
+            badge_text_w = QFontMetricsF(badge_font).horizontalAdvance(badge_label)
+            badge_rect = QRectF(
+                text_x,
+                rect.y() + (rect.height() - badge_h) / 2,
+                badge_text_w + 12, badge_h,
+            )
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(self._accent_color))
+            p.drawRoundedRect(badge_rect, 4, 4)
+            p.setPen(QColor("white"))
+            p.setFont(badge_font)
+            p.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_label)
+            text_x = badge_rect.right() + 6
 
+        text_w = rect.right() - text_x - 8
         font = p.font()
         font.setPointSize(11)
         font.setBold(True)
         p.setFont(font)
-        p.setPen(QPen(_ACCENT if active else (_INK_3 if dimmed else _INK)))
-        p.drawText(QRectF(text_x, rect.y() + 6, text_w, 18),
+        p.setPen(QPen(self._accent_color if active
+                      else (_INK_3 if dimmed else _INK)))
+        p.drawText(QRectF(text_x, rect.y(), text_w, rect.height()),
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                    data.label)
-
-        font.setPointSize(9)
-        font.setBold(False)
-        p.setFont(font)
-        status = f"{data.take_count} takes" if data.take_count else "—"
-        p.setPen(QPen(_INK_3 if dimmed or data.take_count == 0 else _INK_2))
-        p.drawText(QRectF(text_x, rect.bottom() - 22, text_w, 16),
-                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                   status)
 
 
 # ---- BucketSelector (drop-in for WorkflowStepper) -------------------------
 
 class BucketSelector(QWidget):
     """Two BucketTabBars (Visible | Infrared) coordinated so one tab is
-    globally active. Public API matches WorkflowStepper closely:
+    globally active. Public API:
 
         set_groups(groups)          configure the buckets
-        set_count(step_id, n)       update a tab's take-count
         set_active(step_id | None)  set/clear the active tab
         set_chosen_thumb(step_id, pixmap | None)
                                     update the thumb on a tab
@@ -276,51 +312,24 @@ class BucketSelector(QWidget):
     # ---- public API ----------------------------------------------------
 
     def set_groups(self, groups: Sequence[WorkflowGroup]) -> None:
-        """Configure the bars from the same WorkflowGroup list used with
-        WorkflowStepper. One bar per group. Tab order matches step order
-        within each group."""
-        # Wipe existing bars.
-        for bar in self._bars:
-            bar.setParent(None)
-            bar.deleteLater()
+        """Configure the bars from the same WorkflowGroup list used
+        with WorkflowStepper. One column per group; each column has
+        a colored header label stacked above the tab bar so the label
+        always sits above its bar's first tab regardless of how the
+        window resizes."""
+        # Wipe existing group columns (children of self._groups_layout).
+        while self._groups_layout.count():
+            item = self._groups_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
         self._bars = []
-        # Wipe headers too — rebuilt below.
-        while self._headers_layout.count():
-            item = self._headers_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-                w.deleteLater()
-        while self._bars_layout.count():
-            item = self._bars_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-                w.deleteLater()
 
-        for g_idx, group in enumerate(groups):
-            # Header for this group.
-            header = QLabel(
-                f"<span style='color:#5a5a5a;letter-spacing:1.5px;"
-                f"font-weight:600;'>{group.label.upper()}</span>"
-            )
-            header.setStyleSheet("font-size: 9pt; padding: 2px 4px 4px;")
-            self._headers_layout.addWidget(header)
-            self._headers_layout.addStretch(1)
-
-            bar = BucketTabBar(self)
-            for step in group.steps:
-                # `step.label` is "Side A" / "Side B"; figure side letter.
-                side = "A" if "A" in step.label else "B"
-                idx = bar.addTab("")
-                bar.setTabData(idx, _BucketTab(step.id, step.label, side))
-            bar.user_clicked.connect(lambda b=bar: self._on_user_clicked(b))
-            bar.currentChanged.connect(
-                lambda _i, b=bar: self._on_current_changed(b)
-            )
-            self._bars.append(bar)
-            self._bars_layout.addWidget(bar)
-        self._bars_layout.addStretch(1)
+        for group in groups:
+            accent = QColor(group.base_color)
+            self._groups_layout.addWidget(self._build_group_column(group, accent))
+        self._groups_layout.addStretch(1)
 
         # Initialize: first tab of first bar is the globally active one,
         # but no step_clicked is emitted (caller drives set_active).
@@ -328,16 +337,41 @@ class BucketSelector(QWidget):
             for bar in self._bars[1:]:
                 bar.set_inactive_group(True)
 
-    def set_count(self, step_id: str, count: int) -> None:
-        for bar in self._bars:
-            idx = bar.index_of_step(step_id)
-            if idx < 0:
-                continue
-            data = bar.tabData(idx)
-            if isinstance(data, _BucketTab) and data.take_count != count:
-                data.take_count = count
-                bar.update()
-            return
+    def _build_group_column(
+        self, group: WorkflowGroup, accent: QColor,
+    ) -> QWidget:
+        """A [header label, tab bar] column for one group. The column
+        widget hugs its content (fixed width = bar width) so columns
+        stay put when the parent resizes."""
+        column = QWidget(self)
+        column.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred,
+        )
+        col_layout = QVBoxLayout(column)
+        col_layout.setContentsMargins(0, 0, 0, 0)
+        col_layout.setSpacing(0)
+
+        header = QLabel(
+            f"<span style='color:{accent.name()};letter-spacing:1.5px;"
+            f"font-weight:600;'>{group.label.upper()}</span>"
+        )
+        header.setStyleSheet("font-size: 9pt; padding: 2px 0 4px 4px;")
+        col_layout.addWidget(header)
+
+        bar = BucketTabBar(self)
+        bar.set_accent_color(accent)
+        bar.set_short_label(group.short_label)
+        for step in group.steps:
+            side = "A" if "A" in step.label else "B"
+            idx = bar.addTab("")
+            bar.setTabData(idx, _BucketTab(step.id, step.label, side))
+        bar.user_clicked.connect(lambda b=bar: self._on_user_clicked(b))
+        bar.currentChanged.connect(
+            lambda _i, b=bar: self._on_current_changed(b)
+        )
+        self._bars.append(bar)
+        col_layout.addWidget(bar)
+        return column
 
     def set_active(self, step_id: Optional[str]) -> None:
         if step_id is None:
@@ -381,24 +415,23 @@ class BucketSelector(QWidget):
                 return bar
         return None
 
+    def active_accent_color(self) -> QColor:
+        """Accent color of the active group (VIS-blue / IR-orange).
+        Falls back to the default slate when nothing is active."""
+        bar = self.active_bar()
+        return bar.accent_color() if bar is not None else _ACCENT_FALLBACK
+
     # ---- internals -----------------------------------------------------
 
     def _build_chrome(self) -> None:
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        # Group headers row.
-        self._headers_layout = QHBoxLayout()
-        self._headers_layout.setContentsMargins(4, 0, 4, 4)
-        self._headers_layout.setSpacing(0)
-        outer.addLayout(self._headers_layout)
-
-        # Bars row.
-        self._bars_layout = QHBoxLayout()
-        self._bars_layout.setContentsMargins(0, 0, 0, 0)
-        self._bars_layout.setSpacing(INTER_GROUP_GAP)
-        outer.addLayout(self._bars_layout)
+        """One horizontal row of vertical group-columns. Each column is
+        a QWidget holding [header label, tab bar] stacked, so the
+        header always sits flush above its own bar's first tab — no
+        resize-time math needed. A trailing stretch packs all columns
+        to the left."""
+        self._groups_layout = QHBoxLayout(self)
+        self._groups_layout.setContentsMargins(0, 0, 0, 0)
+        self._groups_layout.setSpacing(INTER_GROUP_GAP)
 
     def _on_user_clicked(self, clicked_bar: BucketTabBar) -> None:
         # The clicked bar becomes globally active. The other bars deactivate.
@@ -455,7 +488,9 @@ class FusingPanel(QFrame):
         p.fillRect(self.rect(), _BG_SURFACE)
 
         y_top = 0.75
-        p.setPen(QPen(_ACCENT, 1.5))
+        accent = (self._selector.active_accent_color()
+                  if self._selector is not None else _ACCENT_FALLBACK)
+        p.setPen(QPen(accent, 1.5))
         x_range = self._active_tab_x_range()
         if x_range is None:
             p.drawLine(QPointF(0, y_top), QPointF(self.width(), y_top))
