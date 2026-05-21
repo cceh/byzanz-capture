@@ -40,6 +40,18 @@ class PhotoViewer(QtWidgets.QGraphicsView):
         self.viewport().installEventFilter(self)
         self.horizontalScrollBar().installEventFilter(self)
         self.verticalScrollBar().installEventFilter(self)
+        # Reactive cursor / dragMode — whenever the scrollbar's range
+        # changes (after any scale or layout pass), re-evaluate. This
+        # replaces a fleet of imperative `self.setDragState()` calls in
+        # zoom paths that ran BEFORE Qt had updated scrollbar geometry
+        # and thus read stale `maximum()` — leaving the cursor stuck on
+        # arrow even when there was room to pan.
+        self.horizontalScrollBar().rangeChanged.connect(
+            lambda *_: self.setDragState()
+        )
+        self.verticalScrollBar().rangeChanged.connect(
+            lambda *_: self.setDragState()
+        )
 
     def getScene(self):
         return self._scene
@@ -83,9 +95,8 @@ class PhotoViewer(QtWidgets.QGraphicsView):
                 self._zoomfactor = factor
                 self._zoom = math.log( self._zoomfactor, self.ZOOMFACT )
                 self.scale(factor, factor)
-                # self.parent.updateStatusBar()
-                if (self.isMouseOver): # should be true on wheel, regardless
-                    self.setDragState()
+                # dragMode now driven reactively by scrollbar.rangeChanged
+                # (wired in __init__) — no imperative setDragState here.
                 self.zoom_changed.emit(self._zoomfactor)
 
     # ---- introspection / external control (for the zoom control bar) ----
@@ -106,25 +117,34 @@ class PhotoViewer(QtWidgets.QGraphicsView):
         return min(viewrect.width() / rect.width(),
                    viewrect.height() / rect.height())
 
+    def _apply_scale(self, target: float) -> bool:
+        """Single source of truth for scale changes. Clamps `target`
+        to the legal envelope ([fit_scale, max(1.0, fit_scale)]),
+        applies the transform, syncs internal state, emits
+        `zoom_changed`. Returns True iff the scale actually changed.
+
+        All zoom entry points (slider, ±buttons, wheel, pinch, animation
+        steps) funnel through here so clamping + state sync + emit can't
+        drift between paths. Cursor / drag-mode is now driven by the
+        scrollbar's `rangeChanged` signal (wired in __init__), so we
+        don't call setDragState here — it'd race the layout pass."""
+        if not self.hasPhoto():
+            return False
+        lo = self.fit_scale()
+        target = max(lo, min(max(1.0, lo), target))
+        current = self.current_scale()
+        if current <= 0 or abs(target - current) < 1e-6:
+            return False
+        self.scale(target / current, target / current)
+        self._zoomfactor = target
+        self._zoom = math.log(target, self.ZOOMFACT)
+        self.zoom_changed.emit(target)
+        return True
+
     def set_absolute_scale(self, scale: float) -> None:
         """Apply an absolute scale (clamped to [fit, 1.0]). Used by
         the zoom-bar slider and by 1:1 / Fit buttons."""
-        if not self.hasPhoto():
-            return
-        lo = self.fit_scale()
-        hi = max(1.0, lo)
-        target = max(lo, min(hi, scale))
-        current = self.current_scale()
-        if current <= 0:
-            return
-        factor = target / current
-        if abs(factor - 1.0) < 1e-6:
-            return
-        self._zoomfactor = target
-        self._zoom = math.log(target, self.ZOOMFACT)
-        self.scale(factor, factor)
-        self.setDragState()
-        self.zoom_changed.emit(target)
+        self._apply_scale(scale)
 
     # ---- animated jumps ------------------------------------------------
     # Reserved for the discrete-jump zoom actions (double-click toggle,
@@ -170,18 +190,11 @@ class PhotoViewer(QtWidgets.QGraphicsView):
             # Log-scale interpolation — perceptually constant rate.
             # Linear interpolation visibly ramps at the small end.
             scale = math.exp(log_start + (log_end - log_start) * t)
-            cur = self.current_scale()
-            if cur > 0:
-                factor = scale / cur
-                self.scale(factor, factor)
-            self._zoomfactor = scale
-            self._zoom = math.log(scale, self.ZOOMFACT)
+            self._apply_scale(scale)
             self.centerOn(start_center.x() + dx * t,
                           start_center.y() + dy * t)
-            self.zoom_changed.emit(scale)
 
         anim.valueChanged.connect(step)
-        anim.finished.connect(self.setDragState)
         anim.start()
         # Keep a reference — QVariantAnimation is GC'd otherwise and
         # stops mid-flight.
@@ -230,45 +243,18 @@ class PhotoViewer(QtWidgets.QGraphicsView):
             self._zoomfactor = 1.0
             unity = self.transform().mapRect(QtCore.QRectF(0, 0, 1, 1))
             self.scale(1 / unity.width(), 1 / unity.height())
-            # self.parent.updateStatusBar()
-            if (self.isMouseOver):
-                self.setDragState()
+            # dragMode tracked reactively via scrollbar.rangeChanged.
             self.zoom_changed.emit(self._zoomfactor)
 
     def zoomPlus(self):
-        if not self.hasPhoto() or self._zoomfactor >= 1.0:
-            return
-        next_factor = self._zoomfactor * self.ZOOMFACT
-        if next_factor > 1.0:
-            # Last step would overshoot 1:1 — snap exactly to 1.0
-            # so the scroll-wheel can land precisely on 100% instead
-            # of an arbitrary value in (80%, 125%].
-            self.set_absolute_scale(1.0)
-            return
-        self._zoomfactor = next_factor
-        self._zoom += 1
-        self.scale(self.ZOOMFACT, self.ZOOMFACT)
-        self.setDragState()
-        self.zoom_changed.emit(self._zoomfactor)
+        # Snap-to-1.0 / snap-to-fit on overshoot is handled implicitly
+        # by `_apply_scale`'s clamp (target > 1.0 → clamps to 1.0;
+        # target < fit → clamps to fit), so the wheel can land
+        # precisely on the bounds.
+        self._apply_scale(self._zoomfactor * self.ZOOMFACT)
 
     def zoomMinus(self):
-        if not self.hasPhoto():
-            return
-        fit = self.fit_scale()
-        if self._zoomfactor <= fit:
-            return
-        next_factor = self._zoomfactor / self.ZOOMFACT
-        if next_factor < fit:
-            # Last step would shrink past fit — snap exactly to fit
-            # so the scroll-wheel can land precisely on the fit scale
-            # instead of getting stuck one step above it.
-            self.fitInView()
-            return
-        self._zoomfactor = next_factor
-        self._zoom -= 1
-        self.scale(1.0 / self.ZOOMFACT, 1.0 / self.ZOOMFACT)
-        self.setDragState()
-        self.zoom_changed.emit(self._zoomfactor)
+        self._apply_scale(self._zoomfactor / self.ZOOMFACT)
 
     def wheelEvent(self, event):
         if not self.hasPhoto():
@@ -319,29 +305,12 @@ class PhotoViewer(QtWidgets.QGraphicsView):
         return super().eventFilter(watched, event)
 
     def _handle_pinch_zoom(self, event) -> bool:
-        if not self.hasPhoto():
-            return True
         # `value()` is the per-event incremental scale change (~0.01–
-        # 0.05 per frame). Apply multiplicatively against the current
-        # scale and clamp to the same [fit, 1.0] range the slider and
-        # set_absolute_scale use, so the three input paths can't push
-        # the transform into different ranges.
-        new_scale = self._zoomfactor * (1.0 + event.value())
-        lo = self.fit_scale()
-        hi = max(1.0, lo)
-        new_scale = max(lo, min(hi, new_scale))
-        if abs(new_scale - self._zoomfactor) < 1e-6:
-            return True
-        factor = new_scale / self._zoomfactor
-        self._zoomfactor = new_scale
-        self._zoom = math.log(new_scale, self.ZOOMFACT)
-        # AnchorUnderMouse (set in __init__) keeps the point under
-        # the cursor stable through the scale — for trackpad pinch
-        # the cursor is typically already at the pinch center, so
-        # this reads naturally.
-        self.scale(factor, factor)
-        self.setDragState()
-        self.zoom_changed.emit(new_scale)
+        # 0.05 per frame). Apply multiplicatively against current and
+        # let `_apply_scale` clamp + sync — AnchorUnderMouse (set in
+        # __init__) keeps the point under the cursor stable through
+        # the scale, which reads naturally for pinch.
+        self._apply_scale(self._zoomfactor * (1.0 + event.value()))
         return True
 
     def mousePressEvent(self, event):

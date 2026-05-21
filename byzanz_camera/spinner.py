@@ -52,6 +52,13 @@ class Spinner(QtWidgets.QWidget):
         # Set size and focus policy
         self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # The spinner is a pure visual indicator — never interactive.
+        # Without this, the widget area intercepts mouse events even
+        # when paintEvent skips drawing (m_displayedWhenStopped=False),
+        # so cursor decisions from the parent (e.g. PhotoViewer's
+        # ScrollHandDrag → hand cursor) don't propagate to mouse
+        # positions inside the spinner's geometry.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         self.startAnimation()
 
