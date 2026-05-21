@@ -17,9 +17,22 @@ from papyri._layout import meta_path_for
 class FieldSchema:
     name: str               # JSON key in _meta.json
     label: str              # human label shown in the form
-    type: str               # "string" | "choice" | "longtext"
+    type: str               # "string" | "choice" | "longtext" | "number"
     required: bool = False
     choices: tuple[str, ...] = ()   # only for type="choice"
+    editable: bool = False  # only for type="choice" — when True, the
+                            # combo accepts free text alongside the
+                            # predefined entries (useful for fields
+                            # with common presets but no hard list).
+    numeric: bool = False   # restrict typed input to digits (uses
+                            # QIntValidator on the underlying line
+                            # edit). Pair with `editable=True` for a
+                            # numeric free-text combo.
+    default: str | int | None = None
+                            # pre-fill if missing from JSON; also
+                            # persisted on first save. Ints are
+                            # accepted for number/choice fields and
+                            # stringified before writing to widgets.
 
 
 # Inventory number is intentionally NOT a metadata field: the object's
@@ -30,18 +43,39 @@ class FieldSchema:
 # project-specific fields. Until then this default applies to all objects.
 DEFAULT_SCHEMA: tuple[FieldSchema, ...] = (
     FieldSchema(
-        name="condition",
-        label="Condition",
-        type="choice",
-        required=True,
-        choices=("stable", "fragile", "damaged"),
+        name="box_nr", label="Box no.", type="string", required=True,
     ),
     FieldSchema(
-        name="notes",
-        label="Notes",
-        type="longtext",
-        required=False,
+        name="mummy_nr", label="Mummy no.", type="string",
     ),
+    # Dimensions stored as two queryable integer fields rather than one
+    # parsed "wXh" string — downstream tools can sort / filter easily.
+    FieldSchema(
+        name="width_mm", label="Width (mm)", type="number", required=True,
+    ),
+    FieldSchema(
+        name="height_mm", label="Height (mm)", type="number", required=True,
+    ),
+    FieldSchema(
+        name="language", label="Language", type="choice", required=True,
+        choices=("Greek", "Demotic", "unknown"), default="unknown"
+    ),
+    FieldSchema(
+        name="ink", label="Ink", type="string", default="black",
+    ),
+    FieldSchema(
+        name="capture_height_vis", label="Camera height VIS (cm)", type="choice",
+        choices=("30", "45", "60", "75", "90"),
+        editable=True, numeric=True, default=45,
+    ),
+FieldSchema(
+        name="capture_height_ir", label="Camera height IR (cm)", type="choice",
+        choices=("30", "45", "60", "75", "90"),
+        editable=True, numeric=True, default=45,
+    ),
+    FieldSchema(
+        name="notes", label="Notes", type="longtext",
+    )
 )
 
 

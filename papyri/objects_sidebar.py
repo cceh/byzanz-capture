@@ -144,20 +144,6 @@ class ObjectsSidebar(QFrame):
             item.setData(Qt.ItemDataRole.UserRole, entry.name)
             self._list.addItem(item)
         self._list.blockSignals(False)
-        self._update_header_count()
-
-    def _update_header_count(self) -> None:
-        total = len(self._entries)
-        # "Done" = captures landed AND required metadata filled in
-        # (matches the ✓ badge's meaning).
-        done = sum(
-            1 for e in self._entries
-            if e.has_captures and e.metadata_complete
-        )
-        if total == 0:
-            self._header.setText("OBJECTS")
-        else:
-            self._header.setText(f"OBJECTS  {done}/{total}")
 
     def _sync_selection(self) -> None:
         """Highlight the row matching the active object name."""

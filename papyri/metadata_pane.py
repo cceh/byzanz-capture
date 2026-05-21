@@ -7,7 +7,7 @@ separate ObjectTitleBar at the top of the window.
 
 Schema definition + completeness check live in `papyri._metadata` so
 the sidebar can derive its `??` vs `✓` badge from the same source of
-truth, and the form header can show "X/N required".
+truth.
 """
 from __future__ import annotations
 import json
@@ -15,10 +15,10 @@ import os
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QPoint, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QPainter, QPixmap
+from PyQt6.QtGui import QIntValidator, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox, QFormLayout, QFrame, QLabel, QLineEdit, QPlainTextEdit,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from byzanz_camera.helpers import get_ui_path
@@ -144,7 +144,6 @@ class MetadataPane(QFrame):
         self._obj = obj
         self._populate_from_disk()
         self._set_form_enabled(obj is not None)
-        self._update_header()
 
     # ---- ui construction ----------------------------------------------
 
@@ -186,12 +185,26 @@ class MetadataPane(QFrame):
             w.addItem("")  # placeholder for "unset"
             for c in schema.choices:
                 w.addItem(c)
+            if schema.editable:
+                # Free-text combo: keep the dropdown as presets but let
+                # the user type custom values. `currentTextChanged`
+                # already covers both typed input and dropdown picks.
+                w.setEditable(True)
+                w.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+                if schema.numeric:
+                    w.lineEdit().setValidator(QIntValidator(0, 99999, w))
             w.currentTextChanged.connect(self._on_choice_changed)
             return w
         if schema.type == "longtext":
             w = QPlainTextEdit()
             w.setFixedHeight(140)
             w.textChanged.connect(self._on_text_changed)  # debounced
+            return w
+        if schema.type == "number":
+            w = QSpinBox()
+            w.setRange(0, 99999)        # mm — enough for any single sheet
+            w.setSpecialValueText(" ")  # value 0 shown as blank (== unset)
+            w.valueChanged.connect(self._on_choice_changed)  # immediate save
             return w
         raise ValueError(f"unknown field type: {schema.type!r}")
 
@@ -231,7 +244,6 @@ class MetadataPane(QFrame):
         data = self._collect_values()
         with open(self._obj.meta_path, "w") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        self._update_header()
         self.metadata_changed.emit()
 
     def _collect_values(self) -> dict:
@@ -251,6 +263,8 @@ class MetadataPane(QFrame):
             return w.currentText().strip()
         if schema.type == "longtext":
             return w.toPlainText().strip()
+        if schema.type == "number":
+            return str(w.value()) if w.value() > 0 else ""
         return ""
 
     # ---- load plumbing -------------------------------------------------
@@ -261,7 +275,10 @@ class MetadataPane(QFrame):
             data = self._read_meta() if self._obj is not None else {}
             for schema in self._schema:
                 w = self._widgets[schema.name]
-                self._write_widget(w, schema, data.get(schema.name, ""))
+                raw = data.get(schema.name) or schema.default or ""
+                # default may be int (e.g. capture_height=45) — widgets
+                # all take strings, so coerce here once.
+                self._write_widget(w, schema, str(raw))
         finally:
             self._loading = False
 
@@ -278,23 +295,23 @@ class MetadataPane(QFrame):
             w.setText(value)
         elif schema.type == "choice":
             idx = w.findText(value)
-            w.setCurrentIndex(idx if idx >= 0 else 0)
+            if idx >= 0:
+                w.setCurrentIndex(idx)
+            elif schema.editable and value:
+                # Custom text the user typed previously — show it even
+                # though it's not in the predefined dropdown.
+                w.setCurrentText(value)
+            else:
+                w.setCurrentIndex(0)
         elif schema.type == "longtext":
             w.setPlainText(value)
+        elif schema.type == "number":
+            try:
+                w.setValue(int(value) if value else 0)
+            except ValueError:
+                w.setValue(0)
 
     # ---- header / state ------------------------------------------------
-
-    def _update_header(self) -> None:
-        if self._obj is None:
-            self._header.setText("METADATA")
-            return
-        required = [s for s in self._schema if s.required]
-        if not required:
-            self._header.setText("METADATA")
-            return
-        data = self._collect_values()
-        filled = sum(1 for s in required if data.get(s.name))
-        self._header.setText(f"METADATA  {filled}/{len(required)} required")
 
     def _set_form_enabled(self, enabled: bool) -> None:
         for w in self._widgets.values():
