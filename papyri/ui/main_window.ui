@@ -217,20 +217,33 @@
                 <number>8</number>
                </property>
                <item>
-                <widget class="ViewerWidget" name="viewer" native="true">
-                 <property name="sizePolicy">
-                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                   <horstretch>0</horstretch>
-                   <verstretch>1</verstretch>
-                  </sizepolicy>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <layout class="QHBoxLayout" name="captureRow">
+                <layout class="QHBoxLayout" name="topToolbar">
                  <property name="spacing">
                   <number>12</number>
                  </property>
+                 <item>
+                  <spacer name="topToolbarSpacer">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="ZoomControlBar" name="zoomControlBar" native="true"/>
+                 </item>
+                 <item>
+                  <widget class="Line" name="topToolbarLine">
+                   <property name="orientation">
+                    <enum>Qt::Vertical</enum>
+                   </property>
+                  </widget>
+                 </item>
                  <item>
                   <widget class="QPushButton" name="pauseLiveViewButton">
                    <property name="toolTip">
@@ -248,17 +261,23 @@
                    </property>
                   </widget>
                  </item>
-                 <item>
-                  <widget class="QPushButton" name="autofocusButton">
-                   <property name="text">
-                    <string>Autofocus</string>
-                   </property>
-                   <property name="icon">
-                    <iconset>
-                     <normaloff>../../ui/focus.svg</normaloff>../../ui/focus.svg</iconset>
-                   </property>
-                  </widget>
-                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="ViewerWidget" name="viewer" native="true">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                   <horstretch>0</horstretch>
+                   <verstretch>1</verstretch>
+                  </sizepolicy>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="captureRow">
+                 <property name="spacing">
+                  <number>12</number>
+                 </property>
                  <item>
                   <spacer name="captureRowSpacer">
                    <property name="orientation">
@@ -286,9 +305,13 @@
                   </widget>
                  </item>
                  <item>
-                  <widget class="Line" name="captureRowLine">
-                   <property name="orientation">
-                    <enum>Qt::Vertical</enum>
+                  <widget class="QPushButton" name="autofocusButton">
+                   <property name="text">
+                    <string>Autofocus</string>
+                   </property>
+                   <property name="icon">
+                    <iconset>
+                     <normaloff>../../ui/focus.svg</normaloff>../../ui/focus.svg</iconset>
                    </property>
                   </widget>
                  </item>
@@ -303,6 +326,9 @@
                    </property>
                    <property name="shortcut">
                     <string>Space</string>
+                   </property>
+                   <property name="default">
+                    <bool>true</bool>
                    </property>
                   </widget>
                  </item>
@@ -369,6 +395,11 @@
    <class>ViewerWidget</class>
    <extends>QWidget</extends>
    <header>byzanz_camera.viewer_widget</header>
+  </customwidget>
+  <customwidget>
+   <class>ZoomControlBar</class>
+   <extends>QWidget</extends>
+   <header>byzanz_camera.zoom_control_bar</header>
   </customwidget>
   <customwidget>
    <class>PapyriFilmstrip</class>

@@ -742,6 +742,9 @@
          </widget>
         </item>
         <item>
+         <widget class="ZoomControlBar" name="previewZoomBar" native="true"/>
+        </item>
+        <item>
          <widget class="FilmstripWidget" name="previewFilmstrip" native="true"/>
         </item>
        </layout>
@@ -787,6 +790,9 @@
            </sizepolicy>
           </property>
          </widget>
+        </item>
+        <item>
+         <widget class="ZoomControlBar" name="rtiZoomBar" native="true"/>
         </item>
         <item>
          <widget class="FilmstripWidget" name="rtiFilmstrip" native="true"/>
@@ -1064,6 +1070,11 @@
    <class>ViewerWidget</class>
    <extends>QWidget</extends>
    <header>byzanz_camera.viewer_widget</header>
+  </customwidget>
+  <customwidget>
+   <class>ZoomControlBar</class>
+   <extends>QWidget</extends>
+   <header>byzanz_camera.zoom_control_bar</header>
   </customwidget>
   <customwidget>
    <class>FilmstripWidget</class>

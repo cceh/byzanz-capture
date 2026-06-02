@@ -47,6 +47,7 @@ from byzanz_camera.camera_worker import CameraWorker, CaptureImagesRequest, Came
 from open_session_dialog import OpenSessionDialog
 from byzanz_camera.filmstrip_widget import FilmstripWidget
 from byzanz_camera.viewer_widget import ViewerWidget
+from byzanz_camera.zoom_control_bar import ZoomControlBar
 from settings_dialog import SettingsDialog
 from byzanz_camera.spinner import Spinner
 from camera_config_dialog import CameraConfigDialog
@@ -126,8 +127,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.previewPage: QWidget = self.findChild(QWidget, "previewPage")
         self.preview_viewer: ViewerWidget = self.findChild(ViewerWidget, "previewViewer")
         self.preview_filmstrip: FilmstripWidget = self.findChild(FilmstripWidget, "previewFilmstrip")
+        self.preview_viewer.attach_zoom_bar(self.findChild(ZoomControlBar, "previewZoomBar"))
         self.rti_viewer: ViewerWidget = self.findChild(ViewerWidget, "rtiViewer")
         self.rti_filmstrip: FilmstripWidget = self.findChild(FilmstripWidget, "rtiFilmstrip")
+        self.rti_viewer.attach_zoom_bar(self.findChild(ZoomControlBar, "rtiZoomBar"))
 
         # Filmstrip → viewer wiring (per mode). The filmstrip handles all
         # the directory/async-thumb work and emits a decoded pixmap when

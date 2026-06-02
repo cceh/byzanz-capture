@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 from .helpers import set_state
 from .photo_viewer import PhotoViewer
 from .spinner import Spinner
-from .zoom_control_bar import ZoomControlBar
+from .zoom_control_bar import ZoomControlBar  # type: ignore  # used in attach_zoom_bar
 
 
 # ---- view-state pill (corner indicator) ---------------------------------
@@ -138,27 +138,10 @@ class ViewerWidget(QWidget):
         layout.addWidget(self._viewer_stack, 1)
         self._overlay_widget: QWidget | None = None
 
-        # Zoom control bar — embedded so any host gets it for free.
-        # Wired bidirectionally to the photo viewer so the bar mirrors
-        # whatever transform the viewer holds (scroll wheel, fitInView,
-        # ± click, slider drag — all go through the same source of
-        # truth).
-        self.zoom_bar = ZoomControlBar(self)
-        layout.addWidget(self.zoom_bar, 0)
-        self.photo_viewer.zoom_changed.connect(self._sync_zoom_bar)
-        # Fit / 1:1 buttons get the animated variants — they're
-        # discrete jumps where the transition helps orientation. The
-        # ± step buttons and slider drag stay instant (animating
-        # those feels laggy when the user is actively driving them).
-        self.zoom_bar.fit_requested.connect(self.photo_viewer.animated_fit_in_view)
-        self.zoom_bar.one_to_one_requested.connect(
-            self.photo_viewer.animated_to_one_to_one
-        )
-        self.zoom_bar.zoom_in_requested.connect(self.photo_viewer.zoomPlus)
-        self.zoom_bar.zoom_out_requested.connect(self.photo_viewer.zoomMinus)
-        self.zoom_bar.absolute_zoom_requested.connect(
-            self.photo_viewer.set_absolute_scale
-        )
+        # Zoom bar is hosted externally — the .ui declares a
+        # ZoomControlBar somewhere in the surrounding layout and the
+        # host wires it via `attach_zoom_bar`.
+        self.zoom_bar: ZoomControlBar | None = None
 
         # Corner pill — parented to the PhotoViewer itself (the scroll
         # area), NOT to its viewport. Parenting to the viewport would
@@ -181,9 +164,30 @@ class ViewerWidget(QWidget):
         self.photo_viewer.viewport().installEventFilter(self)
         # Initial view-state paint — sets viewState property + pill.
         self.set_view_state("empty")
-        self.zoom_bar.set_photo_present(False)
 
     # ---- public API -----------------------------------------------------
+
+    def attach_zoom_bar(self, zoom_bar: ZoomControlBar) -> None:
+        """Wire a `ZoomControlBar` placed elsewhere in the host's
+        layout to this viewer's photo_viewer. Bidirectional: the bar
+        mirrors whatever transform the viewer holds, and bar actions
+        drive the viewer's scale. Call once after `loadUi`.
+
+        Fit / 1:1 use the animated variants — discrete jumps where
+        the transition helps orientation. ± step and slider drag stay
+        instant (animating those feels laggy when driven actively)."""
+        self.zoom_bar = zoom_bar
+        self.photo_viewer.zoom_changed.connect(self._sync_zoom_bar)
+        zoom_bar.fit_requested.connect(self.photo_viewer.animated_fit_in_view)
+        zoom_bar.one_to_one_requested.connect(
+            self.photo_viewer.animated_to_one_to_one
+        )
+        zoom_bar.zoom_in_requested.connect(self.photo_viewer.zoomPlus)
+        zoom_bar.zoom_out_requested.connect(self.photo_viewer.zoomMinus)
+        zoom_bar.absolute_zoom_requested.connect(
+            self.photo_viewer.set_absolute_scale
+        )
+        zoom_bar.set_photo_present(False)
 
     def show_image(self, pixmap: QPixmap | None, *, fit: bool = False) -> None:
         """Display a pixmap (or clear with None). `fit=True` re-scales to
@@ -195,11 +199,12 @@ class ViewerWidget(QWidget):
         if pixmap is not None and fit:
             self.photo_viewer.fitInView()
         self._spinner.stopAnimation()
-        self.zoom_bar.set_photo_present(pixmap is not None)
-        # setPhoto / fitInView already emit zoom_changed, but cover the
-        # no-photo and same-size cases (where setPhoto doesn't re-fit)
-        # so the bar's mirror stays consistent.
-        self._sync_zoom_bar()
+        if self.zoom_bar is not None:
+            self.zoom_bar.set_photo_present(pixmap is not None)
+            # setPhoto / fitInView already emit zoom_changed, but cover the
+            # no-photo and same-size cases (where setPhoto doesn't re-fit)
+            # so the bar's mirror stays consistent.
+            self._sync_zoom_bar()
 
     def show_busy(self) -> None:
         """Show the centered spinner overlay. Use during async loads
@@ -304,6 +309,8 @@ class ViewerWidget(QWidget):
         zoom bar. Called from photo_viewer.zoom_changed and also
         on-demand from show_image (which covers the no-photo case
         and the same-size-pixmap path where fitInView isn't fired)."""
+        if self.zoom_bar is None:
+            return
         if scale is None:
             scale = self.photo_viewer.current_scale()
         self.zoom_bar.set_current_zoom(scale, self.photo_viewer.fit_scale())

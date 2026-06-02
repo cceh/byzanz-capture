@@ -56,6 +56,7 @@ from byzanz_camera.helpers import (
     get_app_icon, get_ui_path, set_state, set_themed_icon,
 )
 from byzanz_camera.viewer_widget import ViewerWidget
+from byzanz_camera.zoom_control_bar import ZoomControlBar
 from papyri._layout import (
     BUCKETS,
     JPG_EXTENSIONS,
@@ -664,6 +665,10 @@ class PapyriMainWindow(QMainWindow):
         self.fusing_panel.set_bucket_selector(self.bucket_selector)
         self.bucket_selector.step_clicked.connect(self._on_workflow_step_clicked)
         self.viewer: ViewerWidget = self.findChild(ViewerWidget, "viewer")
+        # The zoom bar lives in the panel's top toolbar (declared in the
+        # .ui), not inside the viewer. Wire it to the viewer's
+        # photo_viewer here.
+        self.viewer.attach_zoom_bar(self.findChild(ZoomControlBar, "zoomControlBar"))
         # Inject the papyri-specific "no object open" CTA into the
         # generic viewer's overlay slot. Drives via show_overlay /
         # show_photo from `_refresh_no_object_lockout`.

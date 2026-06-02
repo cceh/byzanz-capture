@@ -94,7 +94,11 @@ class ZoomControlBar(QWidget):
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
+        # Uniform spacing across the whole bar — the slider in the
+        # middle already provides visual rhythm, and adding explicit
+        # group-separator gaps just makes the within- vs between-group
+        # ratio inconsistent.
+        layout.setSpacing(12)
 
         # All buttons + slider use native styling — the bar is system
         # chrome, not branded. Fit/1:1 are checkable so the OS shows
@@ -110,8 +114,6 @@ class ZoomControlBar(QWidget):
         self._one_btn.clicked.connect(self.one_to_one_requested.emit)
         layout.addWidget(self._fit_btn)
         layout.addWidget(self._one_btn)
-
-        layout.addStretch(1)
 
         self._minus_btn = QPushButton("−")
         self._minus_btn.setToolTip("Zoom out (one step)")
@@ -130,19 +132,26 @@ class ZoomControlBar(QWidget):
         self._plus_btn.clicked.connect(self.zoom_in_requested.emit)
         layout.addWidget(self._plus_btn)
 
-        layout.addStretch(1)
-
         self._pct_label = QLabel("100%")
-        self._pct_label.setMinimumWidth(48)
-        self._pct_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         # Monospace digits → no width jitter on each scroll tick.
         pf = QFont("Menlo")
         pf.setStyleHint(QFont.StyleHint.Monospace)
         pf.setPointSize(10)
         self._pct_label.setFont(pf)
+        # Pin the cell to exactly the width of "100%" in the actual
+        # resolved font. Use the label's own fontMetrics() so we get
+        # the font Qt will really render with (and not a description
+        # that might not have been resolved yet). +2px buffer covers
+        # subpixel rounding so the trailing `%` isn't clipped.
+        self._pct_label.setFixedWidth(
+            self._pct_label.fontMetrics().horizontalAdvance("100%") + 2
+        )
+        self._pct_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._pct_label)
 
-        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+        # Natural width — host adds a stretch around the bar to push
+        # neighboring controls to the edges of the toolbar.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred,
                            QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(32)
 

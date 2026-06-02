@@ -9,6 +9,7 @@ papyri/__init__.py
 papyri/__pycache__/__init__.cpython-313.pyc
 papyri/__pycache__/main.cpython-313.pyc
 papyri/main.py
+papyri/ui/app.qss
 papyri/ui/main_window.ui
 papyri/ui/mascot.png
 papyri/ui/object_title_bar.ui
