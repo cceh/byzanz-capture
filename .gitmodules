@@ -1,0 +1,3 @@
+[submodule "vendor/libgphoto2"]
+	path = vendor/libgphoto2
+	url = https://github.com/gphoto/libgphoto2.git

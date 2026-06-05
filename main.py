@@ -8,17 +8,15 @@ from pathlib import Path
 
 from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
 
-# python-gphoto2's __init__.py overrides CAMLIBS/IOLIBS on import to package-bundled
-# (and on macOS sdist builds, broken) directories. Capture the env-provided values
-# before import and reapply afterward, so PyCharm / shell / build_win_hook can win.
-_camlibs_env = os.environ.get('CAMLIBS')
-_iolibs_env = os.environ.get('IOLIBS')
+# `gphoto2/__init__.py` rewrites CAMLIBS/IOLIBS on import. Capture the
+# env-provided values before that happens, then let the resolver
+# decide which source wins (frozen / env / vendor / bundled). See
+# byzanz_camera/_gphoto2_paths.py for the full precedence chain.
+_pre_camlibs = os.environ.get('CAMLIBS')
+_pre_iolibs = os.environ.get('IOLIBS')
 import gphoto2 as gp
-
-if _camlibs_env:
-    os.environ['CAMLIBS'] = _camlibs_env
-if _iolibs_env:
-    os.environ['IOLIBS'] = _iolibs_env
+from byzanz_camera._gphoto2_paths import apply_paths as _apply_gphoto2_paths
+_apply_gphoto2_paths(_pre_camlibs, _pre_iolibs)
 
 import qasync
 from PIL.ImageQt import ImageQt

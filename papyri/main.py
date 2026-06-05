@@ -22,17 +22,19 @@ import shutil
 import sys
 from dataclasses import dataclass
 
-_camlibs_env = os.environ.get('CAMLIBS')
-_iolibs_env = os.environ.get('IOLIBS')
-import gphoto2 as gp  # noqa: E402
-if _camlibs_env:
-    os.environ['CAMLIBS'] = _camlibs_env
-if _iolibs_env:
-    os.environ['IOLIBS'] = _iolibs_env
-
-# Configure logging BEFORE byzanz_camera imports so module-load-time INFO
-# lines (e.g. from _autodetect reporting which path it picked) are visible.
+# Configure logging BEFORE the gphoto2-path resolver so its INFO line
+# (and the autodetect logs from byzanz_camera) are visible.
 logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s: %(message)s')
+
+# `gphoto2/__init__.py` rewrites CAMLIBS/IOLIBS on import. Capture the
+# env-provided values before that happens, then let the resolver
+# decide which source wins (frozen / env / vendor / bundled). See
+# byzanz_camera/_gphoto2_paths.py for the full precedence.
+_pre_camlibs = os.environ.get('CAMLIBS')
+_pre_iolibs = os.environ.get('IOLIBS')
+import gphoto2 as gp  # noqa: E402
+from byzanz_camera._gphoto2_paths import apply_paths as _apply_gphoto2_paths  # noqa: E402
+_apply_gphoto2_paths(_pre_camlibs, _pre_iolibs)
 
 from pathlib import Path
 

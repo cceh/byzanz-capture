@@ -86,7 +86,6 @@ fabric.properties
 [Ll]ib
 [Ll]ib64
 [Ll]ocal
-[Ss]cripts
 pyvenv.cfg
 .venv
 pip-selfcheck.json
@@ -280,4 +279,9 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Repo-local libgphoto2 build produced by scripts/bootstrap-gphoto2.sh.
+# The libgphoto2 source itself is a submodule at vendor/libgphoto2.
+vendor/build/
+vendor/libgphoto2/build/
 
