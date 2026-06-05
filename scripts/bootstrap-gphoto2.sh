@@ -35,21 +35,28 @@ PREREQ_CMDS=(git meson ninja pkg-config autoconf automake libtool)
 PREREQ_PKGS=(libxml-2.0 libcurl gdlib libexif libjpeg libtiff-4 libusb-1.0)
 
 check_prereqs() {
-    local missing_cmds=() missing_pkgs=()
+    # Newline-separated strings rather than arrays — macOS ships Bash
+    # 3.2 forever (Apple won't ship GPLv3 Bash 4+), and Bash 3.2 trips
+    # over both combined `local arr1=() arr2=()` declarations AND
+    # iterating empty `"${arr[@]}"` under `set -u`.
+    local missing_cmds=""
+    local missing_pkgs=""
     for cmd in "${PREREQ_CMDS[@]}"; do
-        command -v "$cmd" >/dev/null 2>&1 || missing_cmds+=("$cmd")
+        command -v "$cmd" >/dev/null 2>&1 || missing_cmds="${missing_cmds}${cmd}
+"
     done
     if command -v pkg-config >/dev/null 2>&1; then
         for pkg in "${PREREQ_PKGS[@]}"; do
-            pkg-config --exists "$pkg" 2>/dev/null || missing_pkgs+=("$pkg")
+            pkg-config --exists "$pkg" 2>/dev/null || missing_pkgs="${missing_pkgs}${pkg}
+"
         done
     fi
-    if [ ${#missing_cmds[@]} -eq 0 ] && [ ${#missing_pkgs[@]} -eq 0 ]; then
+    if [ -z "$missing_cmds" ] && [ -z "$missing_pkgs" ]; then
         return
     fi
     echo "Missing prerequisites:" >&2
-    for x in "${missing_cmds[@]}"; do echo "  - $x (command)" >&2; done
-    for x in "${missing_pkgs[@]}"; do echo "  - $x (pkg-config)" >&2; done
+    [ -n "$missing_cmds" ] && printf '%s' "$missing_cmds" | sed 's/^/  - /; s/$/ (command)/' >&2
+    [ -n "$missing_pkgs" ] && printf '%s' "$missing_pkgs" | sed 's/^/  - /; s/$/ (pkg-config)/' >&2
     echo >&2
     case "$PLATFORM" in
         Darwin)
