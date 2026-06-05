@@ -1,12 +1,14 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="run papyri" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="run papyri (camlibs iolibs mts)" type="PythonConfigurationType" factoryName="Python">
     <module name="byzanz-capture" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
-      <env name="PYTHONPATH" value="$PROJECT_DIR$" />
       <env name="PYTHONUNBUFFERED" value="1" />
+      <env name="CAMLIBS" value="$USER_HOME$/.local/lib/libgphoto2/2.5.33.1" />
+      <env name="IOLIBS" value="$USER_HOME$/.local/lib/libgphoto2_port/0.12.2" />
+      <env name="PYTHONPATH" value="$PROJECT_DIR$" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/venv/bin/python" />
     <option name="SDK_NAME" value="Python 3.13 (byzanz-capture)" />
