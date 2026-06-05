@@ -25,40 +25,50 @@ PLATFORM="$(uname -s)"
 
 # ---- prereqs --------------------------------------------------------
 
-# Tools required on the PATH. libusb / gettext / libtool come from
-# system packages (handled below) and are checked via pkg-config.
+# Tools required on the PATH.
 PREREQ_CMDS=(git meson ninja pkg-config autoconf automake libtool)
 
-missing_cmds() {
-    local missing=()
-    for cmd in "${PREREQ_CMDS[@]}"; do
-        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
-    done
-    printf '%s\n' "${missing[@]:-}"
-}
+# Libraries required by libgphoto2 — checked via pkg-config rather than
+# by command, since they're shared libs without a CLI. Discovered the
+# hard way: missing `gdlib` (Homebrew `gd`) only surfaced at `meson
+# setup` with "dependency gdlib not found", not from a missing command.
+PREREQ_PKGS=(libxml-2.0 libcurl gdlib libexif libjpeg libtiff-4 libusb-1.0)
 
 check_prereqs() {
-    local missing
-    missing="$(missing_cmds)"
-    if [ -n "$missing" ]; then
-        echo "Missing prerequisites:" >&2
-        echo "$missing" | sed 's/^/  - /' >&2
-        echo >&2
-        case "$PLATFORM" in
-            Darwin)
-                echo "Install with:" >&2
-                echo "  brew install autoconf automake libtool gettext libusb pkg-config meson ninja" >&2
-                ;;
-            Linux)
-                echo "Install with (Debian / Ubuntu):" >&2
-                echo "  sudo apt install build-essential autoconf automake libtool libltdl-dev libusb-1.0-0-dev gettext pkg-config meson ninja-build" >&2
-                ;;
-            *)
-                echo "Install the listed tools with your package manager, then re-run." >&2
-                ;;
-        esac
-        exit 1
+    local missing_cmds=() missing_pkgs=()
+    for cmd in "${PREREQ_CMDS[@]}"; do
+        command -v "$cmd" >/dev/null 2>&1 || missing_cmds+=("$cmd")
+    done
+    if command -v pkg-config >/dev/null 2>&1; then
+        for pkg in "${PREREQ_PKGS[@]}"; do
+            pkg-config --exists "$pkg" 2>/dev/null || missing_pkgs+=("$pkg")
+        done
     fi
+    if [ ${#missing_cmds[@]} -eq 0 ] && [ ${#missing_pkgs[@]} -eq 0 ]; then
+        return
+    fi
+    echo "Missing prerequisites:" >&2
+    for x in "${missing_cmds[@]}"; do echo "  - $x (command)" >&2; done
+    for x in "${missing_pkgs[@]}"; do echo "  - $x (pkg-config)" >&2; done
+    echo >&2
+    case "$PLATFORM" in
+        Darwin)
+            echo "Install with:" >&2
+            echo "  brew install autoconf automake libtool gettext libusb pkg-config meson ninja \\" >&2
+            echo "              libxml2 curl gd libexif jpeg-turbo libtiff" >&2
+            ;;
+        Linux)
+            echo "Install with (Debian / Ubuntu):" >&2
+            echo "  sudo apt install build-essential autoconf automake libtool libltdl-dev \\" >&2
+            echo "                   libusb-1.0-0-dev gettext pkg-config meson ninja-build \\" >&2
+            echo "                   libxml2-dev libcurl4-openssl-dev libgd-dev libexif-dev \\" >&2
+            echo "                   libjpeg-dev libtiff-dev" >&2
+            ;;
+        *)
+            echo "Install the listed tools with your package manager, then re-run." >&2
+            ;;
+    esac
+    exit 1
 }
 
 # ---- submodule ------------------------------------------------------
