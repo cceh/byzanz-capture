@@ -96,14 +96,33 @@ build_libgphoto2() {
     cd "$SRC_DIR"
 
     if [ "$PLATFORM" = "Darwin" ]; then
-        # Homebrew keeps `gettext` (libintl) and `libtool` (libltdl) keg-only
-        # so the linker doesn't find them by default. Point LDFLAGS/CPPFLAGS
-        # at the kegs explicitly.
-        local gettext_prefix libtool_prefix
+        # Two Homebrew-on-macOS problems to compensate for here:
+        #
+        # 1. `gettext` (libintl) and `libtool` (libltdl) are keg-only, so the
+        #    compiler/linker don't see them by default.
+        #
+        # 2. libgphoto2's meson build has a dependency-propagation gap: the
+        #    public `libgphoto2_dep` that the camlibs consume (see
+        #    libgphoto2/meson.build) re-exports libgphoto2_port_dep and
+        #    config_dep but NOT libexif_dep. Several camlibs (canon,
+        #    directory, ptp2, ...) `#include <libexif/exif-data.h>` yet never
+        #    receive libexif's include path. On Linux this is masked because
+        #    libexif sits in /usr/include; on Homebrew it lives under the
+        #    Cellar, which clang doesn't search by default -> "file not
+        #    found". The same can affect the other pkg-config deps, so inject
+        #    every prereq's include/lib path globally rather than chase them
+        #    one camlib at a time.
+        local gettext_prefix libtool_prefix pkg_cflags pkg_libs
         gettext_prefix="$(brew --prefix gettext)"
         libtool_prefix="$(brew --prefix libtool)"
-        export LDFLAGS="-L${gettext_prefix}/lib -L${libtool_prefix}/lib ${LDFLAGS:-}"
-        export CPPFLAGS="-I${gettext_prefix}/include -I${libtool_prefix}/include ${CPPFLAGS:-}"
+        pkg_cflags=""
+        pkg_libs=""
+        for pkg in "${PREREQ_PKGS[@]}"; do
+            pkg_cflags="${pkg_cflags} $(pkg-config --cflags "$pkg" 2>/dev/null)"
+            pkg_libs="${pkg_libs} $(pkg-config --libs-only-L "$pkg" 2>/dev/null)"
+        done
+        export CPPFLAGS="-I${gettext_prefix}/include -I${libtool_prefix}/include${pkg_cflags} ${CPPFLAGS:-}"
+        export LDFLAGS="-L${gettext_prefix}/lib -L${libtool_prefix}/lib${pkg_libs} ${LDFLAGS:-}"
     fi
 
     # `usbdiskdirect` / `usbscsi` iolibs are Linux-only; meson errors
@@ -114,7 +133,14 @@ build_libgphoto2() {
         -Diolibs=disk,ptpip,serial,libusb1,usb
     )
     if [ -d build ]; then
-        meson setup build "${meson_args[@]}" --reconfigure
+        # Re-run with --wipe rather than --reconfigure. meson only reads
+        # CFLAGS/CPPFLAGS/LDFLAGS from the environment on a *fresh* configure;
+        # --reconfigure keeps the args baked in at the first setup, so a
+        # changed CPPFLAGS (e.g. a newly added include path above, or a stale
+        # build/ left by an earlier failed run) would silently not apply.
+        # --wipe re-reads the environment while preserving meson's saved
+        # command-line options.
+        meson setup build "${meson_args[@]}" --wipe
     else
         meson setup build "${meson_args[@]}"
     fi
