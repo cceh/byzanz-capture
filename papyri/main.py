@@ -22,9 +22,12 @@ import shutil
 import sys
 from dataclasses import dataclass
 
-# Configure logging BEFORE the gphoto2-path resolver so its INFO line
-# (and the autodetect logs from byzanz_camera) are visible.
-logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s: %(message)s')
+# Logging + crash reporting BEFORE the gphoto2-path resolver so its
+# INFO line (and the autodetect logs from byzanz_camera) are captured.
+# Installs the rotating log file, faulthandler and the excepthook that
+# stops PyQt6 from aborting on unhandled slot exceptions.
+from papyri._logging_setup import install as _install_logging
+_install_logging()
 
 # `gphoto2/__init__.py` rewrites CAMLIBS/IOLIBS on import. Capture the
 # env-provided values before that happens, then let the resolver
@@ -199,7 +202,8 @@ class _CopyRunner(QRunnable):
             shutil.copy2(self._src, tmp)
             tmp.replace(self._dest)
         except OSError as e:
-            print(f"drop-copy failed for {self._src.name}: {e!r}")
+            logging.getLogger("CopyRunner").warning(
+                "drop-copy failed for %s: %r", self._src.name, e)
             try:
                 tmp.unlink(missing_ok=True)
             except OSError:

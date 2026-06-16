@@ -22,6 +22,7 @@ falls through to the slow path. Thumb extraction is ALWAYS cache-aware
 — there's no uncached variant.
 """
 from __future__ import annotations
+import logging
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
@@ -39,6 +40,7 @@ from PyQt6.QtGui import QImage
 
 from .thumb_cache import thumb_cache
 
+_logger = logging.getLogger("LoadImageWorker")
 
 JPEG_EXTENSIONS = {".jpg", ".jpeg"}
 RAW_EXTENSIONS = {".arw", ".nef", ".cr2", ".cr3", ".dng", ".raf", ".orf", ".rw2"}
@@ -191,10 +193,9 @@ def extract_thumb_with_exif(
             img, exif = _extract_raw_thumb(path, max_size)
         else:
             img, exif = _extract_jpeg_thumb(path, max_size)
-    except Exception as e:
-        import traceback
-        print(f"extract_thumb_with_exif FAILED for {Path(path).name}: {e!r}")
-        traceback.print_exc()
+    except Exception:
+        _logger.warning("extract_thumb_with_exif failed for %s",
+                        Path(path).name, exc_info=True)
         return None, {}, None
     sharp = compute_sharpness(path) if _SHARPNESS_ENABLED else None
     if img is not None and not img.isNull():
@@ -375,15 +376,9 @@ class LoadImageWorker(QRunnable):
                 image=image, thumbnail=thumbnail, exif=exif, path=self.path,
                 sharpness=sharpness,
             ))
-            print("LoadImageWorker(%s, %s) took %d ms (sharpness=%s)" % (
-                Path(self.path).name, self.mode.value, timer.elapsed(),
-                f"{sharpness:.1f}" if sharpness is not None else "—",
-            ))
-        except Exception as e:
-            # Was a bare `except: pass` historically — silently lost RAWs
-            # that rawpy couldn't read mid-flight (FS watcher fires before
-            # the file is fully flushed). Log + traceback so the next
-            # failure is diagnosable.
-            import traceback
-            print(f"LoadImageWorker FAILED for {Path(self.path).name}: {e!r}")
-            traceback.print_exc()
+            _logger.debug("load(%s, %s) took %d ms (sharpness=%s)",
+                          Path(self.path).name, self.mode.value, timer.elapsed(),
+                          f"{sharpness:.1f}" if sharpness is not None else "—")
+        except Exception:
+            _logger.warning("load failed for %s",
+                            Path(self.path).name, exc_info=True)

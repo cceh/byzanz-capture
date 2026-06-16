@@ -358,8 +358,12 @@ class CameraWorker(QObject):
         found = None
         log_target = f" matching {pattern!r}" if pattern else ""
 
+        # INFO once, DEBUG on the ~1s retries — a camera that's switched
+        # off overnight would otherwise write thousands of identical
+        # lines and churn the log rotation.
+        self.__logger.info(f"Waiting for camera{log_target}...")
         while not found and not self.thread().isInterruptionRequested():
-            self.__logger.info(f"Waiting for camera{log_target}...")
+            self.__logger.debug(f"Waiting for camera{log_target}...")
             # `_gphoto2_autodetect()` uses a ctypes wrapper around
             # `gp_camera_autodetect` that releases the GIL during the USB
             # scan, so the Qt UI thread isn't frozen for the duration.
@@ -385,7 +389,6 @@ class CameraWorker(QObject):
 
     def __apply_settings(self, settings: dict):
         with self.__open_config("write") as cfg:
-            print(settings)
             for key, value in settings.items():
                 self.__try_set_config(cfg, key, value)
 
@@ -570,7 +573,12 @@ class CameraWorker(QObject):
         event_type, data = self.camera.wait_for_event(timeout)
 
         while event_type != gp.GP_EVENT_TIMEOUT:
-            self.__logger.info("Event: %s, data: %s" % (EVENT_DESCRIPTIONS.get(event_type, "Unknown"), data))
+            # DEBUG, not INFO: Sony bodies fire property-change events
+            # continuously during live view — at INFO they would churn
+            # through the log rotation in hours. The events that matter
+            # for capture forensics (FILE_ADDED, CAPTURE_COMPLETE) get
+            # their own INFO lines in their handlers below.
+            self.__logger.debug("Event: %s, data: %s" % (EVENT_DESCRIPTIONS.get(event_type, "Unknown"), data))
             QApplication.processEvents()
 
             if event_type == gp.GP_EVENT_FILE_ADDED:
@@ -626,7 +634,7 @@ class CameraWorker(QObject):
                 self.camera.file_delete(data.folder, data.name)
 
             elif event_type == gp.GP_EVENT_CAPTURE_COMPLETE:
-                print("GP_EVENT_CAPTURE_COMPLETE")
+                self.__logger.info("Capture complete event")
                 self.captureComplete = True
 
             elif event_type == gp.GP_EVENT_UNKNOWN:
@@ -650,7 +658,7 @@ class CameraWorker(QObject):
                 else:
                     match = re.search(r'PTP Event (\w+)', data)
                     if match:
-                        print(f"PTP Event '{match.group(1)}' received")
+                        self.__logger.debug("PTP Event '%s' received", match.group(1))
 
             # try to grab another event
             event_type, data = self.camera.wait_for_event(1)
