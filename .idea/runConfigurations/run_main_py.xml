@@ -6,8 +6,6 @@
     <option name="PARENT_ENVS" value="true" />
     <envs>
       <env name="PYTHONUNBUFFERED" value="1" />
-      <env name="CAMLIBS" value="$USER_HOME$/.local/lib/libgphoto2/2.5.33.1" />
-      <env name="IOLIBS" value="$USER_HOME$/.local/lib/libgphoto2_port/0.12.2" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/venv/bin/python" />
     <option name="SDK_NAME" value="Python 3.13 (byzanz-capture)" />

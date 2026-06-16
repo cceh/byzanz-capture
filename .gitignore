@@ -80,14 +80,17 @@ fabric.properties
 ### VirtualEnv template
 # Virtualenv
 # http://iamzed.com/2009/05/07/a-primer-on-virtualenv/
+#
+# Common venv directory names — ignoring the directory covers its
+# contents (bin/, lib/, Scripts/, pyvenv.cfg, etc.) without polluting
+# the repo namespace. The original template ignored those bare names
+# at any depth (`[Bb]in`, `[Ll]ib`, `[Ss]cripts`, ...) which silently
+# swallowed top-level project directories like `scripts/`.
+venv/
+.venv/
+env/
+.env/
 .Python
-[Bb]in
-[Ii]nclude
-[Ll]ib
-[Ll]ib64
-[Ll]ocal
-pyvenv.cfg
-.venv
 pip-selfcheck.json
 
 ### macOS template
@@ -96,8 +99,12 @@ pip-selfcheck.json
 .AppleDouble
 .LSOverride
 
-# Icon must end with two \r
-Icon
+# macOS Finder custom-folder marker file. Its real name is `Icon\r`
+# (literal trailing CR); the trailing `?` matches that single byte
+# so the rule still catches it without also catching unrelated paths
+# named "Icon"/"icon" at any depth (the bare `Icon` form silently
+# swallowed `ui/icon/` and broke app-icon delivery to collaborators).
+Icon?
 
 # Thumbnails
 ._*
