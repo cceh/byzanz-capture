@@ -30,10 +30,13 @@ class MoritzA7MIII(Profile):
         return "iso"
 
     def shutterspeed_property_name(self):
-        return "f-number"
+        # Sony's gphoto2 driver names the exposure-time property
+        # "shutterspeed" and the aperture property "f-number" (these were
+        # previously swapped — see ParisDomeSonyIlce7RM5).
+        return "shutterspeed"
 
     def f_number_property_name(self):
-        return "shutterspeed"
+        return "f-number"
 
     def image_format_property_name(self):
         return "aspectratio"

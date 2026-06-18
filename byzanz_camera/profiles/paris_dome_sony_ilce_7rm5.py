@@ -32,10 +32,14 @@ class ParisDomeSonyIlce7RM5(Profile):
         return "iso"
 
     def shutterspeed_property_name(self):
-        return "f-number"
+        # Sony's gphoto2 driver names the exposure-time property
+        # "shutterspeed" and the aperture property "f-number". These two
+        # were previously swapped, which surfaced the shutter value under
+        # the aperture control (and vice versa) in the capture-setting UI.
+        return "shutterspeed"
 
     def f_number_property_name(self):
-        return "shutterspeed"
+        return "f-number"
 
     def image_format_property_name(self):
         return "aspectratio"
