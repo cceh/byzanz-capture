@@ -675,7 +675,17 @@ class CameraWorker(QObject):
         lightmeter = None
         camera_file = self.camera.capture_preview()
         file_data = camera_file.get_data_and_size()
-        image = Image.open(io.BytesIO(file_data))
+        try:
+            image = Image.open(io.BytesIO(file_data))
+        except (Image.UnidentifiedImageError, OSError, ValueError):
+            # A truncated or otherwise undecodable preview frame turns
+            # up occasionally on a healthy connection (partial PTP
+            # transfer, transient USB glitch). Skip this frame rather
+            # than letting it bubble to the global excepthook — the
+            # next capture_preview() almost always succeeds.
+            self.__logger.debug("Skipping undecodable live-view frame")
+            self.empty_event_queue(1)
+            return
 
         self.empty_event_queue(1)
         self.preview_image.emit(LiveViewImage(image=image))

@@ -45,6 +45,15 @@ _seen_dialog_keys: set[tuple] = set()
 _last_logged: dict[tuple, float] = {}
 _LOG_REPEAT_INTERVAL_S = 10.0
 
+# Bridge that owns the error QMessageBox. sys.excepthook fires on
+# whichever thread ran the failing slot — often the camera worker
+# QThread — and on macOS constructing an NSWindow (any QWidget) off
+# the main thread aborts the whole process. The bridge lives on the
+# main thread and its signal is delivered via a queued connection, so
+# the dialog is always built on the GUI thread regardless of where the
+# exception was raised.
+_error_bridge = None
+
 
 def log_dir() -> Path:
     if sys.platform == "darwin":
@@ -77,6 +86,7 @@ def install() -> None:
     stderr_handler.setLevel(logging.INFO)
 
     _enable_faulthandler(directory / "crash.log")
+    _install_error_bridge()
     sys.excepthook = _excepthook
     threading.excepthook = _threading_excepthook
 
@@ -122,22 +132,53 @@ def _excepthook(exc_type, exc, tb) -> None:
         _show_error_dialog(exc_type, exc)
 
 
-def _show_error_dialog(exc_type, exc) -> None:
-    # Imported lazily: the hook must work even if it fires before (or
-    # during a failure of) QApplication construction.
+def _install_error_bridge() -> None:
+    # Created here, during install(), which runs on the main thread at
+    # import time — so the bridge's thread affinity is the GUI thread
+    # even though QApplication doesn't exist yet (a QObject adopts the
+    # current thread; the main OS thread later becomes the GUI thread).
+    global _error_bridge
     try:
-        from PyQt6.QtWidgets import QApplication, QMessageBox
-        if QApplication.instance() is None:
-            return
-        QMessageBox.critical(
-            None,
-            "Unexpected error",
-            f"An unexpected error occurred:\n\n"
-            f"{exc_type.__name__}: {exc}\n\n"
-            f"The program will keep running, but if this happens "
-            f"repeatedly, please restart it.\n\n"
-            f"Details were saved to:\n{log_dir() / 'papyri.log'}",
-        )
+        from PyQt6.QtCore import QObject, Qt, pyqtSignal
+
+        class _ErrorBridge(QObject):
+            show = pyqtSignal(str)
+
+            def __init__(self):
+                super().__init__()
+                self.show.connect(
+                    self._show, Qt.ConnectionType.QueuedConnection
+                )
+
+            def _show(self, message: str) -> None:
+                from PyQt6.QtWidgets import QApplication, QMessageBox
+                if QApplication.instance() is None:
+                    return
+                QMessageBox.critical(None, "Unexpected error", message)
+
+        _error_bridge = _ErrorBridge()
+    except Exception:
+        # No Qt available (e.g. a headless helper run) — dialogs are
+        # best-effort; the traceback is already in the log file.
+        _error_bridge = None
+
+
+def _show_error_dialog(exc_type, exc) -> None:
+    # Emit through the main-thread bridge with a queued connection so
+    # the QMessageBox is always constructed on the GUI thread. Building
+    # it on the camera worker thread aborts the process on macOS
+    # (NSWindow must be instantiated on the main thread).
+    if _error_bridge is None:
+        return
+    message = (
+        f"An unexpected error occurred:\n\n"
+        f"{exc_type.__name__}: {exc}\n\n"
+        f"The program will keep running, but if this happens "
+        f"repeatedly, please restart it.\n\n"
+        f"Details were saved to:\n{log_dir() / 'papyri.log'}"
+    )
+    try:
+        _error_bridge.show.emit(message)
     except Exception:
         _logger.exception("Failed to show the error dialog")
 
