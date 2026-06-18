@@ -20,12 +20,14 @@ class NikonD90(Profile):
         # gphoto2 reports the body as "Nikon DSC D90 (PTP mode)".
         return "Nikon DSC D90"
 
-    def has_settable_aperture(self) -> bool:
-        # The IR body wears a Coastal Optical Systems 60mm f/4 UV-VIS-IR
-        # Macro Apo: a manual-aperture-ring lens with no electronic aperture
-        # coupling. gphoto2's f-number is inert (the EXIF value just mirrors
-        # the physical ring), so the UI should not offer an aperture combo.
-        return False
+    # NOTE on the IR lens (Coastal Optical Systems 60mm f/4 UV-VIS-IR Macro
+    # Apo): it is a chipped AI-P lens — manual focus, but with a CPU and an
+    # aperture ring. The ring MUST be parked and locked at its minimum
+    # aperture (f/45, the red marking); otherwise the body throws "fEE" and
+    # f-number reads the f/655.35 placeholder. With the ring at f/45 the body
+    # drives the aperture electronically, so f-number IS settable (verified:
+    # set f/8 -> reads f/8, set f/16 -> reads f/16) — hence we keep the
+    # inherited has_settable_aperture()=True. Only autofocus is unavailable.
 
     def supports_autofocus(self) -> bool:
         # The CoastalOpt 60/4 is manual-focus only (no AF motor); it is
