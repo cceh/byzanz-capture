@@ -51,6 +51,32 @@ The IR lamp runs **hot**. Do all setup with the lamp **off**:
    use a cool IR LED illuminator — note the D90 has **no manual live-view gain**.
 2. Lamp **on** only for the actual exposure(s), **off** immediately after.
 
+## Uneven illumination — flat-field correction
+The photofloods can't be positioned for fully even coverage (space
+constraints); the measured gradient is ~0.4 stops (top ~30 % brighter than
+bottom). Correct it in post with a **flat field** instead of fighting the lamps:
+
+1. Shoot a **flat**: a uniform, matte, featureless surface filling the frame
+   (white background or grey card), under the **same lamps (not moved), same
+   aperture f/5.6**, at a shutter that keeps it **unclipped** (faster than the
+   papyrus exposure — a bright white card clips at 1/60, try ~1/125). Take a few
+   for averaging. Re-shoot the flat whenever the lamps move or the aperture
+   changes.
+2. (Optional) a **dark frame**: lens capped, lamp off, same settings.
+3. Correct:
+   ```bash
+   .venv/bin/python scripts/ir-flatfield.py \
+       capture1.nef capture2.nef --flat flat1.nef flat2.nef [--dark dark.nef]
+   ```
+   Outputs `<name>_ff.tif` (16-bit grey) + `_ff.png` (preview). By default the
+   flat is smoothed (corrects only the gradient + vignetting); `--no-smooth` does
+   full per-pixel correction (then average many flats). Put captures first, then
+   `--flat` (argparse consumes the flat list after the flag).
+
+`corrected = capture / flat x mean(flat)`. It fixes low-frequency gradients,
+vignetting and per-pixel response; it does **not** fix subject-dependent
+specular glare or clipped data.
+
 ## Measurement / re-tuning tools (`scripts/`)
 All prompt you to switch the lamp ON for a tight capture loop, then OFF, and
 auto-detect the fragment (no grid / no manual ROI: the white background is flat
