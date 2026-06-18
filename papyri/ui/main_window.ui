@@ -279,6 +279,66 @@
                   <number>12</number>
                  </property>
                  <item>
+                  <widget class="QLabel" name="isoLabel">
+                   <property name="text">
+                    <string>ISO</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QComboBox" name="isoSelect">
+                   <property name="minimumSize">
+                    <size>
+                     <width>80</width>
+                     <height>0</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>ISO sensitivity</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="fNumberLabel">
+                   <property name="text">
+                    <string>Aperture</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QComboBox" name="fNumberSelect">
+                   <property name="minimumSize">
+                    <size>
+                     <width>80</width>
+                     <height>0</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>Aperture (f-number)</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="shutterSpeedLabel">
+                   <property name="text">
+                    <string>Shutter</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QComboBox" name="shutterSpeedSelect">
+                   <property name="minimumSize">
+                    <size>
+                     <width>80</width>
+                     <height>0</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>Shutter speed (exposure time)</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
                   <spacer name="captureRowSpacer">
                    <property name="orientation">
                     <enum>Qt::Horizontal</enum>

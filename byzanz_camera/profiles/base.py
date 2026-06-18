@@ -16,6 +16,19 @@ class Profile(ABC):
         """
         return None
 
+    def has_settable_aperture(self) -> bool:
+        """Whether the body can drive the aperture electronically. Return
+        False for a manual aperture-ring lens (e.g. D90 + CoastalOpt 60/4
+        UV-VIS-IR), where the f-number combo would be inert — the UI then
+        leaves that combo disabled instead of offering dead choices."""
+        return True
+
+    def supports_autofocus(self) -> bool:
+        """Whether autofocus can be triggered. Return False for a
+        manual-focus-only lens, so the UI keeps the autofocus button
+        disabled even in live view."""
+        return True
+
     @abstractmethod
     def supports_chs(self):
         pass

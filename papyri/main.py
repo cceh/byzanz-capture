@@ -47,7 +47,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QAction, QCloseEvent, QIcon, QPixmap, QPixmapCache
 from PyQt6.QtWidgets import (
-    QApplication, QInputDialog, QLabel, QMainWindow, QMenu,
+    QApplication, QComboBox, QInputDialog, QLabel, QMainWindow, QMenu,
     QMessageBox, QPushButton, QSplitter, QToolButton,
 )
 from PyQt6.uic import loadUi
@@ -87,6 +87,7 @@ from byzanz_camera.profiles.base import Profile
 from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
 from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
 from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
+from byzanz_camera.profiles.nikon_d90 import NikonD90
 from papyri.bucket_selector import BucketSelector, FusingPanel
 from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
 
@@ -99,6 +100,7 @@ PROFILES = {
     "MoritzA7III": MoritzA7MIII(),
     "ParisDomeSonyIlce7RM5": ParisDomeSonyIlce7RM5(),
     "CCeHDomeNikonD800E": CCeHDomeNikonD800E(),
+    "NikonD90": NikonD90(),
 }
 
 
@@ -690,6 +692,25 @@ class PapyriMainWindow(QMainWindow):
         self.capture_status_label: QLabel = self.findChild(QLabel, "captureStatusLabel")
         self.capture_button: QPushButton = self.findChild(QPushButton, "captureButton")
 
+        # Capture-setting combos (ISO / aperture / shutter) in the capture
+        # row. Populated from the active camera's live config; see
+        # _on_config_update / config_hookup_select. Cache the last config
+        # per spectrum so switching VIS<->IR can repopulate without waiting
+        # for a fresh emit.
+        self.iso_select: QComboBox = self.findChild(QComboBox, "isoSelect")
+        self.f_number_select: QComboBox = self.findChild(QComboBox, "fNumberSelect")
+        self.shutter_speed_select: QComboBox = self.findChild(QComboBox, "shutterSpeedSelect")
+        self._capture_setting_combos = (
+            self.iso_select, self.f_number_select, self.shutter_speed_select,
+        )
+        self._last_config: dict[str, object] = {}
+        # Whether each combo's underlying camera widget is intrinsically
+        # settable (present, non-empty, writable). Gated further by camera
+        # readiness in _refresh_capture_combo_enabled.
+        self._combo_settable: dict[QComboBox, bool] = {
+            c: False for c in self._capture_setting_combos
+        }
+
         # Override raw .ui-set icons with themed versions so they
         # follow light/dark. capture_button gets its themed icon via
         # `_refresh_capture_button_label` (state-dependent); the others
@@ -809,6 +830,13 @@ class PapyriMainWindow(QMainWindow):
         self.visible_worker.initialized.connect(
             lambda: self.visible_worker.commands.find_camera.emit()
         )
+        # Capture-setting combos: each worker emits config_updated on connect
+        # and after every set_single_config. Route through one handler that
+        # only repaints when the event is from the active spectrum (mirrors
+        # the preview-frame drop pattern).
+        self.visible_worker.events.config_updated.connect(
+            lambda cfg: self._on_config_update(SPECTRUM_VISIBLE, cfg)
+        )
         self.visible_worker.usb_offenders_detected.connect(
             self._on_usb_offenders_detected
         )
@@ -831,6 +859,9 @@ class PapyriMainWindow(QMainWindow):
             )
             self.ir_worker.initialized.connect(
                 lambda: self.ir_worker.commands.find_camera.emit()
+            )
+            self.ir_worker.events.config_updated.connect(
+                lambda cfg: self._on_config_update(SPECTRUM_INFRARED, cfg)
             )
             self.ir_worker.usb_offenders_detected.connect(
                 self._on_usb_offenders_detected
@@ -878,6 +909,11 @@ class PapyriMainWindow(QMainWindow):
         s.active_bucket_changed.connect(self._refresh_capture_button_label)
         s.active_bucket_changed.connect(self._refresh_camera_state_emphasis)
         s.active_bucket_changed.connect(self._refresh_filmstrip_binding)
+        # Spectrum switch → repaint capture-setting combos from the newly
+        # active camera's cached config, and re-evaluate camera-dependent
+        # controls (autofocus button etc.) against the now-active camera.
+        s.active_bucket_changed.connect(self._populate_capture_setting_combos)
+        s.active_bucket_changed.connect(self._refresh_camera_dependent_ui)
         self._refresh_workflow_stepper_active()
         self._refresh_capture_button_label()
         self._refresh_camera_state_emphasis()
@@ -958,6 +994,117 @@ class PapyriMainWindow(QMainWindow):
                 and self.ir_worker is not None):
             return self.ir_worker
         return self.visible_worker
+
+    def _active_profile(self) -> Profile | None:
+        """Profile of the active spectrum's camera (None if IR active but
+        unconfigured — shouldn't happen, defensive)."""
+        if (self.session.active_spectrum == SPECTRUM_INFRARED
+                and self.ir_worker is not None):
+            return self.ir_profile
+        return self.profile
+
+    def _autofocus_supported(self) -> bool:
+        """Whether the active camera's profile allows autofocus. Gates the
+        autofocus button on top of the state-driven enable, so a
+        manual-focus body (e.g. IR D90 + CoastalOpt 60/4) never enables it."""
+        profile = self._active_profile()
+        return bool(profile and profile.supports_autofocus())
+
+    # ---- capture-setting combos (ISO / aperture / shutter) -------------
+
+    def _on_config_update(self, spectrum: str, config) -> None:
+        """A worker pushed fresh config (on connect, or after a
+        set_single_config). Cache it per spectrum and, if it's the active
+        spectrum, repaint the capture-setting combos."""
+        self._last_config[spectrum] = config
+        if spectrum == self.session.active_spectrum:
+            self._populate_capture_setting_combos()
+
+    def _populate_capture_setting_combos(self) -> None:
+        """(Re)bind ISO / aperture / shutter combos to the active camera's
+        cached config. Called on config_update for the active spectrum and
+        after an active-spectrum switch."""
+        config = self._last_config.get(self.session.active_spectrum)
+        profile = self._active_profile()
+        if config is None or profile is None:
+            for combo in self._capture_setting_combos:
+                self._clear_combo(combo)
+        else:
+            self.config_hookup_select(
+                config, profile.iso_property_name(), self.iso_select)
+            if profile.has_settable_aperture():
+                self.f_number_select.setToolTip("")
+                self.config_hookup_select(
+                    config, profile.f_number_property_name(),
+                    self.f_number_select)
+            else:
+                # Manual aperture-ring lens (e.g. IR D90 + CoastalOpt 60/4):
+                # leave the combo cleared → _refresh_capture_combo_enabled
+                # keeps it disabled.
+                self._clear_combo(self.f_number_select)
+                self.f_number_select.setToolTip(
+                    "Aperture is set on the lens ring (manual lens)")
+            self.config_hookup_select(
+                config, profile.shutterspeed_property_name(),
+                self.shutter_speed_select)
+        self._refresh_capture_combo_enabled()
+
+    def _clear_combo(self, combo: QComboBox) -> None:
+        try:
+            combo.currentIndexChanged.disconnect()
+        except TypeError:
+            pass
+        combo.blockSignals(True)
+        combo.clear()
+        combo.blockSignals(False)
+        self._combo_settable[combo] = False
+
+    def config_hookup_select(self, config, config_name, combo_box: QComboBox,
+                             value_map: dict = None) -> None:
+        """Populate `combo_box` from the camera-config widget `config_name`
+        and wire selection changes back to the ACTIVE worker. Mirrors the
+        RTI app's helper, but targets active_worker (dual-camera) and is
+        defensive: a missing/read-only/empty widget just records the combo
+        as non-settable instead of raising (e.g. the D90 exposes
+        shutter/aperture read-only unless the mode dial is on M). Final
+        enable state is applied by _refresh_capture_combo_enabled."""
+        self._clear_combo(combo_box)
+        try:
+            cfg = config.get_child_by_name(config_name)
+            choices = list(cfg.get_choices())
+            current = cfg.get_value()
+            readonly = bool(cfg.get_readonly())
+        except (gp.GPhoto2Error, KeyError):
+            return  # widget absent on this body — leave combo cleared
+
+        if not choices:
+            return
+
+        combo_box.blockSignals(True)
+        for idx, choice in enumerate(choices):
+            label = value_map[choice] if value_map and choice in value_map else choice
+            combo_box.addItem(label, choice)
+            if choice == current:
+                combo_box.setCurrentIndex(idx)
+        combo_box.blockSignals(False)
+
+        self._combo_settable[combo_box] = not readonly
+        if readonly:
+            return
+        combo_box.currentIndexChanged.connect(
+            lambda: self.active_worker.commands.set_single_config.emit(
+                config_name, combo_box.currentData()
+            )
+        )
+
+    def _refresh_capture_combo_enabled(self) -> None:
+        """Final enable state for the capture-setting combos: intrinsically
+        settable (set by config_hookup_select) AND the active camera is ready
+        and not mid-capture."""
+        live = self._active_camera_ready() and not isinstance(
+            self.session.active_camera_state, CameraStates.CaptureInProgress)
+        for combo in self._capture_setting_combos:
+            combo.setEnabled(live and self._combo_settable.get(combo, False))
 
     # ---- B1+B2 receivers (active_bucket_changed) -----------------------
 
@@ -1314,6 +1461,10 @@ class PapyriMainWindow(QMainWindow):
         self.pause_live_view_button.setEnabled(camera_ready)
         self.capture_button.setEnabled(camera_ready and object_loaded)
 
+        # ISO/aperture/shutter combos: gated on readiness + not-capturing,
+        # intersected with each widget's intrinsic settable-ness.
+        self._refresh_capture_combo_enabled()
+
         # ---- camera-state-driven UI
         # Camera-state widgets (icon/label/spinner/connect/disconnect buttons)
         # update themselves via worker.state_changed — no main.py plumbing
@@ -1332,13 +1483,13 @@ class PapyriMainWindow(QMainWindow):
                 self.autofocus_button.setEnabled(False)
 
             case CameraStates.LiveViewStarted() | CameraStates.LiveViewActive():
-                self.autofocus_button.setEnabled(True)
+                self.autofocus_button.setEnabled(self._autofocus_supported())
 
             case CameraStates.FocusStarted():
                 self.autofocus_button.setEnabled(False)
 
             case CameraStates.FocusFinished(success=success):
-                self.autofocus_button.setEnabled(True)
+                self.autofocus_button.setEnabled(self._autofocus_supported())
                 if not success:
                     self.capture_status_label.setText("Could not focus.")
                     set_state(self.capture_status_label, "state", "error")
