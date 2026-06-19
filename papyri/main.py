@@ -41,6 +41,7 @@ _apply_gphoto2_paths(_pre_camlibs, _pre_iolibs)
 
 from pathlib import Path
 
+from PIL import Image
 from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import (
     QObject, QRunnable, QSettings, QSize, QThread, QThreadPool, pyqtSignal,
@@ -57,6 +58,7 @@ from byzanz_camera.camera_worker import (
 )
 from byzanz_camera.filmstrip_widget import get_file_index
 from byzanz_camera.load_image_worker import ImageMode, LoadImageWorker
+from byzanz_camera.orientation import read_orientation, write_orientation
 from byzanz_camera.helpers import (
     get_app_icon, get_ui_path, set_state, set_themed_icon,
 )
@@ -114,6 +116,16 @@ _STEP_ID_BY_BUCKET = {
     (SIDE_B, SPECTRUM_INFRARED): "ir_b",
 }
 _BUCKET_BY_STEP_ID = {v: k for k, v in _STEP_ID_BY_BUCKET.items()}
+
+# Live-view display rotation → PIL transpose op. We rotate the PIL frame
+# (exact, lossless for multiples of 90) rather than the QPixmap, which shears
+# the image — ImageQt's buffer stride doesn't survive a QTransform reliably.
+# Angles are clockwise (PIL ROTATE_n is counter-clockwise, hence the swap).
+_ROTATE_TRANSPOSE = {
+    90:  Image.Transpose.ROTATE_270,
+    180: Image.Transpose.ROTATE_180,
+    270: Image.Transpose.ROTATE_90,
+}
 
 
 def _build_workflow_groups() -> list[WorkflowGroup]:
@@ -599,6 +611,18 @@ class PapyriMainWindow(QMainWindow):
         # JPEG (~72 MB) let alone a RAW (~180 MB). Apply the user setting.
         QPixmapCache.setCacheLimit(int(self.q_settings.value("maxPixmapCache")) * 1024)
         self.profile = PROFILES[self.q_settings.value("profile", "MoritzA7III")]
+        # Live-view display rotation in degrees (0/90/180/270), per spectrum
+        # — VIS and IR are the two physical cameras, so this is per-camera.
+        # Client-side display only (we rotate the preview pixmap), persisted
+        # so it survives restarts. Applied in _on_preview_image.
+        self._lv_rotation = {
+            sp: int(self.q_settings.value(f"liveViewRotation/{sp}", 0))
+            for sp in (SPECTRUM_VISIBLE, SPECTRUM_INFRARED)
+        }
+        # Path of the capture currently shown in the viewer, so the rotate
+        # button can target it. Set by _on_filmstrip_image_decoded, cleared
+        # when the viewer is cleared.
+        self._shown_image_path: str | None = None
         # Connection bookkeeping for current_object's state_changed signal —
         # tracks what we're currently subscribed to so we can disconnect
         # before re-subscribing. Maintained by _handle_current_object_subscription.
@@ -689,6 +713,9 @@ class PapyriMainWindow(QMainWindow):
 
         self.pause_live_view_button: QPushButton = self.findChild(QPushButton, "pauseLiveViewButton")
         self.autofocus_button: QPushButton = self.findChild(QPushButton, "autofocusButton")
+        self.magnify_button: QPushButton = self.findChild(QPushButton, "magnifyButton")
+        self.rotate_live_view_button: QPushButton = self.findChild(QPushButton, "rotateLiveViewButton")
+        self.rotation_label: QLabel = self.findChild(QLabel, "rotationLabel")
         self.capture_status_label: QLabel = self.findChild(QLabel, "captureStatusLabel")
         self.capture_button: QPushButton = self.findChild(QPushButton, "captureButton")
 
@@ -718,6 +745,8 @@ class PapyriMainWindow(QMainWindow):
         set_themed_icon(self.settings_button.setIcon, get_ui_path("ui/general_settings.svg"))
         set_themed_icon(self.pause_live_view_button.setIcon, get_ui_path("ui/preview_closed.svg"))
         set_themed_icon(self.autofocus_button.setIcon, get_ui_path("ui/focus.svg"))
+        set_themed_icon(self.magnify_button.setIcon, get_ui_path("ui/magnify.svg"))
+        set_themed_icon(self.rotate_live_view_button.setIcon, get_ui_path("ui/rotate.svg"))
 
         # Settings menu (popup off the "Settings" button)
         self.open_program_settings_action = self._action(
@@ -769,6 +798,8 @@ class PapyriMainWindow(QMainWindow):
 
         self.pause_live_view_button.toggled.connect(self._on_pause_toggled)
         self.autofocus_button.clicked.connect(self._trigger_autofocus)
+        self.magnify_button.toggled.connect(self._on_magnify_toggled)
+        self.rotate_live_view_button.clicked.connect(self._rotate_view)
         self.capture_button.clicked.connect(self.capture_image)
 
         # Filmstrip → main.py (user actions, lifecycle)
@@ -780,9 +811,11 @@ class PapyriMainWindow(QMainWindow):
         # pixmap).
         self.filmstrip.image_decoded.connect(self._on_filmstrip_image_decoded)
         self.filmstrip.image_cleared.connect(self.viewer.clear)
+        self.filmstrip.image_cleared.connect(self._clear_shown_image)
         # directory_closed signal carries path; viewer.clear takes no args
         # — PyQt silently drops extra signal args, so this connects fine.
         self.filmstrip.directory_closed.connect(self.viewer.clear)
+        self.filmstrip.directory_closed.connect(self._clear_shown_image)
         # Spinner during cache-miss full-decode of a clicked thumb.
         # show_busy takes no args; PyQt drops the path arg.
         self.filmstrip.image_decode_started.connect(self.viewer.show_busy)
@@ -952,6 +985,10 @@ class PapyriMainWindow(QMainWindow):
         # B7 view_mode
         s.view_mode_changed.connect(self._refresh_view_mode_indicator)
         self._refresh_view_mode_indicator()
+        # Rotate button is independent of live view: usable whenever the
+        # viewer shows something (live, preview or paused), disabled when empty.
+        s.view_mode_changed.connect(self._refresh_rotate_button)
+        self._refresh_rotate_button()
 
         # B3+B4 camera_state (per-spectrum). Three receivers, each with
         # its own match block — see the design note above
@@ -1009,6 +1046,13 @@ class PapyriMainWindow(QMainWindow):
         manual-focus body (e.g. IR D90 + CoastalOpt 60/4) never enables it."""
         profile = self._active_profile()
         return bool(profile and profile.supports_autofocus())
+
+    def _focus_magnify_supported(self) -> bool:
+        """Whether the active camera can magnify the live view for focus
+        checking. Gates the magnify button's visibility (together with
+        live-view-active state)."""
+        profile = self._active_profile()
+        return bool(profile and profile.focus_magnify_property_name())
 
     # ---- capture-setting combos (ISO / aperture / shutter) -------------
 
@@ -1229,9 +1273,12 @@ class PapyriMainWindow(QMainWindow):
         )
 
     def _on_filmstrip_image_decoded(self, path: str, pixmap) -> None:
-        """Display the filmstrip's decoded image in the viewer. Path is
-        kept on the signal for future debug/logging but ignored here."""
+        """Display the filmstrip's decoded image in the viewer. The decode
+        already honours the file's EXIF orientation, so no rotation here.
+        We keep the path so the rotate button can target this file."""
+        self._shown_image_path = path
         self.viewer.show_image(pixmap)
+        self._refresh_rotation_indicator()
 
     # ---- B1+B2 imperative handlers (not signal-driven) ------------------
 
@@ -1435,9 +1482,14 @@ class PapyriMainWindow(QMainWindow):
         # frames preserve whatever transform the user set via scroll-wheel
         # zoom; otherwise every ~50ms a fresh fitInView would clobber it.
         fit = self.session.view_mode != "live"
-        self.viewer.show_image(
-            QPixmap.fromImage(ImageQt(image.image)), fit=fit
-        )
+        # Client-side live-view rotation (display only — captures are
+        # untouched). The angle is per-camera and persisted; see _lv_rotation.
+        # Rotate the PIL frame, not the QPixmap: the latter shears the image.
+        pil_image = image.image
+        angle = self._lv_rotation[spectrum]
+        if angle:
+            pil_image = pil_image.transpose(_ROTATE_TRANSPOSE[angle])
+        self.viewer.show_image(QPixmap.fromImage(ImageQt(pil_image)), fit=fit)
         # Each arriving live frame asserts "live" — handles transitions
         # away from preview/paused without needing extra plumbing.
         self.session.set_view_mode("live")
@@ -1460,6 +1512,25 @@ class PapyriMainWindow(QMainWindow):
         camera_ready = self._active_camera_ready()
         self.pause_live_view_button.setEnabled(camera_ready)
         self.capture_button.setEnabled(camera_ready and object_loaded)
+
+        # Magnify is a live-view focusing aid: show it only while the live
+        # view is actually streaming AND the camera supports it. (Rotate is
+        # independent of live view — handled in _refresh_rotate_button, driven
+        # by view_mode.) One place, so we don't scatter setVisible across the
+        # match arms below.
+        live = isinstance(camera_state, (CameraStates.LiveViewStarted,
+                                         CameraStates.LiveViewActive))
+        # Live angle is per active camera — refresh the readout on spectrum /
+        # state changes (this method is wired to both).
+        self._refresh_rotation_indicator()
+        show_magnify = live and self._focus_magnify_supported()
+        self.magnify_button.setVisible(show_magnify)
+        if not show_magnify and self.magnify_button.isChecked():
+            # Leaving live view resets the toggle (the camera drops the zoom
+            # itself) — block signals so we don't emit a stray config write.
+            self.magnify_button.blockSignals(True)
+            self.magnify_button.setChecked(False)
+            self.magnify_button.blockSignals(False)
 
         # ISO/aperture/shutter combos: gated on readiness + not-capturing,
         # intersected with each widget's intrinsic settable-ness.
@@ -1506,6 +1577,13 @@ class PapyriMainWindow(QMainWindow):
                 set_state(self.capture_status_label, "state", None)
 
             case CameraStates.CaptureFinished(file_paths=paths):
+                # Stamp the camera's fixed mount rotation into each captured
+                # file's EXIF Orientation, so downstream processing (and any
+                # orientation-aware viewer) gets it right. Idempotent.
+                angle = self._lv_rotation[self.session.active_spectrum]
+                if angle:
+                    for p in paths:
+                        write_orientation(p, angle)
                 if paths:
                     names = ", ".join(os.path.basename(p) for p in paths)
                     self.capture_status_label.setText(f"Captured: {names}")
@@ -1584,6 +1662,64 @@ class PapyriMainWindow(QMainWindow):
 
     def _trigger_autofocus(self):
         self.active_worker.commands.trigger_autofocus.emit()
+
+    def _on_magnify_toggled(self, on: bool):
+        """Toggle the active camera's live-view focus magnifier. The profile
+        maps on/off to the camera-specific PTP property + value; we reuse the
+        existing set_single_config command (no worker changes). Only reachable
+        while live view is active — the button is hidden otherwise."""
+        profile = self._active_profile()
+        prop = profile and profile.focus_magnify_property_name()
+        if prop:
+            self.active_worker.commands.set_single_config.emit(
+                prop, profile.focus_magnify_value(on))
+
+    def _rotate_view(self):
+        """Rotate the current view +90° clockwise.
+
+        - Live view: rotates the live preview for the active camera (the fixed
+          mount), persisted, and used as the orientation written into that
+          camera's new captures. Display-only; no file involved.
+        - A capture shown: rotates *that file* — read its current EXIF
+          orientation, +90, write it back (NEF/ARW/JPEG), and reload the item
+          so its thumbnail and the viewer reflect the file. Each capture
+          carries its own orientation, independent of the live-view angle."""
+        if self.session.view_mode == "live":
+            spectrum = self.session.active_spectrum
+            angle = (self._lv_rotation[spectrum] + 90) % 360
+            self._lv_rotation[spectrum] = angle
+            self.q_settings.setValue(f"liveViewRotation/{spectrum}", angle)
+            self._refresh_rotation_indicator()
+            return  # next live frame picks it up
+        if self._shown_image_path:
+            angle = (read_orientation(self._shown_image_path) + 90) % 360
+            write_orientation(self._shown_image_path, angle)
+            self.filmstrip.reload_current()
+            self._refresh_rotation_indicator()
+
+    def _refresh_rotate_button(self, *_) -> None:
+        """Enable the rotate button whenever the viewer has content, and
+        refresh the rotation readout next to it."""
+        self.rotate_live_view_button.setEnabled(self.session.view_mode != "empty")
+        self._refresh_rotation_indicator()
+
+    def _refresh_rotation_indicator(self, *_) -> None:
+        """Show the rotation of whatever the viewer displays — the live view's
+        per-camera angle, or a shown capture's own EXIF orientation. Mirrors
+        the branching in _rotate_view so the readout matches what a click does."""
+        if self.session.view_mode == "live":
+            angle = self._lv_rotation[self.session.active_spectrum]
+        elif self._shown_image_path:
+            angle = read_orientation(self._shown_image_path)
+        else:
+            self.rotation_label.setText("")
+            return
+        self.rotation_label.setText(f"{angle}°")
+
+    def _clear_shown_image(self, *_) -> None:
+        """Forget the currently-shown capture (viewer cleared / dir closed),
+        so the rotate button can't write into a stale path."""
+        self._shown_image_path = None
 
     # --------------------------------------------------- object lifecycle
 

@@ -35,6 +35,14 @@ class NikonD90(Profile):
         # in IR. The autofocus button stays disabled for this body.
         return False
 
+    def focus_magnify_property_name(self) -> str:
+        # The D90 magnifies the live view via "liveviewimagezoomratio";
+        # "Entire Display" is unzoomed. Essential here since focus is manual.
+        return "liveviewimagezoomratio"
+
+    def focus_magnify_value(self, on: bool) -> str:
+        return "50%" if on else "Entire Display"
+
     def supports_chs(self):
         return False
 

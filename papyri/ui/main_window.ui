@@ -238,6 +238,39 @@
                   <widget class="ZoomControlBar" name="zoomControlBar" native="true"/>
                  </item>
                  <item>
+                  <widget class="QPushButton" name="magnifyButton">
+                   <property name="toolTip">
+                    <string>Magnify the live view to check focus (does not affect captures).</string>
+                   </property>
+                   <property name="checkable">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="rotateLiveViewButton">
+                   <property name="toolTip">
+                    <string>Rotate the view 90° clockwise. Live view: per camera (remembered). A shown capture: rotates and saves the orientation into that file.</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="rotationLabel">
+                   <property name="minimumSize">
+                    <size>
+                     <width>36</width>
+                     <height>0</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>Current rotation of the live view / shown capture</string>
+                   </property>
+                   <property name="text">
+                    <string>0°</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
                   <widget class="Line" name="topToolbarLine">
                    <property name="orientation">
                     <enum>Qt::Vertical</enum>

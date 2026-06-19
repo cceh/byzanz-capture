@@ -29,6 +29,22 @@ class Profile(ABC):
         disabled even in live view."""
         return True
 
+    def focus_magnify_property_name(self) -> str | None:
+        """gphoto2 config key that toggles the live-view focus zoom (a
+        focusing aid that magnifies the live preview), or `None` if this
+        body can't do it — then the UI hides the magnify button. The UI
+        only knows "magnify on/off"; the profile maps that to the
+        camera-specific PTP property and values (see focus_magnify_value).
+        Mirrors the `None`-means-unsupported convention of
+        gphoto2_model_pattern."""
+        return None
+
+    def focus_magnify_value(self, on: bool) -> str:
+        """Value to write to focus_magnify_property_name() to turn the
+        live-view focus zoom on / off. The magnification step lives here
+        in the profile (each body's choices differ)."""
+        return ""
+
     @abstractmethod
     def supports_chs(self):
         pass

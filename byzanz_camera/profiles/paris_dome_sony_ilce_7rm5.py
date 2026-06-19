@@ -15,6 +15,14 @@ class ParisDomeSonyIlce7RM5(Profile):
     def supports_chs(self):
         return False
 
+    def focus_magnify_property_name(self) -> str:
+        # The A7R V toggles the live-view focus magnifier via the
+        # "focusmagnifier" action; "Off" cancels it.
+        return "focusmagnifier"
+
+    def focus_magnify_value(self, on: bool) -> str:
+        return "4.7" if on else "Off"
+
     def manual_trigger(self):
         return True
 
