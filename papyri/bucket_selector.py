@@ -106,6 +106,9 @@ class BucketTabBar(QTabBar):
         self.setDocumentMode(True)
         self.setMouseTracking(True)
         self._inactive_group = False
+        # Whether to render the chosen-take thumb slot. Off in simple mode,
+        # where the cards are a plain VIS/IR camera switch (no buckets).
+        self._show_thumbs = True
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         # The group's accent — used for the ACTIVE card's border + text
         # + VIS/IR badge fill, and queried by FusingPanel for its
@@ -140,6 +143,10 @@ class BucketTabBar(QTabBar):
 
     def set_short_label(self, label: str) -> None:
         self._short_label = label
+        self.update()
+
+    def set_show_thumbs(self, show: bool) -> None:
+        self._show_thumbs = show
         self.update()
 
     def set_inactive_group(self, inactive: bool) -> None:
@@ -214,7 +221,9 @@ class BucketTabBar(QTabBar):
                     *, active: bool) -> None:
         has_thumb = (data.chosen_thumb is not None
                      and not data.chosen_thumb.isNull())
-        dimmed = (not has_thumb and not active)
+        # In no-thumb (camera-switch) mode, inactive cards must read as
+        # full-strength labels, not dimmed empty buckets.
+        dimmed = (not has_thumb and not active) if self._show_thumbs else False
 
         radius = 5
         stroke = 1.5 if active else 1.0
@@ -255,31 +264,33 @@ class BucketTabBar(QTabBar):
             p.drawLine(QPointF(body.left(), body.bottom()),
                        QPointF(body.right(), body.bottom()))
 
-        # Thumb area (left).
-        thumb_rect = QRectF(rect.x() + THUMB_PAD,
-                            rect.y() + (rect.height() - THUMB_H) / 2,
-                            THUMB_W, THUMB_H)
-        if not has_thumb:
-            p.setPen(QPen(line, 1.0, Qt.PenStyle.DashLine))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(thumb_rect, 2, 2)
-        else:
-            pix: QPixmap = data.chosen_thumb
-            # Empty placeholder (zero alpha) → render gradient stand-in.
-            if (pix.size() == QSize(THUMB_W, THUMB_H)
-                    and pix.toImage().pixelColor(0, 0).alpha() == 0):
-                _placeholder_thumb(thumb_rect, data.side, p)
+        # Thumb area (left) — omitted in camera-switch mode, where the
+        # labels start flush at the card's left padding instead.
+        if self._show_thumbs:
+            thumb_rect = QRectF(rect.x() + THUMB_PAD,
+                                rect.y() + (rect.height() - THUMB_H) / 2,
+                                THUMB_W, THUMB_H)
+            if not has_thumb:
+                p.setPen(QPen(line, 1.0, Qt.PenStyle.DashLine))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRoundedRect(thumb_rect, 2, 2)
             else:
-                p.drawPixmap(thumb_rect.toRect(),
-                             pix.scaled(THUMB_W, THUMB_H,
-                                        Qt.AspectRatioMode.KeepAspectRatio,
-                                        Qt.TransformationMode.SmoothTransformation))
+                pix: QPixmap = data.chosen_thumb
+                # Empty placeholder (zero alpha) → render gradient stand-in.
+                if (pix.size() == QSize(THUMB_W, THUMB_H)
+                        and pix.toImage().pixelColor(0, 0).alpha() == 0):
+                    _placeholder_thumb(thumb_rect, data.side, p)
+                else:
+                    p.drawPixmap(thumb_rect.toRect(),
+                                 pix.scaled(THUMB_W, THUMB_H,
+                                            Qt.AspectRatioMode.KeepAspectRatio,
+                                            Qt.TransformationMode.SmoothTransformation))
 
         # Labels (right) — badge + side label, both vertically centered
         # in the card. Active card gets saturated accent badge; inactive
         # cards get the soft variant so the four-tab strip doesn't pulse
         # with competing saturated badges.
-        text_x = thumb_rect.right() + 10
+        text_x = (thumb_rect.right() + 10) if self._show_thumbs else (rect.x() + 14)
         badge_h = 16
         badge_label = self._short_label
         if badge_label:
@@ -339,9 +350,20 @@ class BucketSelector(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._bars: list[BucketTabBar] = []
         self._panel: Optional["FusingPanel"] = None
+        # Whether the cards show chosen-take thumbs. Off → camera-switch
+        # look. Set before set_groups so new bars pick it up.
+        self._show_thumbs = True
         self._build_chrome()
 
     # ---- public API ----------------------------------------------------
+
+    def set_show_thumbs(self, show: bool) -> None:
+        """Toggle chosen-take thumbs on the cards. Off turns the selector
+        into a plain VIS/IR camera switch (simple mode). Call before
+        set_groups; also applied to any already-built bars."""
+        self._show_thumbs = show
+        for bar in self._bars:
+            bar.set_show_thumbs(show)
 
     def set_groups(self, groups: Sequence[WorkflowGroup]) -> None:
         """Configure the bars from the same WorkflowGroup list used
@@ -398,6 +420,7 @@ class BucketSelector(QWidget):
         bar.set_accent_color(accent)
         bar.set_soft_colors(QColor(group.bg_done), QColor(group.text_dark))
         bar.set_short_label(group.short_label)
+        bar.set_show_thumbs(self._show_thumbs)
         for step in group.steps:
             side = "A" if "A" in step.label else "B"
             idx = bar.addTab("")

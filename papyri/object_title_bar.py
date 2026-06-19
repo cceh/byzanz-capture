@@ -16,8 +16,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6 import uic
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QLineEdit, QToolButton, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QToolButton, QWidget,
+)
 
 from byzanz_camera.helpers import get_ui_path, set_themed_icon
 
@@ -38,6 +40,8 @@ class ObjectTitleBar(QWidget):
     rename_requested = pyqtSignal()
     close_requested = pyqtSignal()
     start_object_requested = pyqtSignal(str)
+    # Simple mode only: user clicked the output-folder affordance.
+    output_folder_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -56,7 +60,67 @@ class ObjectTitleBar(QWidget):
         set_themed_icon(self.closeButton.setIcon, get_ui_path("ui/cancel.svg"))
 
         self._obj: "Object | None" = None
+        # Simple-mode state: the name field becomes a free-text filename
+        # override and a second row hosts the output-folder picker.
+        self._simple = False
+        self._folder_row: QHBoxLayout | None = None
+        self._folder_label: QLabel | None = None
+        self._folder_button: QPushButton | None = None
+        self._output_dir = ""
         self._refresh_title_row()
+
+    # ---- simple mode ---------------------------------------------------
+
+    def set_simple_mode(self, simple: bool, output_dir: str = "") -> None:
+        """Turn the title bar into the simple-mode layout: the name field
+        is a persistent filename override (live), and a folder row below
+        shows / changes the output directory. Call once at startup."""
+        self._simple = simple
+        if simple:
+            self.nameField.setPlaceholderText("Filename (empty = camera name)")
+            self._ensure_folder_row()
+            self.set_output_folder(output_dir)
+            # Live override — update on every keystroke (cheap; the slot in
+            # main.py just sets SimpleTarget.name_override).
+            self.nameField.textChanged.connect(self._on_simple_text_changed)
+        self._refresh_title_row()
+
+    def set_output_folder(self, path: str) -> None:
+        """Update the folder-row label to reflect the current output dir."""
+        self._output_dir = path or ""
+        if self._folder_label is None:
+            return
+        if self._output_dir:
+            self._folder_label.setText(f"📁 {self._output_dir}")
+            self._folder_button.setText("Change folder…")
+        else:
+            self._folder_label.setText("No output folder selected")
+            self._folder_button.setText("Choose folder…")
+        self._folder_label.setToolTip(self._output_dir)
+
+    def current_name(self) -> str:
+        """The current filename-override text (simple mode)."""
+        return self.nameField.text().strip()
+
+    def _ensure_folder_row(self) -> None:
+        if self._folder_row is not None:
+            return
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self._folder_label = QLabel()
+        self._folder_label.setObjectName("simpleFolderLabel")
+        self._folder_button = QPushButton("Choose folder…")
+        self._folder_button.setObjectName("simpleFolderButton")
+        self._folder_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._folder_button.clicked.connect(self.output_folder_requested.emit)
+        row.addWidget(self._folder_label, 1)
+        row.addWidget(self._folder_button, 0)
+        self.outerLayout.addLayout(row)
+        self._folder_row = row
+
+    def _on_simple_text_changed(self, text: str) -> None:
+        self.start_object_requested.emit(text)
 
     # ---- public API ----------------------------------------------------
 
@@ -75,6 +139,15 @@ class ObjectTitleBar(QWidget):
     # ---- internals -----------------------------------------------------
 
     def _refresh_title_row(self) -> None:
+        if self._simple:
+            # Persistent override field — never read-only, never cleared on
+            # rebind (preserve what the user typed), no rename/close.
+            self.nameField.setReadOnly(False)
+            self.renameButton.setVisible(False)
+            self.closeButton.setVisible(False)
+            self.nameField.style().unpolish(self.nameField)
+            self.nameField.style().polish(self.nameField)
+            return
         if self._obj is None:
             self.nameField.setReadOnly(False)
             self.nameField.clear()

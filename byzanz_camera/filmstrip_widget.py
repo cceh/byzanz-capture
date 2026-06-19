@@ -174,11 +174,13 @@ class CaptionDelegate(QStyledItemDelegate):
         font.setPointSize(10)
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(
-            strip,
-            Qt.AlignmentFlag.AlignCenter,
-            item.text(),
+        # Left-elide so the distinguishing tail of a long filename stays
+        # visible (e.g. "…12345_vis_001.JPG"). No-op for short captions
+        # like the trailing index.
+        text = painter.fontMetrics().elidedText(
+            item.text(), Qt.TextElideMode.ElideLeft, strip.width() - 8,
         )
+        painter.drawText(strip, Qt.AlignmentFlag.AlignCenter, text)
         painter.restore()
 
 
@@ -367,6 +369,12 @@ class FilmstripWidget(QWidget):
         # worker) use ImageMode.FULL so they show in the viewer too.
         self._initial_load_done: bool = False
         self._preferred_stem: str | None = None
+        # On-thumb caption text source. "index" (default) shows the
+        # trailing capture number (e.g. "017") — right for fixed-sequence
+        # workflows like RTI. "name" shows the full filename, left-elided
+        # so the distinguishing tail stays visible. Opt-in via
+        # set_caption_mode (papyri uses "name").
+        self._caption_mode: str = "index"
 
         # Async thumbnail loading — shared global QThreadPool so filmstrip
         # workers and the bucket-selector's chosen-thumb workers compete
@@ -419,6 +427,12 @@ class FilmstripWidget(QWidget):
         self.image_file_list.currentItemChanged.connect(self.__on_select_image_file)
 
     # ---- public API ----------------------------------------------------
+
+    def set_caption_mode(self, mode: str) -> None:
+        """Set the on-thumb caption source: "index" (trailing number) or
+        "name" (full filename, left-elided). Affects items added after
+        this call — set it once before open_directory."""
+        self._caption_mode = mode
 
     def open_directory(self, dir_path: str, *,
                        preferred_stem: str | None = None) -> None:
@@ -841,11 +855,17 @@ class FilmstripWidget(QWidget):
 
         exposure_time = result.exif.get("ExposureTime")
         f_number = result.exif.get("FNumber")
-        # On-thumb caption is the trailing capture index only (e.g.
-        # "017") — short enough to read at thumbnail scale. Full
-        # filename + EXIF live in the tooltip below.
+        # On-thumb caption: either the trailing capture index ("017",
+        # short, for fixed-sequence workflows) or the full filename
+        # (left-elided by the delegate so the tail stays readable). Full
+        # filename + EXIF always live in the tooltip below.
         idx = get_file_index(result.path)
-        caption = f"{idx:03d}" if idx is not None else Path(result.path).stem
+        if self._caption_mode == "name":
+            # Stem only — no extension (the .jpg/.raw suffix is noise on
+            # the thumb; the full name incl. extension stays in the tooltip).
+            caption = Path(result.path).stem
+        else:
+            caption = f"{idx:03d}" if idx is not None else Path(result.path).stem
         tooltip = Path(result.path).name
         if exposure_time is not None and f_number is not None:
             tooltip += f"\nf/{f_number} | {getattr(exposure_time, 'real', exposure_time)}"

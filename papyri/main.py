@@ -18,9 +18,7 @@ or  python papyri/main.py
 import json
 import logging
 import os
-import shutil
 import sys
-from dataclasses import dataclass
 
 # Logging + crash reporting BEFORE the gphoto2-path resolver so its
 # INFO line (and the autodetect logs from byzanz_camera) are captured.
@@ -44,12 +42,12 @@ from pathlib import Path
 from PIL import Image
 from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import (
-    QObject, QRunnable, QSettings, QSize, QThread, QThreadPool, pyqtSignal,
+    QObject, QSettings, QSize, QThread, QThreadPool, pyqtSignal,
 )
 from PyQt6.QtGui import QAction, QCloseEvent, QIcon, QPixmap, QPixmapCache
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QInputDialog, QLabel, QMainWindow, QMenu,
-    QMessageBox, QPushButton, QSplitter, QToolButton,
+    QApplication, QComboBox, QFileDialog, QInputDialog, QLabel, QMainWindow,
+    QMenu, QMessageBox, QPushButton, QSplitter, QToolButton,
 )
 from PyQt6.uic import loadUi
 
@@ -64,6 +62,7 @@ from byzanz_camera.helpers import (
 )
 from byzanz_camera.viewer_widget import ViewerWidget
 from byzanz_camera.zoom_control_bar import ZoomControlBar
+from papyri.capture_model import Capture, _CopyRunner
 from papyri._layout import (
     BUCKETS,
     JPG_EXTENSIONS,
@@ -91,7 +90,8 @@ from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7R
 from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
 from byzanz_camera.profiles.nikon_d90 import NikonD90
 from papyri.bucket_selector import BucketSelector, FusingPanel
-from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
+from papyri.capture_mode import get_mode
+from papyri.simple_target import SimpleTarget
 
 from send2trash import send2trash
 
@@ -106,16 +106,11 @@ PROFILES = {
 }
 
 
-# WorkflowStepper step ids — stable mapping to (side, spectrum) buckets.
-# Workflow order matches the physical capture sequence: visible station
-# (A → B) then infrared station (A → B).
-_STEP_ID_BY_BUCKET = {
-    (SIDE_A, SPECTRUM_VISIBLE):  "vis_a",
-    (SIDE_B, SPECTRUM_VISIBLE):  "vis_b",
-    (SIDE_A, SPECTRUM_INFRARED): "ir_a",
-    (SIDE_B, SPECTRUM_INFRARED): "ir_b",
-}
-_BUCKET_BY_STEP_ID = {v: k for k, v in _STEP_ID_BY_BUCKET.items()}
+# Step-id ↔ (side, spectrum) maps and the workflow-group definitions now
+# live on the active CaptureMode (papyri.capture_mode) so the two modes
+# don't fork MainWindow. `self.mode.step_id_by_bucket` /
+# `self.mode.bucket_by_step_id` / `self.mode.groups` replace the former
+# module constants + `_build_workflow_groups()`.
 
 # Live-view display rotation → PIL transpose op. We rotate the PIL frame
 # (exact, lossless for multiples of 90) rather than the QPixmap, which shears
@@ -126,103 +121,6 @@ _ROTATE_TRANSPOSE = {
     180: Image.Transpose.ROTATE_180,
     270: Image.Transpose.ROTATE_90,
 }
-
-
-def _build_workflow_groups() -> list[WorkflowGroup]:
-    """Two groups (Visible, Infrared) × two sides (A, B). Tints overridden
-    explicitly so they match the agreed papyri palette exactly (palette
-    derivation from a base color doesn't quite hit the right values for
-    warm hues)."""
-    return [
-        WorkflowGroup(
-            label="Visible",
-            short_label="VIS",
-            base_color="#3b82f6",
-            bg_active="#3b82f6",      # blue-500
-            bg_done="#dbeafe",        # blue-200
-            bg_pending="white",
-            text_dark="#1e3a8a",      # blue-800
-            steps=[
-                WorkflowStep(_STEP_ID_BY_BUCKET[(SIDE_A, SPECTRUM_VISIBLE)],  "Side A"),
-                WorkflowStep(_STEP_ID_BY_BUCKET[(SIDE_B, SPECTRUM_VISIBLE)],  "Side B"),
-            ],
-        ),
-        WorkflowGroup(
-            label="Infrared",
-            short_label="IR",
-            base_color="#ea580c",
-            bg_active="#ea580c",      # orange-600
-            bg_done="#ffedd5",        # orange-100 (pastel)
-            bg_pending="white",
-            text_dark="#9a3412",      # orange-800
-            steps=[
-                WorkflowStep(_STEP_ID_BY_BUCKET[(SIDE_A, SPECTRUM_INFRARED)], "Side A"),
-                WorkflowStep(_STEP_ID_BY_BUCKET[(SIDE_B, SPECTRUM_INFRARED)], "Side B"),
-            ],
-        ),
-    ]
-
-
-@dataclass(frozen=True)
-class Capture:
-    """One capture take in an object's step.
-
-    Identity is the stem (filename minus extension), so a capture exists
-    whenever any side (JPG, RAW, or both) is on disk. At least one of
-    `jpg_path` / `raw_path` is always set.
-    """
-    stem: str               # identity, e.g. "P.Köln_8821_vis_001"
-    jpg_path: str | None    # absolute jpg path if present
-    raw_path: str | None    # absolute raw path if present
-    index: int              # parsed NNN
-
-    @property
-    def primary_path(self) -> str:
-        """Whichever side exists, preferring JPG (faster to display).
-        At least one is always non-None by construction."""
-        return self.jpg_path or self.raw_path  # type: ignore[return-value]
-
-    @property
-    def display_name(self) -> str:
-        """Basename of the primary file — what the user sees in the browser."""
-        return os.path.basename(self.primary_path)
-
-
-class _CopyRunnerSignals(QObject):
-    """QRunnable can't host signals directly — pyqtSignal needs a
-    QObject base, and inheriting both QObject + QRunnable confuses
-    Qt's metaobject system. Standard workaround: a one-purpose
-    QObject sidecar that holds the signals."""
-    failed = pyqtSignal(Path)  # the dest path whose copy failed
-
-
-class _CopyRunner(QRunnable):
-    """Atomic copy on a worker thread: src → dest.part → rename dest.
-    The atomic rename means the FS watcher sees the final file all-at-
-    once instead of mid-write partial states (which the load worker
-    would otherwise try to decode and fail on).
-
-    On OSError, `signals.failed` fires with the dest path so the
-    caller can clean up its placeholder."""
-    def __init__(self, src: Path, dest: Path):
-        super().__init__()
-        self._src = src
-        self._dest = dest
-        self.signals = _CopyRunnerSignals()
-
-    def run(self):
-        tmp = self._dest.with_suffix(self._dest.suffix + ".part")
-        try:
-            shutil.copy2(self._src, tmp)
-            tmp.replace(self._dest)
-        except OSError as e:
-            logging.getLogger("CopyRunner").warning(
-                "drop-copy failed for %s: %r", self._src.name, e)
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
-            self.signals.failed.emit(self._dest)
 
 
 class Object(QObject):
@@ -607,6 +505,11 @@ class PapyriMainWindow(QMainWindow):
 
         self.q_settings = QSettings()
         self._init_default_settings()
+        # Capture mode (full papyri vs simple flat-folder). Chosen at
+        # startup from the persisted setting; `self.mode` carries the
+        # bucket layout / workflow groups / chrome flags so the two modes
+        # don't fork MainWindow. See papyri.capture_mode.
+        self.mode = get_mode(self.q_settings.value("captureMode", "papyri"))
         # Qt's default QPixmapCache limit is 10 MB — too small for one decoded
         # JPEG (~72 MB) let alone a RAW (~180 MB). Apply the user setting.
         QPixmapCache.setCacheLimit(int(self.q_settings.value("maxPixmapCache")) * 1024)
@@ -637,12 +540,22 @@ class PapyriMainWindow(QMainWindow):
         # before the user does anything.
         self._wire_session()
 
+        # Simple mode has no "open an object" step — the chosen output
+        # folder IS the (always-open) capture target. It lives in its own
+        # setting (separate from papyri's workingDirectory) so we never
+        # scan the home default; empty until the user picks one.
+        if self.mode.key == "simple":
+            self._open_simple_target(
+                self.q_settings.value("simpleOutputDirectory", ""))
+
     # ------------------------------------------------------------------ setup
 
     def _init_default_settings(self):
         defaults = {
             "profile": "MoritzA7III",
             "irProfile": None,                              # set when IR camera is configured
+            "captureMode": "papyri",                        # "papyri" | "simple"
+            "simpleOutputDirectory": "",                    # simple mode output folder (chosen via picker)
             "workingDirectory": os.path.expanduser("~"),
             "maxPixmapCache": 256,
             "enableSecondScreenMirror": False,
@@ -692,10 +605,27 @@ class PapyriMainWindow(QMainWindow):
         self.fusing_panel: FusingPanel = self.findChild(
             FusingPanel, "fusingPanel"
         )
-        self.bucket_selector.set_groups(_build_workflow_groups())
+        # Simple mode: drop the chosen-take thumbs so the cards read as a
+        # plain VIS/IR camera switch instead of (perpetually empty) buckets.
+        self.bucket_selector.set_show_thumbs(self.mode.show_thumbs)
+        self.bucket_selector.set_groups(self.mode.groups)
         self.bucket_selector.set_fusing_panel(self.fusing_panel)
         self.fusing_panel.set_bucket_selector(self.bucket_selector)
         self.bucket_selector.step_clicked.connect(self._on_workflow_step_clicked)
+
+        # Mode chrome: simple mode hides the objects sidebar and the
+        # metadata pane (no subjects, no metadata). One place, driven by
+        # the mode flags.
+        self.objects_sidebar.setVisible(self.mode.show_sidebar)
+        self.metadata_pane.setVisible(self.mode.show_metadata)
+
+        # Simple mode: the title bar becomes a filename-override field +
+        # an output-folder picker. Wire the picker to the folder chooser.
+        if self.mode.key == "simple":
+            self.title_bar.set_simple_mode(
+                True, self.q_settings.value("simpleOutputDirectory", ""))
+            self.title_bar.output_folder_requested.connect(
+                self._choose_simple_output_folder)
         self.viewer: ViewerWidget = self.findChild(ViewerWidget, "viewer")
         # The zoom bar lives in the panel's top toolbar (declared in the
         # .ui), not inside the viewer. Wire it to the viewer's
@@ -710,6 +640,10 @@ class PapyriMainWindow(QMainWindow):
         )
         self.viewer.set_overlay_widget(self._no_object_overlay)
         self.filmstrip: PapyriFilmstrip = self.findChild(PapyriFilmstrip, "filmstrip")
+        # Simple mode: filmstrip shows the whole output folder (no per-bucket
+        # filtering), no chosen ★ / move action, and doesn't reload on a
+        # VIS/IR switch (the storage dir is the same for both spectra).
+        self.filmstrip.set_simple_mode(self.mode.whole_folder_filmstrip)
 
         self.pause_live_view_button: QPushButton = self.findChild(QPushButton, "pauseLiveViewButton")
         self.autofocus_button: QPushButton = self.findChild(QPushButton, "autofocusButton")
@@ -766,11 +700,21 @@ class PapyriMainWindow(QMainWindow):
             lambda: self.open_advanced_camera_config(SPECTRUM_INFRARED),
             icon="ui/cam_settings.svg",
         )
+        # Mode toggle — switches between full papyri and simple capture
+        # mode by persisting the setting and relaunching (no live UI
+        # rebuild, so no state to reset). Label reflects the target mode.
+        self.toggle_mode_action = self._action(
+            "Switch to full (papyri) mode" if self.mode.key == "simple"
+            else "Switch to simple capture mode",
+            self._toggle_capture_mode,
+        )
         self.settings_menu = QMenu(self)
         self.settings_menu.addAction(self.open_program_settings_action)
         self.settings_menu.addSeparator()
         self.settings_menu.addAction(self.open_vis_cam_config_action)
         self.settings_menu.addAction(self.open_ir_cam_config_action)
+        self.settings_menu.addSeparator()
+        self.settings_menu.addAction(self.toggle_mode_action)
         self.settings_menu.aboutToShow.connect(self._refresh_settings_menu_state)
 
     def _action(self, label: str, slot, icon: str | None = None) -> QAction:
@@ -1170,11 +1114,15 @@ class PapyriMainWindow(QMainWindow):
         it on arrival and silently drop themselves if a newer refresh
         has overtaken them (avoids the "previous object's thumbs flash
         in the new object's cards" race)."""
+        # Simple mode has no chosen-take concept — the cards are a plain
+        # camera switch (show_thumbs=False), so there's nothing to load.
+        if not self.mode.show_thumbs:
+            return
         self._chosen_thumb_gen += 1
         gen = self._chosen_thumb_gen
         obj = self.session.current_object
         pool = QThreadPool.globalInstance()
-        for (side, spectrum), step_id in _STEP_ID_BY_BUCKET.items():
+        for (side, spectrum), step_id in self.mode.step_id_by_bucket.items():
             cap = obj.chosen(side, spectrum) if obj is not None else None
             path = (cap.jpg_path or cap.raw_path) if cap is not None else None
             if path is None:
@@ -1209,7 +1157,7 @@ class PapyriMainWindow(QMainWindow):
             self.bucket_selector.set_active(None)
             return
         self.bucket_selector.set_active(
-            _STEP_ID_BY_BUCKET[(
+            self.mode.step_id_by_bucket[(
                 self.session.active_side, self.session.active_spectrum
             )]
         )
@@ -1222,8 +1170,10 @@ class PapyriMainWindow(QMainWindow):
             reads as a warning hint, not a static label;
         (3) normal → "Capture · Side X · Visible/Infrared" with the
             capture icon."""
+        simple = self.mode.key == "simple"
         if self.session.current_object is None:
-            self.capture_button.setText("Open an object to capture")
+            self.capture_button.setText(
+                "Set an output folder" if simple else "Open an object to capture")
             set_themed_icon(self.capture_button.setIcon, get_ui_path("ui/capture.svg"))
             return
         spectrum_label = (
@@ -1234,8 +1184,12 @@ class PapyriMainWindow(QMainWindow):
             self.capture_button.setText(f"{spectrum_label} camera not connected")
             set_themed_icon(self.capture_button.setIcon, get_ui_path("ui/camera_not_ok.svg"))
             return
-        side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
-        self.capture_button.setText(f"Capture · {side_label} · {spectrum_label}")
+        # Simple mode has no side axis — drop "Side X" from the caption.
+        if simple:
+            self.capture_button.setText(f"Capture · {spectrum_label}")
+        else:
+            side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
+            self.capture_button.setText(f"Capture · {side_label} · {spectrum_label}")
         self.capture_button.setIcon(QIcon(get_ui_path("ui/capture.svg")))
 
     def _active_camera_ready(self) -> bool:
@@ -1335,7 +1289,7 @@ class PapyriMainWindow(QMainWindow):
         IR-fallback (H1, caller-side because SessionState is ignorant of
         worker availability), update session, then run live-view handoff
         if the spectrum actually changed."""
-        bucket = _BUCKET_BY_STEP_ID.get(step_id)
+        bucket = self.mode.bucket_by_step_id.get(step_id)
         if bucket is None:
             return
         side, spectrum = bucket
@@ -1783,6 +1737,15 @@ class PapyriMainWindow(QMainWindow):
         self.session.set_current_object(Object(self.session.current_object.working_dir, new_name))
 
     def start_object(self, name: str):
+        # Simple mode reuses the title-bar name field as a filename-override
+        # for the always-open folder target — typing a name doesn't create
+        # a new object, it just renames subsequent captures.
+        if self.mode.key == "simple":
+            target = self.session.current_object
+            if isinstance(target, SimpleTarget):
+                target.set_name_override(name)
+            return
+
         wd = self.q_settings.value("workingDirectory", "")
         name = name.strip().replace(" ", "_")
         if not wd or not name:
@@ -1813,14 +1776,56 @@ class PapyriMainWindow(QMainWindow):
     def close_object(self):
         self.session.set_current_object(None)
 
+    def _open_simple_target(self, output_dir: str) -> None:
+        """Bind the flat-folder target for simple mode. The output folder
+        is the (always-open) capture target; called at startup and when
+        the user picks a new folder. A blank folder leaves no target
+        (capture stays disabled until one is chosen)."""
+        if not output_dir:
+            self.session.set_current_object(None)
+            return
+        target = SimpleTarget(output_dir)
+        target.ensure_dir()
+        # Carry over whatever filename override is currently typed so a
+        # folder change doesn't silently reset naming back to camera-default.
+        target.set_name_override(self.title_bar.current_name())
+        self.session.set_active_bucket(SIDE_A, SPECTRUM_VISIBLE)
+        self.session.set_current_object(target)
+
+    def _choose_simple_output_folder(self) -> None:
+        """Simple mode: pick the output folder via a native dialog, persist
+        it, and re-bind the flat target. The folder is the capture target."""
+        start = self.q_settings.value("simpleOutputDirectory", "") or \
+            os.path.expanduser("~")
+        path = QFileDialog.getExistingDirectory(
+            self, "Choose output folder", start)
+        if not path:
+            return
+        self.q_settings.setValue("simpleOutputDirectory", path)
+        self.title_bar.set_output_folder(path)
+        self._open_simple_target(path)
+
     # ---- B5 receivers (current_object_changed) -------------------------
 
     def _refresh_metadata_pane_binding(self) -> None:
-        """Re-bind metadata pane to current object. Reads B5."""
+        """Re-bind metadata pane to current object. Reads B5.
+
+        Simple mode has no metadata (the pane is hidden and SimpleTarget
+        has no `_meta.json`), so never bind the target to it."""
+        if self.mode.key == "simple":
+            self.metadata_pane.bind_object(None)
+            return
         self.metadata_pane.bind_object(self.session.current_object)
 
     def _refresh_title_bar_binding(self) -> None:
-        """Re-bind title bar to current object. Reads B5."""
+        """Re-bind title bar to current object. Reads B5.
+
+        Simple mode never binds the target: the title-bar name field stays
+        a free-text filename-override (editable, no rename/close), wired to
+        start_object → set_name_override."""
+        if self.mode.key == "simple":
+            self.title_bar.bind_object(None)
+            return
         self.title_bar.bind_object(self.session.current_object)
 
     def _refresh_objects_sidebar_active(self) -> None:
@@ -1876,6 +1881,10 @@ class PapyriMainWindow(QMainWindow):
         self.bucket_selector.setEnabled(has_object)
         if has_object:
             self.viewer.show_photo()
+        elif self.mode.key == "simple":
+            # No papyri "new object" CTA in simple mode — the title-bar
+            # folder picker is the prompt. Just blank the viewer.
+            self.viewer.show_image(None)
         else:
             self.viewer.show_image(None)
             self.viewer.show_overlay()
@@ -1970,6 +1979,40 @@ class PapyriMainWindow(QMainWindow):
         )
         self.active_worker.commands.capture_images.emit(req)
 
+    # ---------------------------------------------------------- mode toggle
+
+    def _toggle_capture_mode(self) -> None:
+        """Flip captureMode and relaunch. A confirm dialog guards the
+        restart; the new mode is read at startup (see __init__)."""
+        target = "papyri" if self.mode.key == "simple" else "simple"
+        target_label = "full papyri" if target == "papyri" else "simple capture"
+        if QMessageBox.question(
+            self,
+            "Switch capture mode",
+            f"Switch to {target_label} mode?\n\nThe application will "
+            f"restart to apply the change.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.q_settings.setValue("captureMode", target)
+        self.q_settings.sync()
+        self._restart_app()
+
+    def _restart_app(self) -> None:
+        """Relaunch this process, then quit. Worker threads are shut down
+        first (self.close → closeEvent) so the camera is released before
+        the new instance tries to claim it."""
+        from PyQt6.QtCore import QProcess
+        if getattr(sys, "frozen", False):
+            program, args = sys.executable, sys.argv[1:]
+        else:
+            program, args = sys.executable, sys.argv
+        self.logger.info("Restarting for mode switch: %s %s", program, args)
+        self.close()  # triggers closeEvent → graceful worker shutdown
+        QProcess.startDetached(program, args)
+        QApplication.quit()
+
     # ---------------------------------------------------------- dialogs
 
     def open_settings(self):
@@ -1996,6 +2039,9 @@ class PapyriMainWindow(QMainWindow):
             elif name == "workingDirectory":
                 self._refresh_camera_dependent_ui()
                 self.objects_sidebar.set_working_directory(value)
+                # Simple mode's output folder is independent (its own
+                # setting, chosen via the title-bar picker), so changing
+                # papyri's workingDirectory here doesn't touch it.
             elif name == "maxPixmapCache":
                 QPixmapCache.setCacheLimit(int(value) * 1024)
             elif name == "sharpnessCheckEnabled":

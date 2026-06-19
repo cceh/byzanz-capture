@@ -25,8 +25,10 @@ from PyQt6.QtCore import QEvent
 from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtWidgets import QWidget
 
+from PyQt6.QtWidgets import QMenu
+
 from byzanz_camera.capture_filmstrip import CaptureFilmstrip
-from byzanz_camera.filmstrip_widget import THUMB_GAP
+from byzanz_camera.filmstrip_widget import THUMB_GAP, stem_of
 from byzanz_camera.load_image_worker import SUPPORTED_EXTENSIONS
 from papyri._layout import SIDE_A, SIDE_B, SPECTRUM_VISIBLE
 
@@ -51,6 +53,12 @@ class PapyriFilmstrip(CaptureFilmstrip):
         self._obj: "Object | None" = None
         self._side: str = SIDE_A
         self._spectrum: str = SPECTRUM_VISIBLE
+        # Simple capture mode: whole-folder view, no chosen ★ / move action.
+        self._simple: bool = False
+        # Resolved directory currently open — lets bind_object skip a
+        # needless reload when only the spectrum changes but the storage
+        # dir doesn't (the simple-mode VIS/IR switch).
+        self._bound_dir: str | None = None
 
         # Route the generic capture-action signals from CaptureFilmstrip
         # to Object's per-bucket mutation API. Greppable named slots
@@ -58,6 +66,11 @@ class PapyriFilmstrip(CaptureFilmstrip):
         self.mark_chosen_requested.connect(self._on_mark_chosen_requested)
         self.move_requested.connect(self._on_move_requested)
         self.delete_requested.connect(self._on_delete_requested)
+
+        # Papyri filenames carry meaning (name + side + spectrum + index),
+        # so show the full filename on the thumb (left-elided) rather than
+        # the bare index.
+        self.set_caption_mode("name")
 
         # Tethering-fallback: accept image files dragged in from Finder
         # so an assistant whose USB has dropped can shoot to the
@@ -77,6 +90,12 @@ class PapyriFilmstrip(CaptureFilmstrip):
 
     # ---- public API ----------------------------------------------------
 
+    def set_simple_mode(self, simple: bool) -> None:
+        """Simple capture mode: the strip shows the whole output folder,
+        has no chosen ★ and no move-to-other-side entry (only delete).
+        Set once at startup, before any bind_object."""
+        self._simple = simple
+
     def bind_object(
         self,
         obj: "Object | None",
@@ -86,10 +105,23 @@ class PapyriFilmstrip(CaptureFilmstrip):
         """Track one (side, spectrum) bucket of an object. Pass obj=None
         to clear; pass a different side or spectrum (with the same
         object) to swap which bucket is shown."""
+        target_dir = obj.dir_for(side, spectrum) if obj is not None else None
+        # Idempotent re-bind: same object + same resolved directory just
+        # updates the active bucket without tearing down + reloading the
+        # strip. This is what keeps the simple-mode VIS/IR switch (shared
+        # storage dir) from flashing the strip; in full mode the dir
+        # differs per bucket so this never triggers.
+        if (obj is not None and obj is self._obj
+                and target_dir == self._bound_dir):
+            self._side = side
+            self._spectrum = spectrum
+            return
+
         self._unbind_previous()
         self._obj = obj
         self._side = side
         self._spectrum = spectrum
+        self._bound_dir = target_dir
 
         if obj is None:
             self.close_directory()
@@ -97,10 +129,12 @@ class PapyriFilmstrip(CaptureFilmstrip):
             return
 
         # Configure the "Move to side X" menu entry for this side. With
-        # only two sides, "other" is unambiguous.
-        other_side = SIDE_B if side == SIDE_A else SIDE_A
-        other_side_label = "B" if other_side == SIDE_B else "A"
-        self.set_other_side(other_side_label, other_side)
+        # only two sides, "other" is unambiguous. Simple mode has no sides
+        # — leaving _other_side_* unset hides the move entry entirely.
+        if not self._simple:
+            other_side = SIDE_B if side == SIDE_A else SIDE_A
+            other_side_label = "B" if other_side == SIDE_B else "A"
+            self.set_other_side(other_side_label, other_side)
 
         obj.state_changed.connect(self._on_object_state_changed)
         obj.import_failed.connect(self._on_import_failed)
@@ -113,6 +147,17 @@ class PapyriFilmstrip(CaptureFilmstrip):
             obj.dir_for(side, spectrum),
             preferred_stem=chosen.stem if chosen else None,
         )
+
+    def _build_context_menu(self, item):
+        """Simple mode strips the menu down to Delete (no chosen / move).
+        Full mode defers to CaptureFilmstrip's default builder via super()."""
+        if not self._simple:
+            return super()._build_context_menu(item)
+        menu = QMenu(self)
+        stem = stem_of(item.file_name)
+        delete_action = menu.addAction("Delete capture…")
+        delete_action.triggered.connect(lambda *_: self._confirm_and_delete(stem))
+        return menu
 
     # ---- internals -----------------------------------------------------
 
@@ -129,7 +174,11 @@ class PapyriFilmstrip(CaptureFilmstrip):
                 pass
 
     def _on_object_state_changed(self) -> None:
-        """Refresh chosen-stem when the bound object's state changes."""
+        """Refresh chosen-stem when the bound object's state changes.
+        Simple mode has no chosen take — keep the ★ cleared."""
+        if self._simple:
+            self.set_chosen_stem(None)
+            return
         chosen = self._obj.chosen(self._side, self._spectrum) if self._obj else None
         self.set_chosen_stem(chosen.stem if chosen else None)
 

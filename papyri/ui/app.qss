@@ -68,6 +68,14 @@
 }
 /* #sidebarNewButton uses native QPushButton styling. */
 
+/* Simple-mode title bar: output-folder row under the filename field.
+   Muted secondary chrome, matching the sidebar workdir treatment. */
+#simpleFolderLabel {
+    color: $ink_3;
+    font-size: 9pt;
+}
+/* #simpleFolderButton uses native QPushButton styling. */
+
 
 /* Zoom control bar — uses native widget styling. The macOS accent
    blue on the checked Fit/1:1 button can't be subdued cleanly:
