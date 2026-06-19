@@ -89,6 +89,67 @@ ensure_submodule() {
     fi
 }
 
+# ---- local patches --------------------------------------------------
+
+# Patches in vendor/patches/ are local modifications to the pinned
+# libgphoto2 submodule. They live as .patch files rather than as a
+# committed submodule fork so the submodule keeps tracking upstream;
+# bootstrap re-applies them on top of every checkout. Currently they
+# make the `vusb` virtual-camera driver coexist with the real libusb1
+# driver in one process (real VIS body + simulated IR camera) — see the
+# patch headers for the full rationale.
+PATCH_DIR="$REPO_ROOT/vendor/patches"
+
+# Newline-separated list of patches that failed to apply (see
+# check_prereqs for why this isn't a Bash array). Reported again at the
+# end so a failure scrolling past mid-build isn't missed.
+PATCH_FAILURES=""
+
+apply_patches() {
+    [ -d "$PATCH_DIR" ] || return 0
+    local applied=0
+    for patch in "$PATCH_DIR"/*.patch; do
+        [ -e "$patch" ] || continue   # no patches present
+        # Idempotent: if the patch already applies in reverse, it's
+        # already in the tree — skip. Otherwise apply it. A patch that
+        # neither reverse- nor forward-applies is a sign the pinned
+        # submodule moved; warn loudly but build anyway — the build is
+        # still useful (e.g. real-camera workflows), it just loses
+        # whatever that patch enabled (e.g. vusb coexistence).
+        if git -C "$SRC_DIR" apply --reverse --check "$patch" >/dev/null 2>&1; then
+            echo ">> Patch already applied: $(basename "$patch")"
+        elif git -C "$SRC_DIR" apply --check "$patch" >/dev/null 2>&1; then
+            git -C "$SRC_DIR" apply "$patch"
+            echo ">> Applied patch: $(basename "$patch")"
+            applied=1
+        else
+            echo "WARNING: $(basename "$patch") does not apply to the current" >&2
+            echo "         vendor/libgphoto2 checkout — skipping it and building" >&2
+            echo "         anyway. The submodule commit may have moved; refresh" >&2
+            echo "         the patch against it to restore what it enabled." >&2
+            PATCH_FAILURES="${PATCH_FAILURES}$(basename "$patch")
+"
+        fi
+    done
+    # A newly applied source patch must invalidate any existing meson
+    # build dir, otherwise `meson compile` reuses stale objects.
+    if [ "$applied" = "1" ] && [ -d "$SRC_DIR/build" ]; then
+        echo ">> Patches changed sources — wiping stale meson build dir."
+        rm -rf "$SRC_DIR/build"
+    fi
+}
+
+# Re-surface any patch failures at the very end, after the build/verify
+# output has scrolled past, so they aren't silently missed.
+report_patch_failures() {
+    [ -n "$PATCH_FAILURES" ] || return 0
+    echo >&2
+    echo "WARNING: the build completed, but these patches did NOT apply:" >&2
+    printf '%s' "$PATCH_FAILURES" | sed 's/^/  - /' >&2
+    echo "Features they enable are missing from this build (e.g. vusb" >&2
+    echo "virtual-camera coexistence). Refresh the patches and re-run." >&2
+}
+
 # ---- build libgphoto2 ----------------------------------------------
 
 build_libgphoto2() {
@@ -128,9 +189,19 @@ build_libgphoto2() {
     # `usbdiskdirect` / `usbscsi` iolibs are Linux-only; meson errors
     # out on macOS if the default list is used. Pass an explicit list
     # that's safe on both platforms.
+    #
+    # `vusb` is the virtual USB port driver: it pairs with the `ptp2`
+    # camlib (already built by default) to expose a fully emulated PTP
+    # camera (a Nikon D750), so the app can be exercised without real
+    # hardware. It is off in libgphoto2's default iolibs list, hence
+    # enabled explicitly here. With the vendor/patches applied (see
+    # apply_patches) it lives in its own `vusb:` port namespace and
+    # coexists with the real libusb1 driver, so autodetect reports both a
+    # real camera and the virtual one ('Nikon DSC D750', 'vusb:') in the
+    # same process.
     local meson_args=(
         --prefix="$BUILD_PREFIX"
-        -Diolibs=disk,ptpip,serial,libusb1,usb
+        -Diolibs=disk,vusb,ptpip,serial,libusb1,usb
     )
     if [ -d build ]; then
         # Re-run with --wipe rather than --reconfigure. meson only reads
@@ -146,6 +217,44 @@ build_libgphoto2() {
     fi
     meson compile -C build
     meson install -C build
+}
+
+# ---- seed the virtual camera ---------------------------------------
+
+seed_vcamera() {
+    # The vusb driver duplicates an existing JPEG from its data dir on
+    # capture (see libgphoto2_port/vusb/README.txt). That dir is the
+    # absolute VCAMERADIR baked into vusb.dylib at compile time; read it
+    # straight from the binary so we always target the exact path the
+    # driver will open, regardless of the libgphoto2 version in the path.
+    local vusb_lib seed_dir
+    vusb_lib="$(ls "$BUILD_PREFIX"/lib/libgphoto2_port/*/vusb.* 2>/dev/null | head -1)"
+    if [ -z "$vusb_lib" ]; then
+        echo ">> No vusb driver found — skipping vcamera seed."
+        return 0
+    fi
+    seed_dir="$(strings "$vusb_lib" | grep '/vcamera$' | head -1)"
+    if [ -z "$seed_dir" ]; then
+        echo ">> Could not read VCAMERADIR from $vusb_lib — skipping seed."
+        return 0
+    fi
+    mkdir -p "$seed_dir"
+    # Idempotent: only seed if the dir has no JPEG yet, so we never clobber
+    # images a user dropped in to drive specific test scenarios.
+    if ls "$seed_dir"/*.JPG "$seed_dir"/*.jpg >/dev/null 2>&1; then
+        echo ">> vcamera already seeded: $seed_dir"
+        return 0
+    fi
+    echo ">> Seeding virtual camera image into $seed_dir ..."
+    SEED_DIR="$seed_dir" python - <<'PY'
+import os
+from PIL import Image, ImageDraw
+img = Image.new("RGB", (1280, 853), (40, 44, 52))
+d = ImageDraw.Draw(img)
+d.text((40, 40), "byzanz-capture virtual camera (vusb)", fill=(220, 220, 220))
+img.save(os.path.join(os.environ["SEED_DIR"], "GPH_0001.JPG"), "JPEG", quality=90)
+print("   wrote GPH_0001.JPG")
+PY
 }
 
 # ---- rebuild python-gphoto2 ----------------------------------------
@@ -194,10 +303,14 @@ PY
 
 check_prereqs
 ensure_submodule
+apply_patches
 build_libgphoto2
+seed_vcamera
 rebuild_python_gphoto2
 verify
 
 echo
 echo "Done. The vendor build lives at: $BUILD_PREFIX"
 echo "The resolver will pick it up automatically on next app start."
+
+report_patch_failures

@@ -89,6 +89,7 @@ from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
 from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
 from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
 from byzanz_camera.profiles.nikon_d90 import NikonD90
+from byzanz_camera.profiles.virtual_camera_vusb import VirtualCameraVusb
 from papyri.bucket_selector import BucketSelector, FusingPanel
 from papyri.capture_mode import get_mode
 from papyri.simple_target import SimpleTarget
@@ -103,6 +104,7 @@ PROFILES = {
     "ParisDomeSonyIlce7RM5": ParisDomeSonyIlce7RM5(),
     "CCeHDomeNikonD800E": CCeHDomeNikonD800E(),
     "NikonD90": NikonD90(),
+    "VirtualCameraVusb": VirtualCameraVusb(),
 }
 
 
@@ -991,6 +993,14 @@ class PapyriMainWindow(QMainWindow):
         profile = self._active_profile()
         return bool(profile and profile.supports_autofocus())
 
+    def _live_view_supported(self) -> bool:
+        """Whether the active camera can stream a live preview. Gates the
+        auto-resume below so a no-live-view body (e.g. the vusb virtual
+        camera) isn't asked to start a preview it can only reject. The
+        worker also no-ops the request defensively."""
+        profile = self._active_profile()
+        return bool(profile and profile.supports_live_view())
+
     def _focus_magnify_supported(self) -> bool:
         """Whether the active camera can magnify the live view for focus
         checking. Gates the magnify button's visibility (together with
@@ -1400,10 +1410,12 @@ class PapyriMainWindow(QMainWindow):
             case CameraStates.Ready():
                 # Live view is the papyri default; auto-resume on every
                 # Ready (initial connect, post-capture, etc.) unless
-                # the user paused. Safe with capture_one — it never
+                # the user paused — or the camera has no live view (e.g.
+                # the vusb virtual camera), which stays in Ready and is
+                # captured from directly. Safe with capture_one — it never
                 # transitions through Ready between live-view and
                 # CaptureInProgress.
-                if not self.session.live_view_paused:
+                if not self.session.live_view_paused and self._live_view_supported():
                     self.active_worker.commands.live_view.emit(True)
             case CameraStates.ConnectionError(error=err):
                 self.logger.error("Connection error: %s", err)

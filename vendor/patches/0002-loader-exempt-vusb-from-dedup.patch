@@ -1,0 +1,49 @@
+diff --git a/libgphoto2_port/libgphoto2_port/gphoto2-port-info-list.c b/libgphoto2_port/libgphoto2_port/gphoto2-port-info-list.c
+index fed16327e..febc3584c 100644
+--- a/libgphoto2_port/libgphoto2_port/gphoto2-port-info-list.c
++++ b/libgphoto2_port/libgphoto2_port/gphoto2-port-info-list.c
+@@ -262,13 +262,38 @@ foreach_func (const char *filename, lt_ptr data)
+ 	}
+ 
+ 	type = lib_type ();
+-	for (j = 0; j < list->count; j++)
+-		if (list->info[j]->type == type)
++	/* byzanz-capture coexistence patch:
++	 *
++	 * The dedup below exists to keep two *real* drivers of the same port
++	 * type (historically libusb-0.1 "usb" and libusb-1.0 "libusb1") from
++	 * both loading. The "vusb" virtual-camera driver also reports
++	 * GP_PORT_USB, so stock behaviour drops whichever of {libusb1, vusb}
++	 * loads second — making it impossible to use a real camera and the
++	 * emulator in one process.
++	 *
++	 * vusb is exempt from the dedup in BOTH directions, regardless of
++	 * directory load order:
++	 *   - a vusb library always loads, even if a real USB driver is
++	 *     already present (is_vusb below);
++	 *   - vusb's own entries never count as "already loaded" when a real
++	 *     driver is later considered (the strstr skip in the loop).
++	 * vusb stays in its own "vusb:" path namespace (see vusb.c), so the
++	 * two never compete for the same device paths. */
++	{
++		int is_vusb = (strstr (filename, "vusb") != NULL);
++		for (j = 0; j < list->count; j++) {
++			if (list->info[j]->type != type)
++				continue;
++			if (list->info[j]->library_filename &&
++			    strstr (list->info[j]->library_filename, "vusb"))
++				continue;	/* vusb entry — does not mask a real driver */
+ 			break;
+-	if (j != list->count) {
+-		GP_LOG_D ("'%s' already loaded", filename);
+-		lt_dlclose (lh);
+-		return (0);
++		}
++		if (!is_vusb && j != list->count) {
++			GP_LOG_D ("'%s' already loaded", filename);
++			lt_dlclose (lh);
++			return (0);
++		}
+ 	}
+ 
+ 	result = lib_list (list);

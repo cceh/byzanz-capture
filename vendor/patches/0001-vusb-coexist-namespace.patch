@@ -1,0 +1,62 @@
+diff --git a/libgphoto2_port/vusb/vusb.c b/libgphoto2_port/vusb/vusb.c
+index 47d090d87..7ed302626 100644
+--- a/libgphoto2_port/vusb/vusb.c
++++ b/libgphoto2_port/vusb/vusb.c
+@@ -62,12 +62,28 @@ gp_port_library_list (GPPortInfoList *list)
+ 
+ 	gp_log(GP_LOG_DEBUG,__FUNCTION__,"()");
+ 
+-	CHECK (gp_port_info_new (&info));
+-	gp_port_info_set_type (info, GP_PORT_USB);
+-	gp_port_info_set_name (info, "");
+-	gp_port_info_set_path (info, "^usb:");
+-	gp_port_info_list_append (list, info); /* do not check, might be -1 */
+-
++	/* byzanz-capture coexistence patch:
++	 *
++	 * Upstream vusb registers the *real* USB namespace entries
++	 * ("^usb:", "usb:001,001", "^usbscsi:", "^usbdiskdirect:") so that,
++	 * in a vusb-only build, the virtual camera is reachable as a normal
++	 * "usb:" device. But that makes vusb masquerade as the real USB bus,
++	 * which collides head-on with the libusb1 driver: the port loader
++	 * dedups iolibs by port type (see foreach_func in
++	 * gphoto2-port-info-list.c), so only one of {libusb1, vusb} survives
++	 * per process. That forces an all-real-or-all-virtual choice.
++	 *
++	 * We want a real camera (libusb1) and the virtual camera (vusb) live
++	 * in the same process — e.g. a real VIS body plus a simulated IR
++	 * camera in papyri. To get there, vusb must stay strictly inside its
++	 * own "vusb:" namespace and never touch "usb:"/scsi/diskdirect, and
++	 * the loader's dedup must exempt vusb (the other half of the patch).
++	 *
++	 * The concrete, *named* "vusb:" entry is what gp_camera_autodetect
++	 * reports (generic "^"-prefixed templates have an empty name and are
++	 * skipped by gp_port_info_list_count, hence by autodetect). The
++	 * generic "^vusb:" template enables explicit `--port vusb:<idfile>`
++	 * lookups where <idfile> overrides the emulated vendor/product. */
+ 	CHECK (gp_port_info_new (&info));
+ 	gp_port_info_set_type (info, GP_PORT_USB);
+ 	gp_port_info_set_name (info, "");
+@@ -76,20 +92,8 @@ gp_port_library_list (GPPortInfoList *list)
+ 
+ 	gp_port_info_new (&info);
+ 	gp_port_info_set_type (info, GP_PORT_USB);
+-	gp_port_info_set_name (info, "Universal Serial Bus");
+-	gp_port_info_set_path (info, "usb:001,001");
+-	CHECK (gp_port_info_list_append (list, info));
+-
+-	gp_port_info_new (&info);
+-	gp_port_info_set_type (info, GP_PORT_USB_SCSI);
+-	gp_port_info_set_name (info, "");
+-	gp_port_info_set_path (info, "^usbscsi:");
+-	CHECK (gp_port_info_list_append (list, info));
+-
+-	gp_port_info_new (&info);
+-	gp_port_info_set_type (info, GP_PORT_USB_DISK_DIRECT);
+-	gp_port_info_set_name (info, "");
+-	gp_port_info_set_path (info, "^usbdiskdirect:");
++	gp_port_info_set_name (info, "Virtual Camera");
++	gp_port_info_set_path (info, "vusb:");
+ 	CHECK (gp_port_info_list_append (list, info));
+ 	return GP_OK;
+ }
