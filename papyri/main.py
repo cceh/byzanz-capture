@@ -2098,17 +2098,32 @@ class PapyriMainWindow(QMainWindow):
         if worker is None:
             return  # IR not configured; menu entry is hidden but be safe
 
+        # Suspend the worker's background camera I/O (config poll + live-view
+        # preview) BEFORE reading the config. The dialog walks the gphoto2
+        # config tree on the UI thread; a concurrent get_config/capture_preview
+        # on the worker reallocates the driver memory those widget values
+        # point into → use-after-free → SIGSEGV. Set before the get_config
+        # that builds the tree so no poll can invalidate it; cleared on close.
+        worker.suspend_background_io = True
+
         def open_dialog(cfg):
             existing = self.session.cam_config_dialog
             if existing is not None:
                 # Synchronously fires `finished` → clears the session slot,
                 # so when we set the new dialog below we're not stomped.
                 existing.reject()
+            # Re-assert: if the replaced dialog was for THIS worker, its
+            # on_finished just cleared the flag — keep I/O suspended for
+            # the dialog we're about to show.
+            worker.suspend_background_io = True
             dialog = CameraConfigDialog(cfg, worker, self)
             dialog.setModal(False)
-            dialog.finished.connect(
-                lambda *_: self.session.set_cam_config_dialog(None, None)
-            )
+
+            def on_finished(*_):
+                worker.suspend_background_io = False
+                self.session.set_cam_config_dialog(None, None)
+
+            dialog.finished.connect(on_finished)
             self.session.set_cam_config_dialog(dialog, spectrum)
             dialog.show()
 
