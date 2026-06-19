@@ -10,3 +10,4 @@ opencv-python-headless~=4.13.0
 psutil
 ExifRead~=3.5.1
 scipy~=1.17.1
+piexif~=1.1.3

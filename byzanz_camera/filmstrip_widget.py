@@ -494,6 +494,37 @@ class FilmstripWidget(QWidget):
             self.__load_image(current.path, self.__show_and_cache)
         return current.file_name
 
+    def reload_current(self) -> None:
+        """Re-decode the current item from disk and refresh BOTH its
+        thumbnail and the viewer. Call after the file's bytes changed on
+        disk (e.g. its EXIF Orientation was rewritten). The disk thumb cache
+        self-invalidates (it keys on mtime), but the in-memory full-image
+        cache keys on path only — so drop it explicitly first."""
+        current = self.image_file_list.currentItem()
+        if not isinstance(current, ImageFileListItem):
+            return
+        QPixmapCache.remove(current.path)
+        self.image_decode_started.emit(current.path)
+        self.__load_image(current.path, self.__apply_reload, ImageMode.FULL)
+
+    def __apply_reload(self, result: LoadImageWorkerResult) -> None:
+        """Reload result: refresh the current item's thumbnail icon and the
+        viewer (FULL mode yields both). Guards against the selection having
+        moved while the decode ran."""
+        current = self.image_file_list.currentItem()
+        if not (isinstance(current, ImageFileListItem)
+                and current.path == result.path):
+            return
+        if result.thumbnail is not None:
+            thumb = (QPixmap.fromImage(result.thumbnail)
+                     if isinstance(result.thumbnail, QImage)
+                     else result.thumbnail)
+            current.setIcon(QIcon(thumb))
+        if result.image is not None:
+            pixmap = QPixmap.fromImage(result.image)
+            QPixmapCache.insert(result.path, pixmap)
+            self.image_decoded.emit(result.path, pixmap)
+
     def scroll_to_end(self) -> None:
         """Scroll horizontally so the last item is visible. Used after
         drop-import so the user sees the spinner placeholders that
