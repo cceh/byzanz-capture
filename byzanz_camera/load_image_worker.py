@@ -273,11 +273,22 @@ def _full_decode(path: str) -> tuple[Optional[QImage], dict]:
 
 
 def _decode_jpeg_full(path: str) -> tuple[QImage, dict]:
+    # Honour the file's EXIF Orientation: each capture carries its own
+    # orientation (written at capture time / when rotated), so the display
+    # reflects the file. Orientation 1 (the dome/RTI case) is a no-op.
     image = ImageOps.exif_transpose(Image.open(path))
     image.load()
     w, h = image.size
     image_data = image.tobytes("raw", "RGB")
-    q_image = QImage(image_data, w, h, QImage.Format.Format_RGB888)
+    # .copy() detaches the QImage from the Python `image_data` bytes; without
+    # it the QImage holds a borrowed pointer that is freed once image_data
+    # goes out of scope, so painting the resulting pixmap later dereferences
+    # freed memory and segfaults. The explicit w*3 stride matches tobytes'
+    # tight packing (the 4-arg ctor assumes 32-bit-aligned scanlines, which
+    # raw RGB888 is not).
+    q_image = QImage(
+        image_data, w, h, w * 3, QImage.Format.Format_RGB888,
+    ).copy()
     return q_image, _get_exif_dict(image)
 
 
@@ -289,6 +300,9 @@ def _decode_raw_full(path: str) -> tuple[QImage, dict]:
 
 
 def _raw_full_qimage(raw) -> QImage:
+    # Default user_flip: libraw applies the RAW's Orientation flag, so the
+    # decode reflects the file's own orientation (written at capture / on
+    # rotate). RTI/dome files carry flip 0, so this is a no-op for them.
     rgb = raw.postprocess(use_camera_wb=True, output_bps=8)
     rgb = np.ascontiguousarray(rgb)
     h, w, _ = rgb.shape
