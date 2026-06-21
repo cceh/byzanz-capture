@@ -30,6 +30,28 @@ from PyQt6.QtGui import QPalette, QColor
 
 from byzanz_camera.camera_worker import CameraWorker
 
+_logger = logging.getLogger("CameraConfigDialog")
+
+
+def _trace_widget(child) -> None:
+    """Diagnostic: log a widget's identity BEFORE its value is read, then
+    flush handlers to disk. Reading get_value() on a widget with a NULL
+    value segfaults inside the gphoto2 binding (PyUnicode_FromString(NULL))
+    — uncatchable from Python. With this trace, the LAST line in the log
+    before such a crash names the culprit widget. Only get_name()/
+    get_type() are touched here (always populated, never the NULL value)."""
+    try:
+        name = child.get_name()
+        ctype = child.get_type()
+    except Exception as e:  # noqa: BLE001 - diagnostic must never raise
+        name, ctype = "?", repr(e)
+    _logger.info("config-dialog: about to read widget name=%r type=%s", name, ctype)
+    for handler in logging.getLogger().handlers:
+        try:
+            handler.flush()
+        except Exception:  # noqa: BLE001
+            pass
+
 
 class CameraConfigDialog(QtWidgets.QDialog):
     def __init__(self, camera_config: gp.CameraWidget, camera_worker: CameraWorker, parent=None):
@@ -166,6 +188,7 @@ class SectionWidget(QtWidgets.QWidget):
             return
         tabs = None
         for child in camera_config.get_children():
+            _trace_widget(child)  # diagnostic: names the culprit on a get_value segfault
             label = '{} ({})'.format(child.get_label(), child.get_name())
             label_widget = QtWidgets.QLabel(label)
             child_type = child.get_type()
