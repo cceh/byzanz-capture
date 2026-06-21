@@ -67,9 +67,10 @@ _FORCE_FAIL_KILL_LOOP = os.environ.get("PAPYRI_TEST_DISABLE_KILL_LOOP") == "1"
 # Curated list of applications known to grab PTP cameras via Apple's
 # ImageCaptureCore framework. Extensible: as new offenders are
 # discovered, add `process_name: friendly_label` pairs here. Matching
-# is case-insensitive prefix, so e.g. "Adobe Lightroom" matches both
-# "Adobe Lightroom" and "Adobe Lightroom Classic" if you want only one
-# entry — but listing both is clearer.
+# is case-insensitive and word-boundary aware (exact, or key followed
+# by a space), so "Adobe Lightroom" still matches "Adobe Lightroom
+# Classic" but "Photos" does NOT match "PhotosReliveWidget". See
+# _enumerate_offenders.
 OFFENDER_PROCESSES: dict[str, str] = {
     # Apple built-ins
     "Image Capture": "Image Capture",
@@ -311,9 +312,16 @@ def _kill_loop(logger: logging.Logger, max_seconds: float = 3.0):
 # ---- tier 3: enumerate offenders ----------------------------------------
 
 def _enumerate_offenders() -> list[tuple[str, str]]:
-    """One pass over running processes; case-insensitive prefix match
-    against OFFENDER_PROCESSES keys. Returns `(process_name, label)`
-    pairs in stable insertion order."""
+    """One pass over running processes; case-insensitive word-boundary
+    match against OFFENDER_PROCESSES keys. Returns `(process_name, label)`
+    pairs in stable insertion order.
+
+    Match is exact OR "<key> " (key followed by a space), NOT a bare
+    prefix — otherwise "Photos" would match macOS helper processes like
+    "PhotosReliveWidget" / "PhotosReliveAgent" (which don't claim the
+    camera) and wrongly tell the user to quit Photos. The space form
+    still catches multi-word variants like
+    "Adobe Lightroom" → "Adobe Lightroom Classic"."""
     running_names: set[str] = set()
     for proc in psutil.process_iter(["name"]):
         name = proc.info.get("name") or ""
@@ -324,7 +332,9 @@ def _enumerate_offenders() -> list[tuple[str, str]]:
     for proc_key, label in OFFENDER_PROCESSES.items():
         proc_key_lower = proc_key.lower()
         for running in running_names:
-            if running.lower().startswith(proc_key_lower):
+            running_lower = running.lower()
+            if (running_lower == proc_key_lower
+                    or running_lower.startswith(proc_key_lower + " ")):
                 matches.append((running, label))
                 break
     return matches
