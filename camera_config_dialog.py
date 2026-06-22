@@ -29,23 +29,28 @@ from PyQt6.QtWidgets import QDialogButtonBox, QLineEdit
 from PyQt6.QtGui import QPalette, QColor
 
 from byzanz_camera.camera_worker import CameraWorker
+from byzanz_camera.gphoto2_safe import widget_text_value
 
 _logger = logging.getLogger("CameraConfigDialog")
 
 
 def _trace_widget(child) -> None:
-    """Diagnostic: log a widget's identity BEFORE its value is read, then
-    flush handlers to disk. Reading get_value() on a widget with a NULL
-    value segfaults inside the gphoto2 binding (PyUnicode_FromString(NULL))
-    — uncatchable from Python. With this trace, the LAST line in the log
-    before such a crash names the culprit widget. Only get_name()/
-    get_type() are touched here (always populated, never the NULL value)."""
+    """Debug-only safety net: log a widget's identity + flush to disk
+    BEFORE its value is read, so the last log line names the culprit if a
+    widget read ever hard-crashes (segfaults are uncatchable from Python).
+
+    The known crash — char*-valued widgets (TEXT/RADIO/MENU) with a NULL
+    value, e.g. Sony's `d2c1` — is now handled by `widget_text_value`;
+    this trace stays as a net for future surprises but is a no-op unless
+    debug logging is enabled (it floods at one line per widget)."""
+    if not _logger.isEnabledFor(logging.DEBUG):
+        return
     try:
         name = child.get_name()
         ctype = child.get_type()
     except Exception as e:  # noqa: BLE001 - diagnostic must never raise
         name, ctype = "?", repr(e)
-    _logger.info("config-dialog: about to read widget name=%r type=%s", name, ctype)
+    _logger.debug("config-dialog: about to read widget name=%r type=%s", name, ctype)
     for handler in logging.getLogger().handlers:
         try:
             handler.flush()
@@ -225,10 +230,10 @@ class TextWidget(QtWidgets.QLineEdit):
         if self.config.get_readonly():
             self.setDisabled(True)
         assert self.config.count_children() == 0
-        value = self.config.get_value()
+        # NULL-safe: a TEXT widget with a NULL value segfaults the binding's
+        # get_value() (PyUnicode_FromString(NULL)) — read via ctypes instead.
+        value = widget_text_value(self.config)
         if value:
-            if sys.version_info[0] < 3:
-                value = value.decode('utf-8')
             self.setText(value)
         self.editingFinished.connect(self.new_value)
 
@@ -295,7 +300,7 @@ class RadioWidget(QtWidgets.QWidget):
             self.setDisabled(True)
         assert self.config.count_children() == 0
         self.setLayout(QtWidgets.QHBoxLayout())
-        value = self.config.get_value()
+        value = widget_text_value(self.config)  # NULL-safe (see TextWidget)
         self.buttons = []
         for choice in self.config.get_choices():
             if choice:
@@ -322,7 +327,7 @@ class MenuWidget(QtWidgets.QComboBox):
         if self.config.get_readonly():
             self.setDisabled(True)
         assert self.config.count_children() == 0
-        value = self.config.get_value()
+        value = widget_text_value(self.config)  # NULL-safe (see TextWidget)
         choice_count = self.config.count_choices()
         for n in range(choice_count):
             choice = self.config.get_choice(n)
