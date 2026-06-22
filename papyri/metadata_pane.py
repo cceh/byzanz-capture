@@ -241,7 +241,15 @@ class MetadataPane(QFrame):
         # exception inside the slot makes PyQt qFatal-abort the process.
         if not os.path.isdir(self._obj.dir):
             return
-        data = self._collect_values()
+        # Merge into existing JSON so keys NOT rendered as form fields — e.g.
+        # the `capture_height_*` that MainWindow stamps on capture — survive.
+        data = self._read_meta()
+        collected = self._collect_values()
+        for schema in self._schema:
+            if schema.name in collected:
+                data[schema.name] = collected[schema.name]
+            else:
+                data.pop(schema.name, None)   # cleared field → drop the key
         with open(self._obj.meta_path, "w") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         self.metadata_changed.emit()

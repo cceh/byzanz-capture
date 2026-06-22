@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from papyri._layout import (
     SIDE_A, SIDE_B, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
 )
+from papyri.calibration_spec import CALIBRATION_TARGETS, cal_step_id, specs_for
 from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
 
 
@@ -62,6 +63,7 @@ class CaptureMode:
     show_sides: bool               # side A/B axis exists
     whole_folder_filmstrip: bool   # filmstrip shows the whole folder,
                                    # no chosen / move actions
+    show_calibration: bool         # periodic ColorChecker/Flatfield bar
 
     @property
     def bucket_by_step_id(self) -> dict[str, tuple[str, str]]:
@@ -142,6 +144,7 @@ PAPYRI_MODE = CaptureMode(
     show_thumbs=True,
     show_sides=True,
     whole_folder_filmstrip=False,
+    show_calibration=True,
 )
 
 SIMPLE_MODE = CaptureMode(
@@ -153,6 +156,60 @@ SIMPLE_MODE = CaptureMode(
     show_thumbs=False,
     show_sides=False,
     whole_folder_filmstrip=True,
+    show_calibration=False,
+)
+
+# Per-spectrum palette for the calibration tabs (same hues as the papyri
+# VIS/IR groups so the chrome reads consistently).
+_CAL_PALETTE = {
+    SPECTRUM_VISIBLE:  dict(label="Visible",  short="VIS",
+                            base="#3b82f6", done="#dbeafe", text="#1e3a8a"),
+    SPECTRUM_INFRARED: dict(label="Infrared", short="IR",
+                            base="#ea580c", done="#ffedd5", text="#9a3412"),
+}
+
+
+def _calibration_groups() -> tuple[WorkflowGroup, ...]:
+    """VIS / IR groups whose steps are the calibration targets for that
+    camera — built from CALIBRATION_TARGETS, so editing that list is all
+    it takes to add/remove a target (asymmetry between cameras is fine)."""
+    groups = []
+    for spectrum in (SPECTRUM_VISIBLE, SPECTRUM_INFRARED):
+        specs = specs_for(spectrum)
+        if not specs:
+            continue                     # camera with no calibration targets
+        p = _CAL_PALETTE[spectrum]
+        groups.append(WorkflowGroup(
+            label=p["label"], short_label=p["short"], base_color=p["base"],
+            bg_active=p["base"], bg_done=p["done"], bg_pending="white",
+            text_dark=p["text"],
+            steps=[WorkflowStep(cal_step_id(s.slot, s.spectrum), s.label)
+                   for s in specs],
+        ))
+    return tuple(groups)
+
+
+_CALIBRATION_STEP_ID_BY_BUCKET = {
+    (s.slot, s.spectrum): cal_step_id(s.slot, s.spectrum)
+    for s in CALIBRATION_TARGETS
+}
+
+
+# Runtime-only sub-mode (NOT in MODES — never selected at startup, only
+# entered transiently from papyri mode). Calibration reuses the bucket
+# grid (one tab per calibration target, grouped by camera) with chosen
+# thumbnails as the "done" indicator, the flat delete-only filmstrip, and
+# no sidebar/metadata. See papyri.calibration_target / MainWindow.
+CALIBRATION_MODE = CaptureMode(
+    key="calibration",
+    groups=_calibration_groups(),
+    step_id_by_bucket=_CALIBRATION_STEP_ID_BY_BUCKET,
+    show_sidebar=False,            # focused context; "← Back" leaves it
+    show_metadata=False,
+    show_thumbs=True,              # card thumbnail = "this target is shot"
+    show_sides=False,
+    whole_folder_filmstrip=True,   # delete-only menu; per-bucket dir display
+    show_calibration=True,         # the bar stays — it carries "← Back"
 )
 
 MODES = {m.key: m for m in (PAPYRI_MODE, SIMPLE_MODE)}

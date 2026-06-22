@@ -68,6 +68,10 @@ COLORS: dict[str, str] = {
     "preview_pill":    "#94a3b8",
     # Status colors.
     "status_error":    "#dc2626",
+    # Calibration status chip — theme-independent (work on both light and
+    # dark), so no _DARK_OVERRIDES entries.
+    "cal_ok":          "#16a34a",   # green-600 — calibration set is fresh
+    "cal_due":         "#f59e0b",   # amber-500 — a calibration is due
 }
 
 

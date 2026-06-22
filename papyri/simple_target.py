@@ -39,6 +39,8 @@ from papyri._layout import (
 class SimpleTarget(QObject):
     """Flat capture target bound to a single output folder.
 
+    Implements the CaptureTarget contract (papyri/capture_target.py).
+
     `output_dir` is both the storage folder and `dir`. `name_override`
     (possibly empty) is the user-typed filename prefix; empty means
     "keep the camera's own filename".
