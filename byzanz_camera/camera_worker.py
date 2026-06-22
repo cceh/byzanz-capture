@@ -274,15 +274,6 @@ class CameraWorker(QObject):
         self.captureComplete = False
 
         self.shouldCancel = False
-        # When True, the main loop performs NO camera I/O (config poll /
-        # live-view preview) — it just idles + processEvents so queued
-        # commands still run. Set by the UI thread while the advanced
-        # camera-config dialog is open: that dialog walks the gphoto2
-        # config tree on the UI thread, and a concurrent get_config /
-        # capture_preview here reallocates the driver memory those widget
-        # values point into → use-after-free → SIGSEGV. GIL-atomic bool,
-        # same cross-thread pattern as `shouldCancel`.
-        self.suspend_background_io = False
         self.timer: QTimer = None
 
         # Per-capture transient — list of saved file paths populated as
@@ -445,26 +436,18 @@ class CameraWorker(QObject):
                 return
 
             try:
-                if self.suspend_background_io:
-                    # Config dialog is reading the tree on the UI thread —
-                    # do no camera I/O here (see suspend_background_io).
-                    # processEvents() in `finally` still runs queued
-                    # commands (the get_config that builds the tree, any
-                    # set_config edits, and the resume).
+                if self.profile.poll_config() is not None:
+                    if not isinstance(self.__state, CameraStates.CaptureInProgress):
+                        current_time = time.time()
+                        if current_time - self.__last_config_poll >= 0.5:
+                            self.__emit_current_config(self.profile.poll_config())
+                            self.__last_config_poll = current_time
+
+                if isinstance(self.__state, CameraStates.LiveViewActive):
+                    self.__live_view_capture_preview()
                     self.thread().msleep(50)
                 else:
-                    if self.profile.poll_config() is not None:
-                        if not isinstance(self.__state, CameraStates.CaptureInProgress):
-                            current_time = time.time()
-                            if current_time - self.__last_config_poll >= 0.5:
-                                self.__emit_current_config(self.profile.poll_config())
-                                self.__last_config_poll = current_time
-
-                    if isinstance(self.__state, CameraStates.LiveViewActive):
-                        self.__live_view_capture_preview()
-                        self.thread().msleep(50)
-                    else:
-                        self.empty_event_queue(1)
+                    self.empty_event_queue(1)
             finally:
                 QApplication.processEvents()
 
@@ -682,17 +665,6 @@ class CameraWorker(QObject):
 
     @__handle_camera_error
     def __start_live_view(self):
-        # Cameras without live view (e.g. the vusb virtual camera) stay in
-        # Ready: entering the preview loop would call capture_preview(),
-        # which they reject, and @__handle_camera_error would then disconnect
-        # them. Clients may still emit live_view(True) (papyri auto-resumes
-        # it on every Ready) — this makes that a no-op rather than fatal.
-        if not self.profile.supports_live_view():
-            self.__logger.info(
-                "Profile %r does not support live view — ignoring request.",
-                self.profile.name(),
-            )
-            return
         lightmeter: int = 0
         self.__apply_settings(self.profile.start_live_view_settings())
         self.__set_state(CameraStates.LiveViewStarted(current_lightmeter_value=lightmeter))
