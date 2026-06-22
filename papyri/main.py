@@ -1644,13 +1644,11 @@ class PapyriMainWindow(QMainWindow):
                 set_state(self.capture_status_label, "state", None)
 
             case CameraStates.CaptureFinished(file_paths=paths):
-                # Stamp the camera's fixed mount rotation into each captured
-                # file's EXIF Orientation, so downstream processing (and any
-                # orientation-aware viewer) gets it right. Idempotent.
-                angle = self._lv_rotation[self.session.active_spectrum]
-                if angle:
-                    for p in paths:
-                        write_orientation(p, angle)
+                # The camera's fixed mount rotation is baked into each file's
+                # EXIF Orientation in the worker, before the file is made
+                # visible (see CaptureImagesRequest.orientation) — so there is
+                # nothing to stamp here, and the filmstrip/viewer decode never
+                # races an un-rotated file.
                 if paths:
                     names = ", ".join(os.path.basename(p) for p in paths)
                     self.capture_status_label.setText(f"Captured: {names}")
@@ -2181,6 +2179,10 @@ class PapyriMainWindow(QMainWindow):
             num_images=1,
             image_quality=CaptureImagesRequest.CaptureFormat.RAW,
             manual_trigger=False,
+            # Bake this camera's fixed mount rotation into the captured file's
+            # EXIF Orientation in the worker, before the file is made visible —
+            # so the filmstrip/viewer decode never races an un-rotated file.
+            orientation=self._lv_rotation[self.session.active_spectrum],
         )
         self.active_worker.commands.capture_images.emit(req)
 

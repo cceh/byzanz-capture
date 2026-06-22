@@ -32,6 +32,7 @@ _gphoto2_set_setting("ptp2", "start_timeout", "3000")
 from gphoto2 import CameraWidget
 
 from .profiles.base import Profile
+from .orientation import write_orientation
 
 # libgphoto2 is per-camera-thread-safe but its global operations
 # (autodetect, port enumeration, abilities listing) are NOT. Concurrent
@@ -105,14 +106,19 @@ class CaptureImagesRequest():
     max_burst: int = 1
     manual_trigger: bool = False
     image_quality: CaptureFormat
+    orientation: int = 0
 
-    def __init__(self, file_path_template, num_images, image_quality, max_burst = 1, manual_trigger = False):
+    def __init__(self, file_path_template, num_images, image_quality, max_burst = 1, manual_trigger = False, orientation = 0):
         self.file_path_template = file_path_template
         self.num_images = num_images
         self.expect_files = 2 if image_quality == CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW else 1
         self.max_burst = max_burst
         self.manual_trigger = manual_trigger
         self.image_quality = image_quality
+        # Clockwise display rotation (0/90/180/270) to bake into each
+        # captured file's EXIF Orientation *before* it is made visible to
+        # consumers — see the capture-save path. 0 = no orientation written.
+        self.orientation = orientation
 
         self.signal = CaptureImagesRequest.Signal()
 
@@ -607,6 +613,15 @@ class CameraWorker(QObject):
                     # would fail on Windows if the destination already exists.
                     temp_path = file_target_path + ".part"
                     cam_file.save(temp_path)
+                    # Bake the display rotation into the file's EXIF Orientation
+                    # while it is still the (invisible) `.part` temp, BEFORE the
+                    # atomic replace makes it visible. This closes the race where
+                    # a consumer (filmstrip FS watcher) decodes the final file
+                    # for display before a post-capture stamp lands, leaving the
+                    # preview/thumbnail un-rotated. Best-effort: write_orientation
+                    # never raises. 0 = no orientation written (no-op).
+                    if self.__state.capture_request.orientation:
+                        write_orientation(temp_path, self.__state.capture_request.orientation)
                     os.replace(temp_path, file_target_path)
                     self.captured_file_paths.append(file_target_path)
 
