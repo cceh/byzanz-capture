@@ -39,6 +39,24 @@
     background: $bg_pane_alt;
     border-right: 1px solid $line;
 }
+#sidebarBoxButton {
+    text-align: left;
+    font-size: 12pt;
+    font-weight: 600;
+    color: $ink_2;
+    background: $bg_pane;
+    border: 1px solid $line;
+    border-radius: 6px;
+    padding: 7px 10px;
+    margin-bottom: 4px;
+}
+#sidebarBoxButton:hover {
+    background: $vis_soft;
+    color: $vis_text_dark;
+}
+#sidebarBoxButton::menu-indicator {
+    image: none;   /* the ▾ glyph lives in the button text */
+}
 #sidebarHeader {
     color: $ink_2;
     font-weight: 700;
@@ -108,6 +126,38 @@ QToolButton:pressed {
 QToolButton:disabled {
     background: transparent;
 }
+
+
+/* ===== Calibration bar ============================================ */
+
+/* Slim strip at the top of the fusing panel (under the VIS/IR tabs).
+   A faint bottom rule separates it from the viewer toolbar below. */
+#calibrationBar {
+    border-bottom: 1px solid $line_soft;
+}
+/* Status dot — colour is the at-a-glance state. Base = off/neutral. */
+#calibrationDot {
+    font-size: 13pt;
+    color: $ink_3;
+}
+#calibrationDot[state="ok"]      { color: $cal_ok; }
+#calibrationDot[state="due"]     { color: $cal_due; }
+#calibrationDot[state="overdue"] { color: $status_error; }
+#calibrationStatus {
+    color: $ink_2;
+    font-size: 10pt;
+}
+/* Active-state "CALIBRATION" tag. */
+#calibrationModeLabel {
+    color: $ink_2;
+    font-weight: 700;
+    font-size: 9pt;
+    letter-spacing: 1px;
+}
+/* NB: the bar's buttons (Calibrate / ← Back) use NATIVE QPushButton
+   styling on purpose — setting any QSS property on a QPushButton makes
+   Qt strip the macOS native chrome (same reason the zoom bar stays
+   native), which is exactly the "weird button" look we want to avoid. */
 
 
 /* ===== Filmstrip ================================================== */

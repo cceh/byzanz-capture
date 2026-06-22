@@ -220,6 +220,9 @@
                 <number>8</number>
                </property>
                <item>
+                <widget class="CalibrationBar" name="calibrationBar"/>
+               </item>
+               <item>
                 <layout class="QHBoxLayout" name="topToolbar">
                  <property name="spacing">
                   <number>12</number>
@@ -316,8 +319,23 @@
                  </property>
                  <item>
                   <widget class="QLabel" name="isoLabel">
+                   <property name="maximumSize">
+                    <size>
+                     <width>28</width>
+                     <height>28</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>ISO sensitivity</string>
+                   </property>
                    <property name="text">
-                    <string>ISO</string>
+                    <string/>
+                   </property>
+                   <property name="scaledContents">
+                    <bool>true</bool>
+                   </property>
+                   <property name="buddy">
+                    <cstring>isoSelect</cstring>
                    </property>
                   </widget>
                  </item>
@@ -336,8 +354,23 @@
                  </item>
                  <item>
                   <widget class="QLabel" name="fNumberLabel">
+                   <property name="maximumSize">
+                    <size>
+                     <width>28</width>
+                     <height>28</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>Aperture (f-number)</string>
+                   </property>
                    <property name="text">
-                    <string>Aperture</string>
+                    <string/>
+                   </property>
+                   <property name="scaledContents">
+                    <bool>true</bool>
+                   </property>
+                   <property name="buddy">
+                    <cstring>fNumberSelect</cstring>
                    </property>
                   </widget>
                  </item>
@@ -356,8 +389,23 @@
                  </item>
                  <item>
                   <widget class="QLabel" name="shutterSpeedLabel">
+                   <property name="maximumSize">
+                    <size>
+                     <width>28</width>
+                     <height>28</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>Shutter speed (exposure time)</string>
+                   </property>
                    <property name="text">
-                    <string>Shutter</string>
+                    <string/>
+                   </property>
+                   <property name="scaledContents">
+                    <bool>true</bool>
+                   </property>
+                   <property name="buddy">
+                    <cstring>shutterSpeedSelect</cstring>
                    </property>
                   </widget>
                  </item>
@@ -371,6 +419,33 @@
                    </property>
                    <property name="toolTip">
                     <string>Shutter speed (exposure time)</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="Line" name="captureRowLine">
+                   <property name="orientation">
+                    <enum>Qt::Vertical</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="heightLabel">
+                   <property name="text">
+                    <string>Height</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QComboBox" name="heightSelect">
+                   <property name="minimumSize">
+                    <size>
+                     <width>72</width>
+                     <height>0</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>Current VIS camera height (cm). Sticky — set it once per size group; it's stamped onto each captured object and tags the Flatfield calibration. Presets are configured in Settings.</string>
                    </property>
                   </widget>
                  </item>
@@ -531,6 +606,15 @@
     <signal>rename_requested()</signal>
     <signal>close_requested()</signal>
     <signal>start_object_requested(QString)</signal>
+   </slots>
+  </customwidget>
+  <customwidget>
+   <class>CalibrationBar</class>
+   <extends>QFrame</extends>
+   <header>papyri.calibration_bar</header>
+   <container>1</container>
+   <slots>
+    <signal>shoot_requested(QString)</signal>
    </slots>
   </customwidget>
  </customwidgets>

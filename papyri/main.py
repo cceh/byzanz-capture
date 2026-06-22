@@ -37,6 +37,7 @@ import gphoto2 as gp  # noqa: E402
 from byzanz_camera._gphoto2_paths import apply_paths as _apply_gphoto2_paths  # noqa: E402
 _apply_gphoto2_paths(_pre_camlibs, _pre_iolibs)
 
+from datetime import datetime
 from pathlib import Path
 
 from PIL import Image
@@ -58,7 +59,7 @@ from byzanz_camera.filmstrip_widget import get_file_index
 from byzanz_camera.load_image_worker import ImageMode, LoadImageWorker
 from byzanz_camera.orientation import read_orientation, write_orientation
 from byzanz_camera.helpers import (
-    get_app_icon, get_ui_path, set_state, set_themed_icon,
+    get_app_icon, get_ui_path, set_state, set_themed_icon, set_themed_pixmap,
 )
 from byzanz_camera.viewer_widget import ViewerWidget
 from byzanz_camera.zoom_control_bar import ZoomControlBar
@@ -91,7 +92,12 @@ from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
 from byzanz_camera.profiles.nikon_d90 import NikonD90
 from byzanz_camera.profiles.virtual_camera_vusb import VirtualCameraVusb
 from papyri.bucket_selector import BucketSelector, FusingPanel
-from papyri.capture_mode import get_mode
+from papyri.calibration import CalibrationController
+from papyri.calibration_bar import CalibrationBar
+from papyri.calibration_spec import first_slot_for, label_for_slot
+from papyri.calibration_target import CalibrationTarget
+from papyri.capture_mode import CALIBRATION_MODE, get_mode
+from papyri._metadata import parse_height_choices
 from papyri.simple_target import SimpleTarget
 
 from send2trash import send2trash
@@ -127,7 +133,8 @@ _ROTATE_TRANSPOSE = {
 
 class Object(QObject):
     """A single papyri capture object: its directory, four (side, spectrum)
-    capture buckets, metadata.
+    capture buckets, metadata. Implements the CaptureTarget contract
+    (papyri/capture_target.py).
 
     Layout:
       <object>/_meta.json
@@ -532,6 +539,20 @@ class PapyriMainWindow(QMainWindow):
         # tracks what we're currently subscribed to so we can disconnect
         # before re-subscribing. Maintained by _handle_current_object_subscription.
         self._subscribed_object: "Object | None" = None
+        # Periodic-calibration controller (papyri mode only). Created in
+        # _wire_calibration after the widgets exist; stays None in simple
+        # mode and is guarded everywhere it's used.
+        self.calibration: "CalibrationController | None" = None
+        # Whether the workspace is currently in the calibration sub-mode
+        # (a transient context entered from papyri mode). Drives
+        # `effective_mode`, which the chrome receivers read instead of the
+        # fixed startup `self.mode`.
+        self._calibration_active: bool = False
+        # Calibration sub-mode state: the open per-camera target and the
+        # object+bucket stashed for "← Back".
+        self._cal_target: "CalibrationTarget | None" = None
+        self._object_before_calibration = None
+        self._bucket_before_calibration: tuple[str, str] | None = None
 
         self._bind_widgets()
         self._wire_actions()
@@ -541,6 +562,9 @@ class PapyriMainWindow(QMainWindow):
         # defaults (Side A · Visible, no current object, no camera yet)
         # before the user does anything.
         self._wire_session()
+        # Calibration bar + controller (papyri mode only) — after
+        # _wire_session so the camera-dependent UI receivers exist.
+        self._wire_calibration()
 
         # Simple mode has no "open an object" step — the chosen output
         # folder IS the (always-open) capture target. It lives in its own
@@ -558,7 +582,12 @@ class PapyriMainWindow(QMainWindow):
             "irProfile": None,                              # set when IR camera is configured
             "captureMode": "papyri",                        # "papyri" | "simple"
             "simpleOutputDirectory": "",                    # simple mode output folder (chosen via picker)
-            "workingDirectory": os.path.expanduser("~"),
+            "calibrationTrigger": "time",                   # "off" | "time" | "session" (papyri calibration reminder)
+            "calibrationIntervalMinutes": 60,               # "time" trigger: minutes before a calibration is due
+            "captureHeightChoices": "30,45,60,75,90",       # VIS height presets (cm), comma-separated; shared by capture row + flatfield
+            "currentHeight": "45",                          # sticky current VIS rig height (stamped onto objects, tags flatfield)
+            "irCaptureHeight": "45",                        # IR fixed camera height (single)
+            "workingDirectory": "",   # no box open until the user picks one
             "maxPixmapCache": 256,
             "enableSecondScreenMirror": False,
             "sharpnessCheckEnabled": True,
@@ -607,19 +636,13 @@ class PapyriMainWindow(QMainWindow):
         self.fusing_panel: FusingPanel = self.findChild(
             FusingPanel, "fusingPanel"
         )
-        # Simple mode: drop the chosen-take thumbs so the cards read as a
-        # plain VIS/IR camera switch instead of (perpetually empty) buckets.
-        self.bucket_selector.set_show_thumbs(self.mode.show_thumbs)
-        self.bucket_selector.set_groups(self.mode.groups)
+        # Mode-dependent chrome (bucket groups, sidebar/metadata/filmstrip,
+        # calibration bar, title-bar visibility) is applied in one place by
+        # `_apply_mode_chrome`, called at the end of _bind_widgets and again
+        # whenever the effective mode flips (entering/leaving calibration).
         self.bucket_selector.set_fusing_panel(self.fusing_panel)
         self.fusing_panel.set_bucket_selector(self.bucket_selector)
         self.bucket_selector.step_clicked.connect(self._on_workflow_step_clicked)
-
-        # Mode chrome: simple mode hides the objects sidebar and the
-        # metadata pane (no subjects, no metadata). One place, driven by
-        # the mode flags.
-        self.objects_sidebar.setVisible(self.mode.show_sidebar)
-        self.metadata_pane.setVisible(self.mode.show_metadata)
 
         # Simple mode: the title bar becomes a filename-override field +
         # an output-folder picker. Wire the picker to the folder chooser.
@@ -642,10 +665,9 @@ class PapyriMainWindow(QMainWindow):
         )
         self.viewer.set_overlay_widget(self._no_object_overlay)
         self.filmstrip: PapyriFilmstrip = self.findChild(PapyriFilmstrip, "filmstrip")
-        # Simple mode: filmstrip shows the whole output folder (no per-bucket
-        # filtering), no chosen ★ / move action, and doesn't reload on a
-        # VIS/IR switch (the storage dir is the same for both spectra).
-        self.filmstrip.set_simple_mode(self.mode.whole_folder_filmstrip)
+
+        self.calibration_bar: CalibrationBar = self.findChild(
+            CalibrationBar, "calibrationBar")
 
         self.pause_live_view_button: QPushButton = self.findChild(QPushButton, "pauseLiveViewButton")
         self.autofocus_button: QPushButton = self.findChild(QPushButton, "autofocusButton")
@@ -666,6 +688,17 @@ class PapyriMainWindow(QMainWindow):
         self._capture_setting_combos = (
             self.iso_select, self.f_number_select, self.shutter_speed_select,
         )
+
+        # Current VIS rig height — a sticky setting shared by object capture
+        # (stamped per object) and per-height Flatfield calibration. Presets
+        # come from Settings (captureHeightChoices). Hidden in simple mode.
+        self.height_label: QLabel = self.findChild(QLabel, "heightLabel")
+        self.height_select: QComboBox = self.findChild(QComboBox, "heightSelect")
+        self._populate_height_select()
+        self.height_select.currentTextChanged.connect(self._on_height_changed)
+        height_visible = self.mode.key != "simple"
+        self.height_label.setVisible(height_visible)
+        self.height_select.setVisible(height_visible)
         self._last_config: dict[str, object] = {}
         # Whether each combo's underlying camera widget is intrinsically
         # settable (present, non-empty, writable). Gated further by camera
@@ -683,6 +716,15 @@ class PapyriMainWindow(QMainWindow):
         set_themed_icon(self.autofocus_button.setIcon, get_ui_path("ui/focus.svg"))
         set_themed_icon(self.magnify_button.setIcon, get_ui_path("ui/magnify.svg"))
         set_themed_icon(self.rotate_live_view_button.setIcon, get_ui_path("ui/rotate.svg"))
+        # Capture-setting labels: same icons as the RTI (byzanz) app, themed
+        # for light/dark (the SVGs use currentColor). The .ui leaves them
+        # empty (28x28, scaledContents); we render the glyphs here.
+        set_themed_pixmap(self.findChild(QLabel, "isoLabel").setPixmap,
+                          get_ui_path("ui/iso-svgrepo-com.svg"))
+        set_themed_pixmap(self.findChild(QLabel, "fNumberLabel").setPixmap,
+                          get_ui_path("ui/aperture.svg"))
+        set_themed_pixmap(self.findChild(QLabel, "shutterSpeedLabel").setPixmap,
+                          get_ui_path("ui/shutter_speed.svg"))
 
         # Settings menu (popup off the "Settings" button)
         self.open_program_settings_action = self._action(
@@ -718,6 +760,33 @@ class PapyriMainWindow(QMainWindow):
         self.settings_menu.addSeparator()
         self.settings_menu.addAction(self.toggle_mode_action)
         self.settings_menu.aboutToShow.connect(self._refresh_settings_menu_state)
+
+        # Apply the startup mode's chrome once, now that every widget exists.
+        self._apply_mode_chrome(self.mode)
+
+    @property
+    def effective_mode(self):
+        """The mode whose chrome/layout is currently in force. Equals the
+        fixed startup `self.mode`, except while the transient calibration
+        sub-mode is active (entered from papyri mode). Chrome receivers read
+        THIS, not `self.mode`, so calibration borrows the simple-mode look
+        without forking the window."""
+        return CALIBRATION_MODE if self._calibration_active else self.mode
+
+    def _apply_mode_chrome(self, mode) -> None:
+        """Apply every mode-dependent widget setting in one place. Called
+        at startup and whenever the effective mode flips (enter/leave
+        calibration). `set_groups` rebuilds the bucket bars — callers that
+        flip the mode at runtime must re-assert the active bucket after."""
+        self.bucket_selector.set_show_thumbs(mode.show_thumbs)
+        self.bucket_selector.set_groups(mode.groups)
+        self.objects_sidebar.setVisible(mode.show_sidebar)
+        self.metadata_pane.setVisible(mode.show_metadata)
+        self.filmstrip.set_simple_mode(mode.whole_folder_filmstrip)
+        self.calibration_bar.setVisible(mode.show_calibration)
+        # The calibration bar carries the kind toggle + back button, so the
+        # object title bar is hidden in the calibration sub-mode.
+        self.title_bar.setVisible(mode.key != "calibration")
 
     def _action(self, label: str, slot, icon: str | None = None) -> QAction:
         action = QAction(label, self)
@@ -766,12 +835,17 @@ class PapyriMainWindow(QMainWindow):
         # show_busy takes no args; PyQt drops the path arg.
         self.filmstrip.image_decode_started.connect(self.viewer.show_busy)
 
-        # Objects sidebar
+        # Objects sidebar. The working directory IS the open box (its folder
+        # name is the box no.); the last box auto-reopens via this setting.
+        self.objects_sidebar.set_recent_boxes(self._recent_boxes())
         self.objects_sidebar.set_working_directory(
             self.q_settings.value("workingDirectory", "")
         )
         self.objects_sidebar.object_selected.connect(self._on_sidebar_object_selected)
         self.objects_sidebar.new_object_requested.connect(self._on_sidebar_new_object)
+        self.objects_sidebar.open_box_requested.connect(self._on_open_box)
+        self.objects_sidebar.new_box_requested.connect(self._on_new_box)
+        self.objects_sidebar.recent_box_chosen.connect(self._open_box)
 
         # Metadata changes flip the sidebar badge between `??` and `✓` —
         # keep them in sync without manual refresh.
@@ -893,10 +967,12 @@ class PapyriMainWindow(QMainWindow):
         # controls (autofocus button etc.) against the now-active camera.
         s.active_bucket_changed.connect(self._populate_capture_setting_combos)
         s.active_bucket_changed.connect(self._refresh_camera_dependent_ui)
+        s.active_bucket_changed.connect(self._refresh_height_select_enabled)
         self._refresh_workflow_stepper_active()
         self._refresh_capture_button_label()
         self._refresh_camera_state_emphasis()
         self._refresh_filmstrip_binding()
+        self._refresh_height_select_enabled()
 
         # B5 current_object
         s.current_object_changed.connect(self._refresh_metadata_pane_binding)
@@ -1031,7 +1107,7 @@ class PapyriMainWindow(QMainWindow):
             self.config_hookup_select(
                 config, profile.iso_property_name(), self.iso_select)
             if profile.has_settable_aperture():
-                self.f_number_select.setToolTip("")
+                self.f_number_select.setToolTip("Aperture (f-number)")
                 self.config_hookup_select(
                     config, profile.f_number_property_name(),
                     self.f_number_select)
@@ -1104,6 +1180,69 @@ class PapyriMainWindow(QMainWindow):
         for combo in self._capture_setting_combos:
             combo.setEnabled(live and self._combo_settable.get(combo, False))
 
+    # ---- capture-row height (sticky VIS rig height) --------------------
+
+    def _populate_height_select(self) -> None:
+        """(Re)fill the height combo from the configured presets and select
+        the persisted current height. Called at startup and when the presets
+        change in Settings."""
+        choices = parse_height_choices(self.q_settings.value("captureHeightChoices", ""))
+        current = str(self.q_settings.value("currentHeight", choices[0]))
+        self.height_select.blockSignals(True)
+        self.height_select.clear()
+        self.height_select.addItems(choices)
+        idx = self.height_select.findText(current)
+        self.height_select.setCurrentIndex(idx if idx >= 0 else 0)
+        self.height_select.blockSignals(False)
+        # Persist the resolved value (a current height no longer in the preset
+        # list falls back to the first).
+        self.q_settings.setValue("currentHeight", self.height_select.currentText())
+
+    def _on_height_changed(self, text: str) -> None:
+        """Sticky current height changed → persist it. Object captures stamp
+        it; the Flatfield calibration tags by it. While calibrating, the
+        active Flatfield folder is per height, so rebind the filmstrip to the
+        new height's shots and re-evaluate due-status."""
+        if text:
+            self.q_settings.setValue("currentHeight", text)
+        if self._calibration_active and self._cal_target is not None:
+            self._cal_target.refresh()
+            self._refresh_filmstrip_binding()
+        if self.calibration is not None:
+            self.calibration.refresh()
+
+    def _calibration_height_for(self, spectrum: str) -> str:
+        """Current rig height (str) per camera for the CalibrationTarget:
+        VIS = the sticky `currentHeight`, IR = the fixed `irCaptureHeight`."""
+        key = "currentHeight" if spectrum == SPECTRUM_VISIBLE else "irCaptureHeight"
+        return str(self.q_settings.value(key, "") or "")
+
+    def _refresh_height_select_enabled(self) -> None:
+        """Height applies to VIS only (IR is a single fixed height) — disable
+        the control when the IR camera is active."""
+        self.height_select.setEnabled(
+            self.session.active_spectrum == SPECTRUM_VISIBLE)
+
+    def _stamp_capture_metadata(self, obj: "Object") -> None:
+        """Merge derived metadata into the object's `_meta.json` on capture:
+        the rig heights it was shot at, and the box number (= the basename of
+        the box/working directory the object lives in — box no. is the folder,
+        not a typed field). Merge (not overwrite) so metadata-pane fields
+        survive; the pane likewise merges."""
+        try:
+            with open(obj.meta_path) as f:
+                data = json.load(f) or {}
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            data = {}
+        data["capture_height_vis"] = str(self.q_settings.value("currentHeight", ""))
+        data["capture_height_ir"] = str(self.q_settings.value("irCaptureHeight", ""))
+        data["box_nr"] = os.path.basename(os.path.normpath(obj.working_dir))
+        try:
+            with open(obj.meta_path, "w") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except OSError:
+            pass
+
     # ---- B1+B2 receivers (active_bucket_changed) -----------------------
 
     def _refresh_bucket_chosen_thumbs(self) -> None:
@@ -1124,15 +1263,16 @@ class PapyriMainWindow(QMainWindow):
         it on arrival and silently drop themselves if a newer refresh
         has overtaken them (avoids the "previous object's thumbs flash
         in the new object's cards" race)."""
-        # Simple mode has no chosen-take concept — the cards are a plain
-        # camera switch (show_thumbs=False), so there's nothing to load.
-        if not self.mode.show_thumbs:
+        # Simple / calibration modes have no chosen-take concept — the cards
+        # are a plain camera switch (show_thumbs=False), so there's nothing
+        # to load.
+        if not self.effective_mode.show_thumbs:
             return
         self._chosen_thumb_gen += 1
         gen = self._chosen_thumb_gen
         obj = self.session.current_object
         pool = QThreadPool.globalInstance()
-        for (side, spectrum), step_id in self.mode.step_id_by_bucket.items():
+        for (side, spectrum), step_id in self.effective_mode.step_id_by_bucket.items():
             cap = obj.chosen(side, spectrum) if obj is not None else None
             path = (cap.jpg_path or cap.raw_path) if cap is not None else None
             if path is None:
@@ -1167,7 +1307,7 @@ class PapyriMainWindow(QMainWindow):
             self.bucket_selector.set_active(None)
             return
         self.bucket_selector.set_active(
-            self.mode.step_id_by_bucket[(
+            self.effective_mode.step_id_by_bucket[(
                 self.session.active_side, self.session.active_spectrum
             )]
         )
@@ -1180,10 +1320,11 @@ class PapyriMainWindow(QMainWindow):
             reads as a warning hint, not a static label;
         (3) normal → "Capture · Side X · Visible/Infrared" with the
             capture icon."""
-        simple = self.mode.key == "simple"
+        key = self.effective_mode.key
         if self.session.current_object is None:
             self.capture_button.setText(
-                "Set an output folder" if simple else "Open an object to capture")
+                "Set an output folder" if key == "simple"
+                else "Open an object to capture")
             set_themed_icon(self.capture_button.setIcon, get_ui_path("ui/capture.svg"))
             return
         spectrum_label = (
@@ -1194,8 +1335,13 @@ class PapyriMainWindow(QMainWindow):
             self.capture_button.setText(f"{spectrum_label} camera not connected")
             set_themed_icon(self.capture_button.setIcon, get_ui_path("ui/camera_not_ok.svg"))
             return
-        # Simple mode has no side axis — drop "Side X" from the caption.
-        if simple:
+        if key == "calibration":
+            # No side axis — caption names the calibration target (from the
+            # active slot) instead of "Side X".
+            kind_label = label_for_slot(self.session.active_side)
+            self.capture_button.setText(f"Capture · {kind_label} · {spectrum_label}")
+        elif key == "simple":
+            # Simple mode has no side axis — drop "Side X" from the caption.
             self.capture_button.setText(f"Capture · {spectrum_label}")
         else:
             side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
@@ -1299,7 +1445,7 @@ class PapyriMainWindow(QMainWindow):
         IR-fallback (H1, caller-side because SessionState is ignorant of
         worker availability), update session, then run live-view handoff
         if the spectrum actually changed."""
-        bucket = self.mode.bucket_by_step_id.get(step_id)
+        bucket = self.effective_mode.bucket_by_step_id.get(step_id)
         if bucket is None:
             return
         side, spectrum = bucket
@@ -1478,6 +1624,9 @@ class PapyriMainWindow(QMainWindow):
         camera_ready = self._active_camera_ready()
         self.pause_live_view_button.setEnabled(camera_ready)
         self.capture_button.setEnabled(camera_ready and object_loaded)
+        # (Calibration shoots via this same Capture button — the
+        # CalibrationTarget is the current object while the sub-mode is
+        # active — so no separate gating is needed here.)
 
         # Magnify is a live-view focusing aid: show it only while the live
         # view is actually streaming AND the camera supports it. (Rotate is
@@ -1556,6 +1705,9 @@ class PapyriMainWindow(QMainWindow):
                 else:
                     self.capture_status_label.setText("Captured.")
                 set_state(self.capture_status_label, "state", "done")
+                # A settled capture may have been a calibration shot — keep
+                # the per-camera due chip current (no-op for object captures).
+                self._note_calibration_capture_settled()
 
             case CameraStates.CaptureCanceled():
                 self.capture_status_label.setText("Capture canceled.")
@@ -1564,6 +1716,7 @@ class PapyriMainWindow(QMainWindow):
             case CameraStates.CaptureError(error=err):
                 self.capture_status_label.setText(f"Error: {err}")
                 set_state(self.capture_status_label, "state", "error")
+                self._note_calibration_capture_settled(rescan=False)
 
     # ------------------------------------------------------------- handlers
 
@@ -1822,9 +1975,10 @@ class PapyriMainWindow(QMainWindow):
     def _refresh_metadata_pane_binding(self) -> None:
         """Re-bind metadata pane to current object. Reads B5.
 
-        Simple mode has no metadata (the pane is hidden and SimpleTarget
-        has no `_meta.json`), so never bind the target to it."""
-        if self.mode.key == "simple":
+        Simple/calibration modes have no metadata (the pane is hidden and
+        their flat targets have no `_meta.json`), so never bind the target
+        to it. Only the papyri object workspace binds a real Object."""
+        if self.effective_mode.key != "papyri":
             self.metadata_pane.bind_object(None)
             return
         self.metadata_pane.bind_object(self.session.current_object)
@@ -1834,8 +1988,10 @@ class PapyriMainWindow(QMainWindow):
 
         Simple mode never binds the target: the title-bar name field stays
         a free-text filename-override (editable, no rename/close), wired to
-        start_object → set_name_override."""
-        if self.mode.key == "simple":
+        start_object → set_name_override. Calibration hides the title bar
+        entirely (the calibration bar carries its controls), so it must not
+        bind the flat target either."""
+        if self.effective_mode.key != "papyri":
             self.title_bar.bind_object(None)
             return
         self.title_bar.bind_object(self.session.current_object)
@@ -1893,9 +2049,10 @@ class PapyriMainWindow(QMainWindow):
         self.bucket_selector.setEnabled(has_object)
         if has_object:
             self.viewer.show_photo()
-        elif self.mode.key == "simple":
-            # No papyri "new object" CTA in simple mode — the title-bar
-            # folder picker is the prompt. Just blank the viewer.
+        elif self.effective_mode.key != "papyri":
+            # No papyri "new object" CTA in simple/calibration modes — just
+            # blank the viewer (calibration always has a target open, so it
+            # rarely reaches here anyway).
             self.viewer.show_image(None)
         else:
             self.viewer.show_image(None)
@@ -1959,10 +2116,83 @@ class PapyriMainWindow(QMainWindow):
 
     def _on_sidebar_new_object(self) -> None:
         """Sidebar '+ New object' clicked: close any current object and focus
-        the title bar's name input so the user can type + Enter to create."""
+        the title bar's name input so the user can type + Enter to create.
+        With no box open there's nowhere to put an object, so funnel the user
+        to pick/create a box first."""
+        if not self.q_settings.value("workingDirectory", ""):
+            self._on_new_box()
+            return
         if self.session.current_object is not None:
             self.close_object()
         self.title_bar.focus_name_input()
+
+    # ---- box (= working directory) switching ----
+
+    def _recent_boxes(self) -> list[str]:
+        """Recently-opened box directories (most-recent first), pruned to those
+        that still exist. QSettings may hand back a single str or a list."""
+        raw = self.q_settings.value("recentBoxes", []) or []
+        if isinstance(raw, str):
+            raw = [raw]
+        return [p for p in raw if p and os.path.isdir(p)]
+
+    def _push_recent_box(self, path: str) -> None:
+        norm = os.path.normpath(path)
+        recents = [p for p in self._recent_boxes()
+                   if os.path.normpath(p) != norm]
+        recents.insert(0, path)
+        self.q_settings.setValue("recentBoxes", recents[:8])
+
+    def _open_box(self, path: str) -> None:
+        """Make `path` the open box: persist it (auto-reopens next launch),
+        record it in recents, and repoint the sidebar + calibration. Closes any
+        open object first so we never show one box's object against another."""
+        if not path or not os.path.isdir(path):
+            return
+        self.close_object()
+        self.q_settings.setValue("workingDirectory", path)
+        self._push_recent_box(path)
+        self.objects_sidebar.set_recent_boxes(self._recent_boxes())
+        self.objects_sidebar.set_working_directory(path)
+        # Decision C: calibration lives under the box (same external volume as
+        # the captures), so it follows the box.
+        if self.calibration is not None:
+            self.calibration.set_working_dir(path)
+            self._refresh_calibration_bar()
+
+    def _box_dialog_start(self) -> str:
+        """Where the box folder dialog opens: the parent of the current box
+        (so sibling boxes are in view), else home."""
+        wd = self.q_settings.value("workingDirectory", "")
+        if wd and os.path.isdir(wd):
+            return os.path.dirname(os.path.normpath(wd))
+        return os.path.expanduser("~")
+
+    def _on_open_box(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self, "Open box directory", self._box_dialog_start())
+        if path:
+            self._open_box(path)
+
+    def _on_new_box(self) -> None:
+        # Pure OS dialog (the user creates the box folder via the dialog's
+        # New-Folder affordance); the title makes the intent explicit.
+        path = QFileDialog.getExistingDirectory(
+            self, "Create or choose a box directory", self._box_dialog_start())
+        if path:
+            self._open_box(path)
+
+    def _handle_missing_box(self) -> None:
+        """The open box folder is gone (moved / renamed / deleted). Drop to the
+        no-box empty state rather than recreating a ghost folder on capture."""
+        QMessageBox.warning(
+            self, "Box folder missing",
+            "The box folder no longer exists (it was moved, renamed, or "
+            "deleted).\n\nOpen or create a box to continue.",
+        )
+        self.close_object()
+        self.q_settings.setValue("workingDirectory", "")
+        self.objects_sidebar.set_working_directory("")
 
     def _on_object_state_changed(self):
         """Single sink for any change in the current object's derived state.
@@ -1976,13 +2206,24 @@ class PapyriMainWindow(QMainWindow):
     # ---------------------------------------------------------- capture
 
     def capture_image(self):
-        if not self.session.current_object:
+        obj = self.session.current_object
+        if not obj:
+            return
+        # Box folder vanished (moved / renamed / deleted in Finder while open)?
+        # Don't let ensure_dir() silently recreate the old path — that splits
+        # captures across a ghost box. Bail to the "open a box" empty state.
+        if isinstance(obj, Object) and not os.path.isdir(obj.working_dir):
+            self._handle_missing_box()
             return
         # Re-ensure the on-disk skeleton — covers the case where someone
         # deleted a side or spectrum dir in Finder between captures.
-        self.session.current_object.ensure_dir()
+        obj.ensure_dir()
+        # Object captures record the height they were shot at (papyri only;
+        # calibration/simple targets aren't papyri Objects).
+        if isinstance(obj, Object):
+            self._stamp_capture_metadata(obj)
         req = CaptureImagesRequest(
-            file_path_template=self.session.current_object.next_template(
+            file_path_template=obj.next_template(
                 self.session.active_side, self.session.active_spectrum
             ),
             num_images=1,
@@ -1990,6 +2231,121 @@ class PapyriMainWindow(QMainWindow):
             manual_trigger=False,
         )
         self.active_worker.commands.capture_images.emit(req)
+
+    # ---------------------------------------------------------- calibration
+
+    def _wire_calibration(self) -> None:
+        """Build the calibration controller and wire the bar (papyri mode
+        only — in simple mode the bar is hidden and the controller stays
+        None, guarded everywhere). The bar enters/leaves the calibration
+        sub-mode; the target is picked via the tabs and capture goes
+        through the normal Capture button."""
+        if not self.mode.show_calibration:
+            return
+        self.calibration = CalibrationController(
+            self.q_settings.value("workingDirectory", ""), self.q_settings, self
+        )
+        self.calibration.status_changed.connect(self._refresh_calibration_bar)
+        self.calibration_bar.enter_requested.connect(self._enter_calibration)
+        self.calibration_bar.exit_requested.connect(self._exit_calibration)
+        self.calibration.refresh()
+        self._refresh_calibration_bar()
+
+    def _refresh_calibration_bar(self) -> None:
+        """Repaint the bar's IDLE status (per-camera due) from the
+        controller. No-op while the calibration sub-mode is active (the bar
+        then shows "← Back", set by _enter_calibration)."""
+        if self.calibration is None or self._calibration_active:
+            return
+        spectra = [SPECTRUM_VISIBLE]
+        if self.ir_worker is not None:
+            spectra.append(SPECTRUM_INFRARED)
+        level, text = self.calibration.summary(spectra)
+        self.calibration_bar.set_idle(text, level)
+
+    # ---- calibration sub-mode enter / exit ----------------------------
+
+    def _enter_calibration(self) -> None:
+        """Flip the workspace into the calibration sub-mode: stash the open
+        object + bucket, apply the calibration chrome, and open the
+        CalibrationTarget so the normal capture/review surface now points at
+        the calibration buckets."""
+        if self.calibration is None or self._calibration_active:
+            return
+        wd = self.q_settings.value("workingDirectory", "")
+        if not wd:
+            return
+        # Pick a valid opening bucket: a target slot for the active camera,
+        # falling back to VIS if the active camera has none configured.
+        spectrum = self.session.active_spectrum
+        slot = first_slot_for(spectrum)
+        if slot is None:
+            spectrum = SPECTRUM_VISIBLE
+            slot = first_slot_for(spectrum)
+        if slot is None:
+            return                        # no calibration targets at all
+
+        # Remember where we were so "← Back" restores it exactly.
+        self._object_before_calibration = self.session.current_object
+        self._bucket_before_calibration = (
+            self.session.active_side, self.session.active_spectrum)
+
+        self._calibration_active = True
+        self._apply_mode_chrome(CALIBRATION_MODE)
+        # Each Calibrate click is its own timestamped run, so a mid-day
+        # setup change just starts fresh. ensure_dir so the filmstrip's
+        # watcher catches tethered captures; an unused run is pruned on exit.
+        run_id = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        self._cal_target = CalibrationTarget(
+            wd, run_id, height_for=self._calibration_height_for)
+        self._cal_target.ensure_dir()
+        # Swap target+bucket so no receiver ever sees a mismatched pair:
+        # clear the object first, then set the calibration bucket, then the
+        # target. (Otherwise a receiver fires with the old papyri Object +
+        # a 'cal_*' slot, and Object.dir_for rightly rejects that slot.)
+        self.session.set_current_object(None)
+        self.session.set_active_bucket(slot, spectrum)
+        self.session.set_current_object(self._cal_target)
+        self._refresh_workflow_stepper_active()
+        self.calibration_bar.set_active(self._back_label())
+        self._refresh_capture_button_label()
+
+    def _exit_calibration(self) -> None:
+        """Leave the calibration sub-mode: restore the object + bucket that
+        were open before entering, and repaint the idle status chip."""
+        if not self._calibration_active:
+            return
+        self._calibration_active = False
+        self._apply_mode_chrome(self.mode)
+        side, spectrum = self._bucket_before_calibration or (SIDE_A, SPECTRUM_VISIBLE)
+        # Same atomic swap as on enter, reversed (clear first so no receiver
+        # sees the calibration target with a papyri side). Unbinding the
+        # filmstrip first also makes it safe to prune an unused run folder.
+        self.session.set_current_object(None)
+        if self._cal_target is not None:
+            self._cal_target.discard_if_empty()
+        self.session.set_active_bucket(side, spectrum)
+        self.session.set_current_object(self._object_before_calibration)
+        self._refresh_workflow_stepper_active()
+        self._cal_target = None
+        self._object_before_calibration = None
+        self._bucket_before_calibration = None
+        self.calibration.refresh()
+        self._refresh_calibration_bar()
+
+    def _back_label(self) -> str:
+        obj = self._object_before_calibration
+        name = getattr(obj, "name", None) if obj is not None else None
+        return f"← Back to {name}" if name else "← Back to objects"
+
+    def _note_calibration_capture_settled(self) -> None:
+        """A capture finished — re-scan `_calibration/` so per-camera due
+        is current (matters for the idle chip once we leave calibration).
+        Harmless for normal object captures (the re-scan finds nothing new)."""
+        if self.calibration is None:
+            return
+        self.calibration.refresh()
+        self._refresh_calibration_bar()      # no-op while the sub-mode is active
 
     # ---------------------------------------------------------- mode toggle
 
@@ -2051,6 +2407,11 @@ class PapyriMainWindow(QMainWindow):
             elif name == "workingDirectory":
                 self._refresh_camera_dependent_ui()
                 self.objects_sidebar.set_working_directory(value)
+                # Calibration files live under <workingDirectory>/_calibration/
+                # — re-point the controller so the bar reflects the new root.
+                if self.calibration is not None:
+                    self.calibration.set_working_dir(value)
+                    self._refresh_calibration_bar()
                 # Simple mode's output folder is independent (its own
                 # setting, chosen via the title-bar picker), so changing
                 # papyri's workingDirectory here doesn't touch it.
@@ -2059,6 +2420,14 @@ class PapyriMainWindow(QMainWindow):
             elif name == "sharpnessCheckEnabled":
                 from byzanz_camera.load_image_worker import set_sharpness_enabled
                 set_sharpness_enabled(bool(value))
+            elif name in ("calibrationTrigger", "calibrationIntervalMinutes"):
+                # Controller reads these from QSettings live; refresh so the
+                # bar reflects the new trigger/interval immediately.
+                if self.calibration is not None:
+                    self.calibration.refresh()
+                    self._refresh_calibration_bar()
+            elif name == "captureHeightChoices":
+                self._populate_height_select()
 
         # F-PERS-1: irProfile change has no runtime effect — the IR worker
         # is constructed once in _wire_camera at startup based on this

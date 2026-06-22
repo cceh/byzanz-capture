@@ -1,5 +1,9 @@
-"""Objects sidebar — left rail listing all object directories in the working
-directory with a status badge per row.
+"""Objects sidebar — left rail. Top: the open BOX (a working directory =
+one physical box of papyri); below it, the OBJECTS in that box with a
+status badge per row.
+
+Box no. is the box directory's name, not a per-object field — switching or
+creating a box is just opening/creating a folder (the box header's menu).
 
 Status:
     · empty                 → no captures yet
@@ -7,20 +11,20 @@ Status:
     ✓  has captures + metadata complete
     (active row uses Qt's standard list selection highlight)
 
-Phase B will add `✓✓` vs `●✓` for visible+IR completion.
-
-The sidebar walks the working directory on demand (cheap; ~50 objects max
-in typical use). It does NOT hold per-object QObject instances — the
-canonical state of a single in-focus object lives in the `Object` model
-that main.py manages.
+The sidebar walks the box directory on demand (cheap; ~100–200 objects max
+per box). It does NOT hold per-object QObject instances — the canonical
+state of a single in-focus object lives in the `Object` model that main.py
+manages.
 """
 from __future__ import annotations
+import os
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QFrame, QLabel, QListWidget, QListWidgetItem, QPushButton, QSizePolicy,
-    QVBoxLayout,
+    QFrame, QLabel, QListWidget, QListWidgetItem, QMenu, QPushButton,
+    QSizePolicy, QToolButton, QVBoxLayout,
 )
 
 from papyri._layout import has_any_captures_for, list_managed_objects
@@ -46,20 +50,27 @@ class ObjectListEntry:
 
 
 class ObjectsSidebar(QFrame):
-    """Left-rail list of object directories in the current working dir.
+    """Left-rail box header + object list.
 
     Public API:
-        set_working_directory(path)   — point at a workdir, refresh
+        set_working_directory(path)   — point at a box dir, refresh
+        set_recent_boxes(paths)       — populate the box menu's recents
         set_active_object_name(name)  — highlight the row for `name` (or clear)
         refresh()                     — re-scan disk and rebuild the list
 
     Signals:
-        object_selected(str)          — emitted with object name on row click
-        new_object_requested()        — emitted when the "+ New object" button is clicked
+        object_selected(str)          — object name on row click
+        new_object_requested()        — "+ New object" clicked
+        new_box_requested()           — "New box directory…" chosen
+        open_box_requested()          — "Open box directory…" chosen
+        recent_box_chosen(str)        — a recent box path chosen
     """
 
     object_selected = pyqtSignal(str)
     new_object_requested = pyqtSignal()
+    new_box_requested = pyqtSignal()
+    open_box_requested = pyqtSignal()
+    recent_box_chosen = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -70,6 +81,7 @@ class ObjectsSidebar(QFrame):
         self.setMaximumWidth(320)
 
         self._working_dir: str | None = None
+        self._recent_boxes: list[str] = []
         self._entries: list[ObjectListEntry] = []
         self._active_name: str | None = None
 
@@ -81,16 +93,12 @@ class ObjectsSidebar(QFrame):
         if path == self._working_dir:
             return
         self._working_dir = path
-        self._refresh_workdir_label()
+        self._refresh_box_label()
         self.refresh()
 
-    def _refresh_workdir_label(self) -> None:
-        if self._working_dir:
-            self._workdir_label.setText(self._working_dir)
-            self._workdir_label.setToolTip(self._working_dir)
-        else:
-            self._workdir_label.setText("No working directory selected")
-            self._workdir_label.setToolTip("")
+    def set_recent_boxes(self, paths: list[str]) -> None:
+        """Recent box directories shown in the box menu (most-recent first)."""
+        self._recent_boxes = list(paths)
 
     def set_active_object_name(self, name: str | None) -> None:
         """Visually mark the row for `name` as the active one."""
@@ -98,10 +106,11 @@ class ObjectsSidebar(QFrame):
         self._sync_selection()
 
     def refresh(self) -> None:
-        """Re-scan the working dir and rebuild the list (preserves active highlight)."""
+        """Re-scan the box dir and rebuild the list (preserves active highlight)."""
         self._entries = self._scan(self._working_dir)
         self._populate()
         self._sync_selection()
+        self._refresh_objects_header()
 
     # ---- internals ---------------------------------------------------
 
@@ -109,6 +118,19 @@ class ObjectsSidebar(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 12, 8, 8)
         layout.setSpacing(6)
+
+        # Box header — the open box + a menu to switch (recents) / open / new.
+        self._box_button = QToolButton()
+        self._box_button.setObjectName("sidebarBoxButton")
+        self._box_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._box_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._box_button.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                       QSizePolicy.Policy.Fixed)
+        self._box_menu = QMenu(self._box_button)
+        self._box_menu.aboutToShow.connect(self._rebuild_box_menu)
+        self._box_button.setMenu(self._box_menu)
+        layout.addWidget(self._box_button)
+        self._refresh_box_label()
 
         self._header = QLabel("OBJECTS")
         self._header.setObjectName("sidebarHeader")
@@ -120,21 +142,48 @@ class ObjectsSidebar(QFrame):
         self._list.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self._list, 1)
 
-        # Workdir display sits just above the + New button — the workdir is
-        # the parent of every row in the list, so it belongs here.
-        self._workdir_label = QLabel("No working directory selected")
-        self._workdir_label.setObjectName("sidebarWorkdir")
-        self._workdir_label.setWordWrap(True)
-        layout.addWidget(self._workdir_label)
-
         self._new_button = QPushButton("+ New object")
         self._new_button.setObjectName("sidebarNewButton")
         self._new_button.clicked.connect(self.new_object_requested.emit)
         layout.addWidget(self._new_button)
 
-    # Styles for #objectsSidebar / #sidebarHeader / #sidebarList /
-    # #sidebarWorkdir / #sidebarNewButton live in papyri/ui/app.qss —
+    # Styles for #objectsSidebar / #sidebarBoxButton / #sidebarHeader /
+    # #sidebarList / #sidebarNewButton live in papyri/ui/app.qss —
     # installed once at app startup.
+
+    def _refresh_box_label(self) -> None:
+        if self._working_dir:
+            name = os.path.basename(os.path.normpath(self._working_dir))
+            self._box_button.setText(f"📦  {name}  ▾")
+            self._box_button.setToolTip(self._working_dir)
+        else:
+            self._box_button.setText("📦  Open a box  ▾")
+            self._box_button.setToolTip("")
+
+    def _refresh_objects_header(self) -> None:
+        n = len(self._entries)
+        self._header.setText(f"OBJECTS · {n}" if n else "OBJECTS")
+
+    def _rebuild_box_menu(self) -> None:
+        """Rebuilt on each open so recents / current-box checkmark stay fresh.
+        Commands first, then a divider, then recent boxes underneath."""
+        self._box_menu.clear()
+        self._box_menu.addAction("New box directory…", self.new_box_requested.emit)
+        self._box_menu.addAction("Open existing box directory…",
+                                 self.open_box_requested.emit)
+        if self._recent_boxes:
+            self._box_menu.addSeparator()
+            current = (os.path.normpath(self._working_dir)
+                       if self._working_dir else None)
+            for path in self._recent_boxes:
+                name = os.path.basename(os.path.normpath(path))
+                act = QAction(f"📦  {name}", self._box_menu)
+                act.setCheckable(True)
+                act.setChecked(os.path.normpath(path) == current)
+                act.setToolTip(path)
+                act.triggered.connect(
+                    lambda _checked, p=path: self.recent_box_chosen.emit(p))
+                self._box_menu.addAction(act)
 
     def _populate(self) -> None:
         self._list.blockSignals(True)

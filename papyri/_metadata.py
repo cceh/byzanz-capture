@@ -13,6 +13,21 @@ from dataclasses import dataclass
 from papyri._layout import meta_path_for
 
 
+# Camera-height presets. The capture-row "Height" control, the per-height
+# Flatfield calibration, and the per-object `capture_height_vis` stamp all
+# read ONE list — configurable in Settings (`captureHeightChoices`, a
+# comma-separated string). These are the fallback defaults.
+DEFAULT_CAPTURE_HEIGHTS: tuple[str, ...] = ("30", "45", "60", "75", "90")
+
+
+def parse_height_choices(raw: str | None) -> tuple[str, ...]:
+    """Parse the comma-separated `captureHeightChoices` setting into a
+    tuple of height strings, falling back to the defaults if it's empty
+    or all-blank."""
+    items = [s.strip() for s in (raw or "").split(",") if s.strip()]
+    return tuple(items) if items else DEFAULT_CAPTURE_HEIGHTS
+
+
 @dataclass(frozen=True)
 class FieldSchema:
     name: str               # JSON key in _meta.json
@@ -39,12 +54,14 @@ class FieldSchema:
 # directory name IS its inv no (per the layout convention in `_layout.py`).
 # Adding it to the form would risk drift between filename and metadata.
 #
+# Box no. is likewise NOT a form field: a box is a whole working directory
+# (the box folder), so its number is the working dir's basename. MainWindow
+# stamps `box_nr` into `_meta.json` from that basename on capture (see
+# `_stamp_capture_metadata`) — no per-object typing, no drift.
+#
 # TODO: load from `<working_dir>/metadata_schema.yaml` when projects need
 # project-specific fields. Until then this default applies to all objects.
 DEFAULT_SCHEMA: tuple[FieldSchema, ...] = (
-    FieldSchema(
-        name="box_nr", label="Box no.", type="string", required=True,
-    ),
     FieldSchema(
         name="mummy_nr", label="Mummy no.", type="string",
     ),
@@ -63,16 +80,10 @@ DEFAULT_SCHEMA: tuple[FieldSchema, ...] = (
     FieldSchema(
         name="ink", label="Ink", type="string", default="black",
     ),
-    FieldSchema(
-        name="capture_height_vis", label="Camera height VIS (cm)", type="choice",
-        choices=("30", "45", "60", "75", "90"),
-        editable=True, numeric=True, default=45,
-    ),
-FieldSchema(
-        name="capture_height_ir", label="Camera height IR (cm)", type="choice",
-        choices=("30", "45", "60", "75", "90"),
-        editable=True, numeric=True, default=45,
-    ),
+    # `capture_height_vis` / `capture_height_ir` are NOT form fields — the
+    # height is a sticky rig setting (the capture-row "Height" control), and
+    # MainWindow stamps it into `_meta.json` on capture. The metadata pane
+    # preserves those keys via its merge-write. See docs/calibration-routine.md.
     FieldSchema(
         name="notes", label="Notes", type="longtext",
     )

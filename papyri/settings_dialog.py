@@ -10,14 +10,13 @@ API mirrors the byzanz dialog: `exec()` returns truthy on save,
 from __future__ import annotations
 from typing import Any
 
-from PyQt6.QtCore import QSettings, Qt
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QFileDialog, QLineEdit, QSpinBox, QToolButton,
+    QCheckBox, QComboBox, QDialog, QLineEdit, QSpinBox,
 )
 from PyQt6.uic import loadUi
 
-from byzanz_camera.helpers import get_ui_path, set_themed_icon
+from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.profiles.base import Profile
 
 
@@ -47,9 +46,6 @@ class PapyriSettingsDialog(QDialog):
     # ---- setup ---------------------------------------------------------
 
     def _bind_widgets(self) -> None:
-        self.workdir_input: QLineEdit = self.findChild(
-            QLineEdit, "workingDirectoryInput"
-        )
         self.visible_profile_combo: QComboBox = self.findChild(
             QComboBox, "visibleProfileSelect"
         )
@@ -65,6 +61,18 @@ class PapyriSettingsDialog(QDialog):
         self.sharpness_check_checkbox: QCheckBox = self.findChild(
             QCheckBox, "enableSharpnessCheckCheckbox"
         )
+        self.calibration_trigger_combo: QComboBox = self.findChild(
+            QComboBox, "calibrationTriggerSelect"
+        )
+        self.calibration_interval_input: QSpinBox = self.findChild(
+            QSpinBox, "calibrationIntervalInput"
+        )
+        self.capture_heights_input: QLineEdit = self.findChild(
+            QLineEdit, "captureHeightsInput"
+        )
+        self.ir_capture_height_input: QLineEdit = self.findChild(
+            QLineEdit, "irCaptureHeightInput"
+        )
 
     def _populate_profiles(self) -> None:
         # Visible: required, all profiles available.
@@ -75,21 +83,18 @@ class PapyriSettingsDialog(QDialog):
         for profile_id, profile in self._profiles.items():
             self.ir_profile_combo.addItem(profile.name(), profile_id)
 
-    def _wire_actions(self) -> None:
-        # Folder picker as a trailing action on the workdir field
-        choose = QAction("Choose…", self)
-        set_themed_icon(choose.setIcon, get_ui_path("ui/folder-open.svg"))
-        choose.triggered.connect(self._choose_working_directory)
-        self.workdir_input.addAction(
-            choose, QLineEdit.ActionPosition.TrailingPosition
-        )
-        for tool_button in self.workdir_input.findChildren(QToolButton):
-            tool_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Calibration-reminder trigger (label, stored value).
+        for label, value in (
+            ("Off", "off"),
+            ("Time-based", "time"),
+            ("At session start", "session"),
+        ):
+            self.calibration_trigger_combo.addItem(label, value)
 
+    def _wire_actions(self) -> None:
+        # The box (working directory) is chosen in the sidebar's box menu, not
+        # here — Settings holds only rig/app config now.
         # Each widget records its change into self.settings; caller applies on accept.
-        self.workdir_input.textChanged.connect(
-            lambda t: self._set("workingDirectory", t)
-        )
         self.visible_profile_combo.currentIndexChanged.connect(
             lambda idx: self._set("profile", self.visible_profile_combo.itemData(idx))
         )
@@ -109,10 +114,26 @@ class PapyriSettingsDialog(QDialog):
                 "sharpnessCheckEnabled", self.sharpness_check_checkbox.isChecked()
             )
         )
+        self.calibration_trigger_combo.currentIndexChanged.connect(
+            self._on_calibration_trigger_changed
+        )
+        self.calibration_interval_input.valueChanged.connect(
+            lambda v: self._set("calibrationIntervalMinutes", v)
+        )
+        self.capture_heights_input.textChanged.connect(
+            lambda t: self._set("captureHeightChoices", t)
+        )
+        self.ir_capture_height_input.textChanged.connect(
+            lambda t: self._set("irCaptureHeight", t.strip())
+        )
+
+    def _on_calibration_trigger_changed(self, idx: int) -> None:
+        trigger = self.calibration_trigger_combo.itemData(idx)
+        self._set("calibrationTrigger", trigger)
+        # The interval only applies to the time-based trigger.
+        self.calibration_interval_input.setEnabled(trigger == "time")
 
     def _load_current(self) -> None:
-        self.workdir_input.setText(self._q_settings.value("workingDirectory", ""))
-
         self._select_profile(
             self.visible_profile_combo, self._q_settings.value("profile")
         )
@@ -130,6 +151,23 @@ class PapyriSettingsDialog(QDialog):
             self._q_settings.value("sharpnessCheckEnabled", True, type=bool)
         )
 
+        trigger = self._q_settings.value("calibrationTrigger", "time") or "time"
+        t_idx = self.calibration_trigger_combo.findData(trigger)
+        self.calibration_trigger_combo.setCurrentIndex(t_idx if t_idx >= 0 else 0)
+        self.calibration_interval_input.setValue(
+            int(self._q_settings.value("calibrationIntervalMinutes", 60))
+        )
+        # findData/setCurrentIndex above won't fire the changed-handler when
+        # the value already maps to index 0, so set the dependent enable here.
+        self.calibration_interval_input.setEnabled(trigger == "time")
+
+        self.capture_heights_input.setText(
+            self._q_settings.value("captureHeightChoices", "30,45,60,75,90")
+        )
+        self.ir_capture_height_input.setText(
+            str(self._q_settings.value("irCaptureHeight", "45"))
+        )
+
     @staticmethod
     def _select_profile(combo: QComboBox, profile_id: str | None) -> None:
         if profile_id is None:
@@ -143,12 +181,3 @@ class PapyriSettingsDialog(QDialog):
     def _set(self, name: str, value: Any) -> None:
         self.settings[name] = value
 
-    def _choose_working_directory(self) -> None:
-        chooser = QFileDialog(
-            self,
-            "Choose working directory",
-            self.workdir_input.text(),
-        )
-        chooser.setFileMode(QFileDialog.FileMode.Directory)
-        if chooser.exec() and chooser.selectedFiles():
-            self.workdir_input.setText(chooser.selectedFiles()[0])
