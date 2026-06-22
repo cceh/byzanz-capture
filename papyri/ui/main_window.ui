@@ -340,7 +340,7 @@
                   </widget>
                  </item>
                  <item>
-                  <widget class="QComboBox" name="isoSelect">
+                  <widget class="ConfigComboBox" name="isoSelect">
                    <property name="minimumSize">
                     <size>
                      <width>80</width>
@@ -375,7 +375,7 @@
                   </widget>
                  </item>
                  <item>
-                  <widget class="QComboBox" name="fNumberSelect">
+                  <widget class="ConfigComboBox" name="fNumberSelect">
                    <property name="minimumSize">
                     <size>
                      <width>80</width>
@@ -410,7 +410,7 @@
                   </widget>
                  </item>
                  <item>
-                  <widget class="QComboBox" name="shutterSpeedSelect">
+                  <widget class="ConfigComboBox" name="shutterSpeedSelect">
                    <property name="minimumSize">
                     <size>
                      <width>80</width>
@@ -537,6 +537,11 @@
   </widget>
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>ConfigComboBox</class>
+   <extends>QComboBox</extends>
+   <header>byzanz_camera.config_combo</header>
+  </customwidget>
   <customwidget>
    <class>ObjectsSidebar</class>
    <extends>QFrame</extends>

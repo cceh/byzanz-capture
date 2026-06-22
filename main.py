@@ -31,6 +31,7 @@ from PyQt6.uic import loadUi
 from send2trash import send2trash
 
 from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.config_combo import ConfigComboBox
 from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
 from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
 
@@ -154,10 +155,19 @@ class RTICaptureMainWindow(QMainWindow):
 
         self.camera_controls: QFrame = self.findChild(QFrame, "cameraControls")
         self.camera_config_controls: QWidget = self.findChild(QWidget, "cameraConfigControls")
-        self.f_number_select: QComboBox = self.findChild(QComboBox, "fNumberSelect")
-        self.shutter_speed_select: QComboBox = self.findChild(QComboBox, "shutterSpeedSelect")
-        self.crop_select: QComboBox = self.findChild(QComboBox, "cropSelect")
-        self.iso_select: QComboBox = self.findChild(QComboBox, "isoSelect")
+        self.f_number_select: ConfigComboBox = self.findChild(ConfigComboBox, "fNumberSelect")
+        self.shutter_speed_select: ConfigComboBox = self.findChild(ConfigComboBox, "shutterSpeedSelect")
+        self.crop_select: ConfigComboBox = self.findChild(ConfigComboBox, "cropSelect")
+        self.iso_select: ConfigComboBox = self.findChild(ConfigComboBox, "isoSelect")
+        # A user pick on any capture-setting combo routes to the worker.
+        # Connected once; the widget only emits on genuine user changes
+        # (never on the 0.5s poll), so no disconnect/reconnect churn.
+        for combo in (self.iso_select, self.f_number_select,
+                      self.shutter_speed_select, self.crop_select):
+            combo.value_chosen.connect(
+                lambda name, value:
+                    self.camera_worker.commands.set_single_config.emit(name, value)
+            )
 
         self.settings_button: QPushButton = self.findChild(QPushButton, "settingsButton")
 
@@ -841,36 +851,16 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.commands.get_config.emit(req)
 
 
-    def config_hookup_select(self, config: ConfigProtocol, config_name, combo_box: QComboBox, value_map: dict = None):
-        try:
-            combo_box.currentIndexChanged.disconnect()
-        except:
-            pass
-        cfg = config.get_child_by_name(config_name)
-        combo_box.clear()
-        for idx, choice in enumerate(cfg.get_choices()):
-            choice_label = value_map[choice] if value_map and choice in value_map else choice
-            combo_box.addItem(choice_label, choice)
-            if choice == cfg.get_value():
-                combo_box.setCurrentIndex(idx)
-
-        combo_box.currentIndexChanged.connect(lambda: self.camera_worker.commands.set_single_config.emit(
-            config_name, combo_box.currentData()
-        ))
-
     def on_config_update(self, config: ConfigProtocol):
-        self.config_hookup_select(config, self.profile.iso_property_name(), self.iso_select)
-        self.config_hookup_select(config, self.profile.f_number_property_name(), self.f_number_select)
-        self.config_hookup_select(config, self.profile.shutterspeed_property_name(), self.shutter_speed_select)
-        self.config_hookup_select(config, self.profile.image_format_property_name(), self.crop_select)
-
-        # self.config_hookup_select(config, "aspectratio", self.crop_select)
-        # self.config_hookup_select(config, "d030", self.crop_select, {
-        #     "0": self.tr("Voll"),
-        #     "1": self.tr("Klein"),
-        #     "2": self.tr("Mittel"),
-        #     "3": self.tr("Mittel 2")
-        # })
+        # ConfigComboBox.update_from_config diff-updates each combo — items
+        # rebuild only when the choices change, selection moves only when the
+        # popup is closed — so the 0.5s poll no longer disrupts an open
+        # dropdown. The user-pick → set_single_config wiring is connected once
+        # in __init__ via value_chosen.
+        self.iso_select.update_from_config(config, self.profile.iso_property_name())
+        self.f_number_select.update_from_config(config, self.profile.f_number_property_name())
+        self.shutter_speed_select.update_from_config(config, self.profile.shutterspeed_property_name())
+        self.crop_select.update_from_config(config, self.profile.image_format_property_name())
 
     def on_property_change(self, event: PropertyChangeEvent):
         match event.property_name:

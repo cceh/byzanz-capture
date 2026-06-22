@@ -63,6 +63,7 @@ from byzanz_camera.helpers import (
 )
 from byzanz_camera.viewer_widget import ViewerWidget
 from byzanz_camera.zoom_control_bar import ZoomControlBar
+from byzanz_camera.config_combo import ConfigComboBox
 from papyri.capture_model import Capture, _CopyRunner
 from papyri._layout import (
     BUCKETS,
@@ -682,12 +683,20 @@ class PapyriMainWindow(QMainWindow):
         # _on_config_update / config_hookup_select. Cache the last config
         # per spectrum so switching VIS<->IR can repopulate without waiting
         # for a fresh emit.
-        self.iso_select: QComboBox = self.findChild(QComboBox, "isoSelect")
-        self.f_number_select: QComboBox = self.findChild(QComboBox, "fNumberSelect")
-        self.shutter_speed_select: QComboBox = self.findChild(QComboBox, "shutterSpeedSelect")
+        self.iso_select: ConfigComboBox = self.findChild(ConfigComboBox, "isoSelect")
+        self.f_number_select: ConfigComboBox = self.findChild(ConfigComboBox, "fNumberSelect")
+        self.shutter_speed_select: ConfigComboBox = self.findChild(ConfigComboBox, "shutterSpeedSelect")
         self._capture_setting_combos = (
             self.iso_select, self.f_number_select, self.shutter_speed_select,
         )
+        # A user pick routes to the ACTIVE worker (read at emit time so a
+        # VIS<->IR switch targets the right camera). Connected once; the
+        # widget only emits on genuine user changes, never on the 0.5s poll.
+        for combo in self._capture_setting_combos:
+            combo.value_chosen.connect(
+                lambda name, value:
+                    self.active_worker.commands.set_single_config.emit(name, value)
+            )
 
         # Current VIS rig height — a sticky setting shared by object capture
         # (stamped per object) and per-height Flatfield calibration. Presets
@@ -700,12 +709,6 @@ class PapyriMainWindow(QMainWindow):
         self.height_label.setVisible(height_visible)
         self.height_select.setVisible(height_visible)
         self._last_config: dict[str, object] = {}
-        # Whether each combo's underlying camera widget is intrinsically
-        # settable (present, non-empty, writable). Gated further by camera
-        # readiness in _refresh_capture_combo_enabled.
-        self._combo_settable: dict[QComboBox, bool] = {
-            c: False for c in self._capture_setting_combos
-        }
 
         # Override raw .ui-set icons with themed versions so they
         # follow light/dark. capture_button gets its themed icon via
@@ -1102,83 +1105,32 @@ class PapyriMainWindow(QMainWindow):
         profile = self._active_profile()
         if config is None or profile is None:
             for combo in self._capture_setting_combos:
-                self._clear_combo(combo)
+                combo.clear_binding()
         else:
-            self.config_hookup_select(
-                config, profile.iso_property_name(), self.iso_select)
+            self.iso_select.update_from_config(config, profile.iso_property_name())
             if profile.has_settable_aperture():
                 self.f_number_select.setToolTip("Aperture (f-number)")
-                self.config_hookup_select(
-                    config, profile.f_number_property_name(),
-                    self.f_number_select)
+                self.f_number_select.update_from_config(
+                    config, profile.f_number_property_name())
             else:
                 # Manual aperture-ring lens (e.g. IR D90 + CoastalOpt 60/4):
                 # leave the combo cleared → _refresh_capture_combo_enabled
                 # keeps it disabled.
-                self._clear_combo(self.f_number_select)
+                self.f_number_select.clear_binding()
                 self.f_number_select.setToolTip(
                     "Aperture is set on the lens ring (manual lens)")
-            self.config_hookup_select(
-                config, profile.shutterspeed_property_name(),
-                self.shutter_speed_select)
+            self.shutter_speed_select.update_from_config(
+                config, profile.shutterspeed_property_name())
         self._refresh_capture_combo_enabled()
-
-    def _clear_combo(self, combo: QComboBox) -> None:
-        try:
-            combo.currentIndexChanged.disconnect()
-        except TypeError:
-            pass
-        combo.blockSignals(True)
-        combo.clear()
-        combo.blockSignals(False)
-        self._combo_settable[combo] = False
-
-    def config_hookup_select(self, config, config_name, combo_box: QComboBox,
-                             value_map: dict = None) -> None:
-        """Populate `combo_box` from the camera-config widget `config_name`
-        and wire selection changes back to the ACTIVE worker. Mirrors the
-        RTI app's helper, but targets active_worker (dual-camera) and is
-        defensive: a missing/read-only/empty widget just records the combo
-        as non-settable instead of raising (e.g. the D90 exposes
-        shutter/aperture read-only unless the mode dial is on M). Final
-        enable state is applied by _refresh_capture_combo_enabled."""
-        self._clear_combo(combo_box)
-        try:
-            cfg = config.get_child_by_name(config_name)
-            choices = list(cfg.get_choices())
-            current = cfg.get_value()
-            readonly = bool(cfg.get_readonly())
-        except (gp.GPhoto2Error, KeyError):
-            return  # widget absent on this body — leave combo cleared
-
-        if not choices:
-            return
-
-        combo_box.blockSignals(True)
-        for idx, choice in enumerate(choices):
-            label = value_map[choice] if value_map and choice in value_map else choice
-            combo_box.addItem(label, choice)
-            if choice == current:
-                combo_box.setCurrentIndex(idx)
-        combo_box.blockSignals(False)
-
-        self._combo_settable[combo_box] = not readonly
-        if readonly:
-            return
-        combo_box.currentIndexChanged.connect(
-            lambda: self.active_worker.commands.set_single_config.emit(
-                config_name, combo_box.currentData()
-            )
-        )
 
     def _refresh_capture_combo_enabled(self) -> None:
         """Final enable state for the capture-setting combos: intrinsically
-        settable (set by config_hookup_select) AND the active camera is ready
-        and not mid-capture."""
+        settable (per ConfigComboBox.is_settable) AND the active camera is
+        ready and not mid-capture."""
         live = self._active_camera_ready() and not isinstance(
             self.session.active_camera_state, CameraStates.CaptureInProgress)
         for combo in self._capture_setting_combos:
-            combo.setEnabled(live and self._combo_settable.get(combo, False))
+            combo.setEnabled(live and combo.is_settable())
 
     # ---- capture-row height (sticky VIS rig height) --------------------
 
