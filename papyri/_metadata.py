@@ -76,6 +76,10 @@ DEFAULT_SCHEMA: tuple[FieldSchema, ...] = (
     #     name="height_mm", label="Height (mm)", type="number", required=True,
     # ),
     FieldSchema(
+        name="casing", label="Casing", type="choice", required=True,
+        choices=("loose", "glass", "vinylite"), default="loose"
+    ),
+    FieldSchema(
         name="language", label="Language", type="choice", required=False,
         choices=("Greek", "Demotic", "unknown"), default=None
     ),
