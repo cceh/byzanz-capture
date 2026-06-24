@@ -705,7 +705,11 @@ class FilmstripWidget(QWidget):
         if os.path.isdir(self.__currentPath):
             new_files = [
                 f for f in listdir(self.__currentPath)
-                if Path(f).suffix.lower() in SUPPORTED_EXTENSIONS
+                # Skip hidden / macOS AppleDouble sidecars (`._foo.ARW`):
+                # they share the real file's extension and index, so they'd
+                # otherwise show up as a duplicate thumbnail and fail decode.
+                if not f.startswith(".")
+                and Path(f).suffix.lower() in SUPPORTED_EXTENSIONS
                 and get_file_index(f) is not None
             ]
         else:

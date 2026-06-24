@@ -54,6 +54,22 @@ RAW_EXTENSIONS = {".arw", ".nef", ".cr2", ".cr3", ".dng", ".raf", ".orf", ".rw2"
 CAPTURE_EXTENSIONS = JPG_EXTENSIONS | RAW_EXTENSIONS
 
 
+def sanitize_name(text: str) -> str:
+    """Normalize a user-typed object name / filename prefix into a single
+    path component. Slashes and backslashes become underscores so the name
+    can't smuggle in subdirectories; spaces are kept verbatim."""
+    return (text or "").strip().replace("/", "_").replace("\\", "_")
+
+
+def is_hidden_file(name: str) -> bool:
+    """True for dot-files — hidden entries and macOS AppleDouble sidecars
+    (`._foo.ARW`), which macOS writes next to every real file on exFAT/SMB
+    volumes that can't store extended attributes natively. They share the
+    real file's extension and trailing index, so capture scans must skip
+    them or each take shows up twice."""
+    return name.startswith(".")
+
+
 # ---- core helpers ---------------------------------------------------------
 
 def meta_path_for(object_dir: str) -> str:
@@ -92,6 +108,8 @@ def has_captures_for_bucket(object_dir: str, side: str, spectrum: str) -> bool:
     if not os.path.isdir(bucket_dir):
         return False
     for f in os.listdir(bucket_dir):
+        if is_hidden_file(f):
+            continue
         if os.path.splitext(f)[1].lower() in CAPTURE_EXTENSIONS:
             return True
     return False

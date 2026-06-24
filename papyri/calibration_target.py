@@ -31,7 +31,7 @@ from papyri.calibration_spec import (
     is_per_height,
 )
 from papyri.capture_model import Capture, _CopyRunner
-from papyri._layout import JPG_EXTENSIONS, RAW_EXTENSIONS
+from papyri._layout import JPG_EXTENSIONS, RAW_EXTENSIONS, is_hidden_file
 
 
 class CalibrationTarget(QObject):
@@ -220,6 +220,8 @@ class CalibrationTarget(QObject):
         jpgs: dict[str, str] = {}
         raws: dict[str, str] = {}
         for entry in os.listdir(directory):
+            if is_hidden_file(entry):
+                continue
             full = os.path.join(directory, entry)
             if not os.path.isfile(full):
                 continue
@@ -251,6 +253,8 @@ class CalibrationTarget(QObject):
         max_idx = 0
         needle = prefix + "_"
         for f in os.listdir(directory):
+            if is_hidden_file(f):
+                continue
             stem, ext = os.path.splitext(f)
             if ext.lower() not in JPG_EXTENSIONS | RAW_EXTENSIONS:
                 continue

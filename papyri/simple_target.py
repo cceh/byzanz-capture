@@ -33,6 +33,7 @@ from byzanz_camera.filmstrip_widget import get_file_index
 from papyri.capture_model import Capture, _CopyRunner
 from papyri._layout import (
     JPG_EXTENSIONS, RAW_EXTENSIONS, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
+    is_hidden_file, sanitize_name,
 )
 
 
@@ -76,9 +77,7 @@ class SimpleTarget(QObject):
         No rebind / refresh — it only affects `next_template`."""
         self._name_override = self._sanitize(text)
 
-    @staticmethod
-    def _sanitize(text: str) -> str:
-        return (text or "").strip().replace(" ", "_")
+    _sanitize = staticmethod(sanitize_name)
 
     # --- (side, spectrum)-parametric read side (side ignored) ----------
 
@@ -229,6 +228,8 @@ class SimpleTarget(QObject):
         jpgs: dict[str, str] = {}
         raws: dict[str, str] = {}
         for entry in os.listdir(self.output_dir):
+            if is_hidden_file(entry):
+                continue
             full = os.path.join(self.output_dir, entry)
             if not os.path.isfile(full):
                 continue
@@ -260,6 +261,8 @@ class SimpleTarget(QObject):
         max_idx = 0
         needle = prefix + "_"
         for f in os.listdir(self.output_dir):
+            if is_hidden_file(f):
+                continue
             stem, ext = os.path.splitext(f)
             if ext.lower() not in JPG_EXTENSIONS and ext.lower() not in RAW_EXTENSIONS:
                 continue

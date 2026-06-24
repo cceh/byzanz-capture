@@ -78,8 +78,10 @@ from papyri._layout import (
     SPECTRUM_VISIBLE,
     chosen_path_for,
     dir_for_bucket,
+    is_hidden_file,
     is_managed_object_dir,
     meta_path_for,
+    sanitize_name,
     side_dir_for,
 )
 from papyri.camera_state_widget import CameraStateWidget
@@ -416,6 +418,8 @@ class Object(QObject):
             return 0
         stems: set[str] = set()
         for f in os.listdir(bucket_dir):
+            if is_hidden_file(f):
+                continue
             stem, ext = os.path.splitext(f)
             if ext.lower() in JPG_EXTENSIONS or ext.lower() in RAW_EXTENSIONS:
                 stems.add(stem)
@@ -429,6 +433,8 @@ class Object(QObject):
             return 0
         max_idx = 0
         for f in os.listdir(bucket_dir):
+            if is_hidden_file(f):
+                continue
             stem, ext = os.path.splitext(f)
             if ext.lower() not in JPG_EXTENSIONS and ext.lower() not in RAW_EXTENSIONS:
                 continue
@@ -446,6 +452,8 @@ class Object(QObject):
         jpgs: dict[str, str] = {}
         raws: dict[str, str] = {}
         for entry in os.listdir(bucket_dir):
+            if is_hidden_file(entry):
+                continue
             full = os.path.join(bucket_dir, entry)
             if not os.path.isfile(full):
                 continue
@@ -1857,7 +1865,7 @@ class PapyriMainWindow(QMainWindow):
         )
         if not ok:
             return
-        new_name = new_name.strip().replace(" ", "_")
+        new_name = sanitize_name(new_name)
         if not new_name or new_name == self.session.current_object.name:
             return
 
@@ -1919,7 +1927,7 @@ class PapyriMainWindow(QMainWindow):
             return
 
         wd = self.q_settings.value("workingDirectory", "")
-        name = name.strip().replace(" ", "_")
+        name = sanitize_name(name)
         if not wd or not name:
             return
 

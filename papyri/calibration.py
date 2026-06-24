@@ -28,7 +28,7 @@ from papyri.calibration_spec import (
     CALIBRATION_DIRNAME, CALIBRATION_TARGETS, is_per_height, required_specs_for,
 )
 from papyri._layout import (
-    CAPTURE_EXTENSIONS, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
+    CAPTURE_EXTENSIONS, SPECTRUM_INFRARED, SPECTRUM_VISIBLE, is_hidden_file,
 )
 
 # calibrationTrigger values.
@@ -209,6 +209,8 @@ class CalibrationController(QObject):
                 continue
             newest: datetime | None = None
             for entry in os.listdir(bucket):
+                if is_hidden_file(entry):
+                    continue
                 full = os.path.join(bucket, entry)
                 if not os.path.isfile(full):
                     continue
