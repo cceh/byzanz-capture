@@ -1736,28 +1736,38 @@ class PapyriMainWindow(QMainWindow):
     # ------------------------------------------------------------- handlers
 
     def _on_directory_loaded(self, _path: str):
-        """Action handler for PhotoBrowser.directory_loaded. Folds in the
-        F-VIEW-1 fix: explicit view_mode for the empty-bucket case so the
-        previous bucket's "live" / "preview" pill doesn't leak in (option
-        (a) — show "empty" until live frames or selection assert otherwise).
+        """A bucket's strip finished loading → set its view state.
+
+        The has-captures decision uses the object's AUTHORITATIVE count, NOT
+        the filmstrip's current selection: mid-load the selection can be
+        transiently empty, which would wrongly flip an occupied bucket into
+        live view (the "jumps back" bug when switching between two filled
+        buckets). Bucket with captures → review the auto-selected take
+        (preview, paused); empty bucket → frame it live to compose the next
+        shot. Setting the pause intent is enough — the live_view_paused
+        receiver (_handle_live_view_paused) starts/stops the camera to match.
         """
-        if self.session.current_object is None:
+        obj = self.session.current_object
+        if obj is None:
             return
-        self.session.current_object.mark_dir_loaded()
-        # Existing objects: PhotoBrowser auto-selects the last-loaded
-        # thumb and shows it briefly, but its currentItemChanged signal
-        # is suppressed during auto-selection (H22) so image_selected
-        # never fires. Manually pause + assert the preview indicator so
-        # the auto-selected take stays visible until the user resumes.
-        current_name = self.filmstrip.current_file_name()
-        if current_name is not None:
+        obj.mark_dir_loaded()
+        has_captures = obj.count(
+            self.session.active_side, self.session.active_spectrum) > 0
+        if has_captures:
+            # current_file_name is only the pill label here — the decision
+            # above doesn't depend on it, so a transient None can't misroute
+            # us into live view. The take itself is shown by the filmstrip's
+            # auto-selection (H22).
             self.session.set_live_view_paused(True)
-            stem = os.path.splitext(current_name)[0]
-            self.session.set_view_mode("preview", stem)
+            name = self.filmstrip.current_file_name()
+            self.session.set_view_mode(
+                "preview", os.path.splitext(name)[0] if name else "")
         else:
-            # F-VIEW-1: empty bucket — no captures, no thumb to show.
-            # If active camera is streaming, the next preview_image will
-            # assert "live"; otherwise the pill stays "empty".
+            # Empty bucket — nothing to review, so frame it live. Clearing the
+            # pause intent starts live view (via _handle_live_view_paused) once
+            # the camera is ready. F-VIEW-1: until the first live frame asserts
+            # "live", the pill shows "empty".
+            self.session.set_live_view_paused(False)
             self.session.set_view_mode("empty")
         self._refresh_camera_dependent_ui()
 
