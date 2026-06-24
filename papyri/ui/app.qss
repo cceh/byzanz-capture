@@ -57,6 +57,23 @@
 #sidebarBoxButton::menu-indicator {
     image: none;   /* the ▾ glyph lives in the button text */
 }
+#sidebarBoxFinderButton {
+    font-size: 12pt;
+    color: $ink_2;
+    background: $bg_pane;
+    border: 1px solid $line;
+    border-radius: 6px;
+    padding: 7px 9px;
+    margin-bottom: 4px;
+}
+#sidebarBoxFinderButton:hover {
+    background: $vis_soft;
+    color: $vis_text_dark;
+}
+#sidebarBoxFinderButton:disabled {
+    color: $ink_3;
+    background: $bg_pane_alt;
+}
 #sidebarHeader {
     color: $ink_2;
     font-weight: 700;

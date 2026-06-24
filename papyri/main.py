@@ -857,6 +857,7 @@ class PapyriMainWindow(QMainWindow):
         self.objects_sidebar.open_box_requested.connect(self._on_open_box)
         self.objects_sidebar.new_box_requested.connect(self._on_new_box)
         self.objects_sidebar.recent_box_chosen.connect(self._open_box)
+        self.objects_sidebar.delete_object_requested.connect(self._on_sidebar_delete_object)
 
         # Metadata changes flip the sidebar badge between `??` and `✓` —
         # keep them in sync without manual refresh.
@@ -1883,8 +1884,8 @@ class PapyriMainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Object already exists",
-                f"An object named {name!r} already exists in this working "
-                f"directory.\n\nPick it from the sidebar to open it, or "
+                f"An object named {name!r} already exists in this box "
+                f"folder.\n\nPick it from the sidebar to open it, or "
                 f"choose a different name.",
             )
             return
@@ -2072,6 +2073,37 @@ class PapyriMainWindow(QMainWindow):
         self.session.set_active_bucket(SIDE_A, SPECTRUM_VISIBLE)
         self.session.set_current_object(obj)
 
+    def _on_sidebar_delete_object(self, name: str) -> None:
+        """Sidebar 'Move to Trash' on a row: confirm, then send the object's
+        whole folder (all sides/spectra + metadata) to the Trash. If it's the
+        object currently open, close it first so no model points at a vanished
+        directory."""
+        wd = self.q_settings.value("workingDirectory", "")
+        if not wd or not name:
+            return
+        obj_dir = os.path.join(wd, name)
+        if not os.path.isdir(obj_dir):
+            self.objects_sidebar.refresh()
+            return
+        if QMessageBox.question(
+            self,
+            "Move object to Trash",
+            f"Move object {name!r} and all its captures to the Trash?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        current = self.session.current_object
+        if isinstance(current, Object) and current.name == name:
+            self.close_object()
+        try:
+            send2trash(obj_dir)
+        except Exception:
+            self.logger.exception("Move to Trash failed for %s", obj_dir)
+            QMessageBox.critical(
+                self, "Error", f"Could not move {name!r} to the Trash.")
+        self.objects_sidebar.refresh()
+
     def _on_sidebar_new_object(self) -> None:
         """Sidebar '+ New object' clicked: close any current object and focus
         the title bar's name input so the user can type + Enter to create.
@@ -2128,7 +2160,7 @@ class PapyriMainWindow(QMainWindow):
 
     def _on_open_box(self) -> None:
         path = QFileDialog.getExistingDirectory(
-            self, "Open box directory", self._box_dialog_start())
+            self, "Open box folder", self._box_dialog_start())
         if path:
             self._open_box(path)
 
@@ -2136,7 +2168,7 @@ class PapyriMainWindow(QMainWindow):
         # Pure OS dialog (the user creates the box folder via the dialog's
         # New-Folder affordance); the title makes the intent explicit.
         path = QFileDialog.getExistingDirectory(
-            self, "Create or choose a box directory", self._box_dialog_start())
+            self, "Create or choose a box folder", self._box_dialog_start())
         if path:
             self._open_box(path)
 

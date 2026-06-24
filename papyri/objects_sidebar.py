@@ -20,11 +20,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import (
-    QFrame, QLabel, QListWidget, QListWidgetItem, QMenu, QPushButton,
-    QSizePolicy, QToolButton, QVBoxLayout,
+    QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMenu,
+    QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
 )
 
 from papyri._layout import has_any_captures_for, list_managed_objects
@@ -61,9 +61,11 @@ class ObjectsSidebar(QFrame):
     Signals:
         object_selected(str)          — object name on row click
         new_object_requested()        — "+ New object" clicked
-        new_box_requested()           — "New box directory…" chosen
-        open_box_requested()          — "Open box directory…" chosen
+        new_box_requested()           — "New box folder…" chosen
+        open_box_requested()          — "Open box folder…" chosen
         recent_box_chosen(str)        — a recent box path chosen
+        delete_object_requested(str)  — "Move to Trash" on a row (main.py
+                                        confirms + trashes the object dir)
     """
 
     object_selected = pyqtSignal(str)
@@ -71,6 +73,7 @@ class ObjectsSidebar(QFrame):
     new_box_requested = pyqtSignal()
     open_box_requested = pyqtSignal()
     recent_box_chosen = pyqtSignal(str)
+    delete_object_requested = pyqtSignal(str)   # object name (confirm + trash in main.py)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -119,7 +122,11 @@ class ObjectsSidebar(QFrame):
         layout.setContentsMargins(8, 12, 8, 8)
         layout.setSpacing(6)
 
-        # Box header — the open box + a menu to switch (recents) / open / new.
+        # Box header — the open box + a menu to switch (recents) / open / new,
+        # with an "open in Finder" button alongside it.
+        box_row = QHBoxLayout()
+        box_row.setContentsMargins(0, 0, 0, 0)
+        box_row.setSpacing(6)
         self._box_button = QToolButton()
         self._box_button.setObjectName("sidebarBoxButton")
         self._box_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -129,7 +136,16 @@ class ObjectsSidebar(QFrame):
         self._box_menu = QMenu(self._box_button)
         self._box_menu.aboutToShow.connect(self._rebuild_box_menu)
         self._box_button.setMenu(self._box_menu)
-        layout.addWidget(self._box_button)
+        box_row.addWidget(self._box_button, 1)
+
+        self._box_finder_button = QToolButton()
+        self._box_finder_button.setObjectName("sidebarBoxFinderButton")
+        self._box_finder_button.setText("📂")
+        self._box_finder_button.setToolTip("Open box folder in Finder")
+        self._box_finder_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._box_finder_button.clicked.connect(self._reveal_box)
+        box_row.addWidget(self._box_finder_button, 0)
+        layout.addLayout(box_row)
         self._refresh_box_label()
 
         self._header = QLabel("OBJECTS")
@@ -140,6 +156,9 @@ class ObjectsSidebar(QFrame):
         self._list.setObjectName("sidebarList")
         self._list.setFrameShape(QFrame.Shape.NoFrame)
         self._list.itemClicked.connect(self._on_item_clicked)
+        # Right-click any object row → "Open in Finder".
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._on_list_context_menu)
         layout.addWidget(self._list, 1)
 
         self._new_button = QPushButton("+ New object")
@@ -159,6 +178,8 @@ class ObjectsSidebar(QFrame):
         else:
             self._box_button.setText("📦  Open a box  ▾")
             self._box_button.setToolTip("")
+        # Finder button only makes sense when a box is open.
+        self._box_finder_button.setEnabled(bool(self._working_dir))
 
     def _refresh_objects_header(self) -> None:
         n = len(self._entries)
@@ -168,8 +189,8 @@ class ObjectsSidebar(QFrame):
         """Rebuilt on each open so recents / current-box checkmark stay fresh.
         Commands first, then a divider, then recent boxes underneath."""
         self._box_menu.clear()
-        self._box_menu.addAction("New box directory…", self.new_box_requested.emit)
-        self._box_menu.addAction("Open existing box directory…",
+        self._box_menu.addAction("New box folder…", self.new_box_requested.emit)
+        self._box_menu.addAction("Open existing box folder…",
                                  self.open_box_requested.emit)
         if self._recent_boxes:
             self._box_menu.addSeparator()
@@ -209,6 +230,37 @@ class ObjectsSidebar(QFrame):
         name = item.data(Qt.ItemDataRole.UserRole)
         if name and name != self._active_name:
             self.object_selected.emit(name)
+
+    def _on_list_context_menu(self, pos) -> None:
+        """Right-click on an object row → "Open in Finder" for that object."""
+        item = self._list.itemAt(pos)
+        if item is None:
+            return
+        name = item.data(Qt.ItemDataRole.UserRole)
+        if not name:
+            return
+        menu = QMenu(self._list)
+        menu.addAction("Open in Finder", lambda: self._reveal_object(name))
+        menu.addSeparator()
+        menu.addAction("Move to Trash",
+                       lambda: self.delete_object_requested.emit(name))
+        menu.exec(self._list.viewport().mapToGlobal(pos))
+
+    # ---- reveal-in-Finder --------------------------------------------
+
+    def _reveal_box(self) -> None:
+        self._reveal_in_finder(self._working_dir)
+
+    def _reveal_object(self, name: str) -> None:
+        if self._working_dir:
+            self._reveal_in_finder(os.path.join(self._working_dir, name))
+
+    @staticmethod
+    def _reveal_in_finder(path: str | None) -> None:
+        """Open a folder in the OS file manager (Finder / Explorer). No-op if
+        the path is missing — reveal is best-effort."""
+        if path and os.path.isdir(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     @staticmethod
     def _scan(working_dir: str | None) -> list[ObjectListEntry]:
