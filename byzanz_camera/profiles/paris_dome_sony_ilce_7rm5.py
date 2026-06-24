@@ -62,18 +62,32 @@ class ParisDomeSonyIlce7RM5(Profile):
         return {
             "500e": "4",                     # Exposure Program Mode: manual
             "whitebalance": "Daylight",
-            "d1a7": "2"                      # Enable release w/o card
+            "d1a7": "2",                     # Enable release w/o card
+            # Decouple AF from the shutter: capture (trigger_capture) must
+            # NEVER refocus. Focusing happens only on demand via the app's
+            # autofocus button (the separate `autofocus` action below — S1
+            # half-press emulation, independent of the shutter). AF-S holds
+            # focus after that command, so it stays "locked" until the next
+            # AF trigger. Workflow: AF button -> focus & hold -> capture only
+            # releases the shutter.
+            "afwithshutter": "Off",
         }
 
     def start_autofocus_settings(self):
         return {
             "focusmode": "Automatic",      # AF-S
-            "afwithshutter": "On",
+            # Intentionally NOT re-enabling afwithshutter here — that would
+            # re-couple AF to the shutter and bring back refocus-on-capture.
+            # The `autofocus` action triggers AF on its own.
             "autofocus": 1
         }
 
     def stop_autofocus_settings(self):
         return {
+            # Lock focus by dropping to Manual once the AF button's focus
+            # completes: the lens holds its current position and the camera
+            # can't refocus. start_autofocus switches back to AF-S for the
+            # next AF button press.
             "focusmode": "Manual",
             "autofocus": 0
         }
@@ -81,6 +95,7 @@ class ParisDomeSonyIlce7RM5(Profile):
     def start_live_view_settings(self):
         return {
             "focusmode": "Automatic",  # AF-S
+            "afwithshutter": "Off",    # re-assert: shutter never autofocuses
         }
 
     def stop_live_view_settings(self):
@@ -90,9 +105,16 @@ class ParisDomeSonyIlce7RM5(Profile):
 
     def start_capture_settings(self):
         return {
+            # Force Manual focus right before the shutter fires — applied by
+            # the worker immediately before trigger_capture(). This is the
+            # hard guarantee that capture never autofocuses, regardless of
+            # what live view left focusmode at (afwithshutter=Off alone
+            # wasn't enough on this body). Switching AF-S -> MF holds the
+            # lens at its last-focused position, so a prior AF-button focus
+            # is preserved.
+            "focusmode": "Manual",
             # "capturetarget": "sdram",
             # "autofocus": 0,
-            # "focusmode": "Manual",
             # "500e": "4",                  # Exposure Program: Manual
             # "whitebalance": "Daylight",
             # "d1a7": "2",                   # Enable release w/o card
