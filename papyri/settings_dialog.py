@@ -73,6 +73,13 @@ class PapyriSettingsDialog(QDialog):
         self.ir_capture_height_input: QLineEdit = self.findChild(
             QLineEdit, "irCaptureHeightInput"
         )
+        # rotated-sample nudge
+        self.rotated_sample_nudge_enabled_checkbox: QCheckBox = self.findChild(
+            QCheckBox, "rotatedSampleNudgeEnabledCheckbox"
+        )
+        self.rotated_sample_nudge_interval_input: QSpinBox = self.findChild(
+            QSpinBox, "rotatedSampleNudgeIntervalInput"
+        )
 
     def _populate_profiles(self) -> None:
         # Visible: required, all profiles available.
@@ -126,6 +133,16 @@ class PapyriSettingsDialog(QDialog):
         self.ir_capture_height_input.textChanged.connect(
             lambda t: self._set("irCaptureHeight", t.strip())
         )
+        # rotated-sample nudge
+        self.rotated_sample_nudge_enabled_checkbox.stateChanged.connect(
+            lambda: self._set(
+                "rotatedSampleNudge/enabled",
+                self.rotated_sample_nudge_enabled_checkbox.isChecked(),
+            )
+        )
+        self.rotated_sample_nudge_interval_input.valueChanged.connect(
+            lambda v: self._set("rotatedSampleNudge/interval", v)
+        )
 
     def _on_calibration_trigger_changed(self, idx: int) -> None:
         trigger = self.calibration_trigger_combo.itemData(idx)
@@ -166,6 +183,13 @@ class PapyriSettingsDialog(QDialog):
         )
         self.ir_capture_height_input.setText(
             str(self._q_settings.value("irCaptureHeight", "45"))
+        )
+        # rotated-sample nudge
+        self.rotated_sample_nudge_enabled_checkbox.setChecked(
+            self._q_settings.value("rotatedSampleNudge/enabled", True, type=bool)
+        )
+        self.rotated_sample_nudge_interval_input.setValue(
+            int(self._q_settings.value("rotatedSampleNudge/interval", 20))
         )
 
     @staticmethod

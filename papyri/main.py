@@ -85,6 +85,7 @@ from papyri.metadata_pane import MetadataPane
 from papyri.no_object_overlay import NoObjectOverlay
 from papyri.object_title_bar import ObjectTitleBar
 from papyri.objects_sidebar import ObjectsSidebar
+from papyri.rotated_sample_nudge import install_rotated_sample_nudge  # rotated-sample nudge
 from papyri.session_state import SessionState
 from byzanz_camera.profiles.base import Profile
 from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
@@ -574,6 +575,13 @@ class PapyriMainWindow(QMainWindow):
         if self.mode.key == "simple":
             self._open_simple_target(
                 self.q_settings.value("simpleOutputDirectory", ""))
+
+        # rotated-sample nudge: optional, fully self-contained reminder to
+        # capture a 90°-rotated twin of every Nth piece. Remove this one call
+        # (and the import + the module) to drop the feature entirely. Pass our
+        # own Object class — this module runs as __main__, so the nudge must
+        # not re-import it (would be a different class → isinstance fails).
+        install_rotated_sample_nudge(self, Object)
 
     # ------------------------------------------------------------------ setup
 
@@ -2382,6 +2390,9 @@ class PapyriMainWindow(QMainWindow):
                     self._refresh_calibration_bar()
             elif name == "captureHeightChoices":
                 self._populate_height_select()
+            elif name.startswith("rotatedSampleNudge/"):  # rotated-sample nudge
+                if getattr(self, "_rotated_sample_nudge", None) is not None:
+                    self._rotated_sample_nudge.refresh()
 
         # F-PERS-1: irProfile change has no runtime effect — the IR worker
         # is constructed once in _wire_camera at startup based on this
