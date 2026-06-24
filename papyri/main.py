@@ -748,7 +748,7 @@ class PapyriMainWindow(QMainWindow):
         # `_refresh_capture_button_label` (state-dependent); the others
         # are set once here.
         set_themed_icon(self.settings_button.setIcon, get_ui_path("ui/general_settings.svg"))
-        set_themed_icon(self.pause_live_view_button.setIcon, get_ui_path("ui/preview_closed.svg"))
+        set_themed_icon(self.pause_live_view_button.setIcon, get_ui_path("ui/live_preview.svg"))
         set_themed_icon(self.autofocus_button.setIcon, get_ui_path("ui/focus.svg"))
         set_themed_icon(self.magnify_button.setIcon, get_ui_path("ui/magnify.svg"))
         set_themed_icon(self.rotate_live_view_button.setIcon, get_ui_path("ui/rotate.svg"))
@@ -850,7 +850,7 @@ class PapyriMainWindow(QMainWindow):
         # Connect/disconnect buttons live inside CameraStateWidget —
         # widget-internal wiring, no main.py plumbing needed.
 
-        self.pause_live_view_button.toggled.connect(self._on_pause_toggled)
+        self.pause_live_view_button.toggled.connect(self._on_live_view_toggled)
         self.autofocus_button.clicked.connect(self._trigger_autofocus)
         self.magnify_button.toggled.connect(self._on_magnify_toggled)
         self.focus_assist_button.toggled.connect(self._on_focus_assist_toggled)
@@ -1038,9 +1038,9 @@ class PapyriMainWindow(QMainWindow):
         self._refresh_no_object_lockout()
 
         # B6 live_view_paused
-        s.live_view_paused_changed.connect(self._refresh_pause_button_text)
+        s.live_view_paused_changed.connect(self._refresh_live_view_button)
         s.live_view_paused_changed.connect(self._handle_live_view_paused)
-        self._refresh_pause_button_text()
+        self._refresh_live_view_button()
         # _handle_live_view_paused NOT invoked at init: it would emit a
         # live_view command to the active worker before the camera is
         # connected — pointless and noisy.
@@ -1787,12 +1787,13 @@ class PapyriMainWindow(QMainWindow):
         stem = os.path.splitext(os.path.basename(_path))[0]
         self.session.set_view_mode("preview", stem)
 
-    def _on_pause_toggled(self, paused: bool):
-        """Action handler for the pause button's toggled signal. Updates
-        session — the live_view command emit and pause-button-text update
-        are receiver concerns (see _wire_session).
+    def _on_live_view_toggled(self, on: bool):
+        """Action handler for the Live View toggle. `on` = live view should
+        stream; off = freeze the preview. Inverse of the pause intent — the
+        live_view command emit and button-state update are receiver concerns
+        (see _wire_session).
 
-        On pause, the viewer would otherwise keep showing the (now
+        When turned off, the viewer would otherwise keep showing the (now
         stale) last live frame. Two branches replace it:
           - filmstrip has a current selection ⇒ re-display that take,
             flip view_mode to "preview" with its stem (same end state
@@ -1800,6 +1801,7 @@ class PapyriMainWindow(QMainWindow):
           - empty filmstrip ⇒ blank the viewer, flip to "paused".
         Already in "preview" (user clicked a thumb earlier) means the
         selected take is already showing — leave it."""
+        paused = not on
         self.session.set_live_view_paused(paused)
         if not paused or self.session.view_mode == "preview":
             return
@@ -2092,17 +2094,15 @@ class PapyriMainWindow(QMainWindow):
 
     # ---- B6 receivers (live_view_paused_changed) -----------------------
 
-    def _refresh_pause_button_text(self) -> None:
-        """Pause button text + checked state mirror B6 (the F-DUP fix —
-        button is no longer the source of truth)."""
-        paused = self.session.live_view_paused
-        self.pause_live_view_button.setText(
-            "Resume Live View" if paused else "Pause Live View"
-        )
-        # setChecked may fire `toggled` if the value differs; the action
-        # handler then calls set_live_view_paused which is a no-op
-        # (already current value), breaking the cycle.
-        self.pause_live_view_button.setChecked(paused)
+    def _refresh_live_view_button(self) -> None:
+        """Live View toggle's checked state mirrors B6 (checked = live view
+        on = not paused). Label + eye icon are static (set in the .ui /
+        _bind_widgets); the button is not the source of truth.
+
+        setChecked may fire `toggled` if the value differs; the handler then
+        calls set_live_view_paused which is a no-op (already the current
+        value), breaking the cycle."""
+        self.pause_live_view_button.setChecked(not self.session.live_view_paused)
 
     def _handle_live_view_paused(self, paused: bool) -> None:
         """When paused intent flips, send live_view command to active

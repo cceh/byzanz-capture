@@ -244,16 +244,6 @@
                   <widget class="ZoomControlBar" name="zoomControlBar" native="true"/>
                  </item>
                  <item>
-                  <widget class="QPushButton" name="magnifyButton">
-                   <property name="toolTip">
-                    <string>Magnify the live view to check focus (does not affect captures).</string>
-                   </property>
-                   <property name="checkable">
-                    <bool>true</bool>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
                   <widget class="QPushButton" name="rotateLiveViewButton">
                    <property name="toolTip">
                     <string>Rotate the view 90° clockwise. Live view: per camera (remembered). A shown capture: rotates and saves the orientation into that file.</string>
@@ -273,6 +263,19 @@
                    </property>
                    <property name="text">
                     <string>0°</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="magnifyButton">
+                   <property name="toolTip">
+                    <string>Magnify the live view to check focus (does not affect captures).</string>
+                   </property>
+                   <property name="text">
+                    <string>Focus Magnify</string>
+                   </property>
+                   <property name="checkable">
+                    <bool>true</bool>
                    </property>
                   </widget>
                  </item>
@@ -324,16 +327,19 @@
                  <item>
                   <widget class="QPushButton" name="pauseLiveViewButton">
                    <property name="toolTip">
-                    <string>Live view is on by default. Pause to freeze the preview (e.g. while browsing prior captures).</string>
+                    <string>Live view — on streams the camera; off freezes the preview (e.g. while browsing prior captures).</string>
                    </property>
                    <property name="text">
-                    <string>Pause Live View</string>
+                    <string>Live View</string>
                    </property>
                    <property name="icon">
                     <iconset>
-                     <normaloff>../../ui/preview_closed.svg</normaloff>../../ui/preview_closed.svg</iconset>
+                     <normaloff>../../ui/live_preview.svg</normaloff>../../ui/live_preview.svg</iconset>
                    </property>
                    <property name="checkable">
+                    <bool>true</bool>
+                   </property>
+                   <property name="checked">
                     <bool>true</bool>
                    </property>
                   </widget>
