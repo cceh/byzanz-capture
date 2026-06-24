@@ -32,7 +32,7 @@ def parse_height_choices(raw: str | None) -> tuple[str, ...]:
 class FieldSchema:
     name: str               # JSON key in _meta.json
     label: str              # human label shown in the form
-    type: str               # "string" | "choice" | "longtext" | "number"
+    type: str               # "string" | "choice" | "longtext" | "number" | "boolean"
     required: bool = False
     choices: tuple[str, ...] = ()   # only for type="choice"
     editable: bool = False  # only for type="choice" — when True, the
@@ -43,11 +43,13 @@ class FieldSchema:
                             # QIntValidator on the underlying line
                             # edit). Pair with `editable=True` for a
                             # numeric free-text combo.
-    default: str | int | None = None
+    default: str | int | bool | None = None
                             # pre-fill if missing from JSON; also
                             # persisted on first save. Ints are
                             # accepted for number/choice fields and
                             # stringified before writing to widgets.
+                            # For type="boolean", pass a bool (default
+                            # unchecked = False).
 
 
 # Inventory number is intentionally NOT a metadata field: the object's
@@ -62,23 +64,29 @@ class FieldSchema:
 # TODO: load from `<working_dir>/metadata_schema.yaml` when projects need
 # project-specific fields. Until then this default applies to all objects.
 DEFAULT_SCHEMA: tuple[FieldSchema, ...] = (
-    FieldSchema(
-        name="mummy_nr", label="Mummy no.", type="string",
-    ),
+    # FieldSchema(
+    #     name="mummy_nr", label="Mummy no.", type="string",
+    # ),
     # Dimensions stored as two queryable integer fields rather than one
     # parsed "wXh" string — downstream tools can sort / filter easily.
+    # FieldSchema(
+    #     name="width_mm", label="Width (mm)", type="number", required=True,
+    # ),
+    # FieldSchema(
+    #     name="height_mm", label="Height (mm)", type="number", required=True,
+    # ),
     FieldSchema(
-        name="width_mm", label="Width (mm)", type="number", required=True,
-    ),
-    FieldSchema(
-        name="height_mm", label="Height (mm)", type="number", required=True,
-    ),
-    FieldSchema(
-        name="language", label="Language", type="choice", required=True,
-        choices=("Greek", "Demotic", "unknown"), default="unknown"
+        name="language", label="Language", type="choice", required=False,
+        choices=("Greek", "Demotic", "unknown"), default=None
     ),
     FieldSchema(
         name="ink", label="Ink", type="string", default="black",
+    ),
+    FieldSchema(
+        name="has_markings", label="Has direct/modern markings", type="boolean", default=False,
+    ),
+    FieldSchema(
+        name="has_tape", label="Has restoration tape", type="boolean", default=False,
     ),
     # `capture_height_vis` / `capture_height_ir` are NOT form fields — the
     # height is a sticky rig setting (the capture-row "Height" control), and
@@ -106,7 +114,15 @@ def is_metadata_complete(
     """True iff every required field in `schema` has a non-empty value in `_meta.json`."""
     data = _read_meta(meta_path)
     for field in schema:
-        if field.required and not data.get(field.name):
+        if not field.required:
+            continue
+        # Booleans are complete once present — False is a valid answer, not
+        # "unset" (so the `not value` test that text/number fields use would
+        # wrongly flag an unchecked-but-answered box as incomplete).
+        if field.type == "boolean":
+            if field.name not in data:
+                return False
+        elif not data.get(field.name):
             return False
     return True
 

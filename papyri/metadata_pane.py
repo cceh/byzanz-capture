@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import QPoint, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QIntValidator, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QComboBox, QFormLayout, QFrame, QLabel, QLineEdit, QPlainTextEdit,
-    QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFormLayout, QFrame, QLabel, QLineEdit,
+    QPlainTextEdit, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from byzanz_camera.helpers import get_ui_path
@@ -166,11 +166,19 @@ class MetadataPane(QFrame):
 
         for schema in self._schema:
             label_text = schema.label + (" *" if schema.required else "")
-            label = QLabel(label_text)
-            label.setObjectName("metadataLabel")
-
             widget = self._create_widget(schema)
             self._widgets[schema.name] = widget
+
+            # Booleans read as "[x] Label" on one line — the checkbox carries
+            # the label text itself and spans the row (no stacked QLabel above).
+            if schema.type == "boolean":
+                widget.setText(label_text)
+                widget.setObjectName("metadataLabel")
+                form.addRow(widget)
+                continue
+
+            label = QLabel(label_text)
+            label.setObjectName("metadataLabel")
             form.addRow(label, widget)
 
         outer.addStretch(1)
@@ -205,6 +213,10 @@ class MetadataPane(QFrame):
             w.setRange(0, 99999)        # mm — enough for any single sheet
             w.setSpecialValueText(" ")  # value 0 shown as blank (== unset)
             w.valueChanged.connect(self._on_choice_changed)  # immediate save
+            return w
+        if schema.type == "boolean":
+            w = QCheckBox()
+            w.toggled.connect(self._on_choice_changed)  # immediate save
             return w
         raise ValueError(f"unknown field type: {schema.type!r}")
 
@@ -255,16 +267,18 @@ class MetadataPane(QFrame):
         self.metadata_changed.emit()
 
     def _collect_values(self) -> dict:
-        out: dict[str, str] = {}
+        out: dict = {}
         for schema in self._schema:
             w = self._widgets[schema.name]
             value = self._read_widget(w, schema)
-            if value:  # omit empty values from JSON for cleanliness
+            # Booleans always record (False is a valid answer, not "unset");
+            # other types omit empties from JSON for cleanliness.
+            if schema.type == "boolean" or value:
                 out[schema.name] = value
         return out
 
     @staticmethod
-    def _read_widget(w: QWidget, schema: FieldSchema) -> str:
+    def _read_widget(w: QWidget, schema: FieldSchema):
         if schema.type == "string":
             return w.text().strip()
         if schema.type == "choice":
@@ -273,6 +287,8 @@ class MetadataPane(QFrame):
             return w.toPlainText().strip()
         if schema.type == "number":
             return str(w.value()) if w.value() > 0 else ""
+        if schema.type == "boolean":
+            return w.isChecked()
         return ""
 
     # ---- load plumbing -------------------------------------------------
@@ -283,6 +299,12 @@ class MetadataPane(QFrame):
             data = self._read_meta() if self._obj is not None else {}
             for schema in self._schema:
                 w = self._widgets[schema.name]
+                if schema.type == "boolean":
+                    raw = data.get(schema.name)
+                    if raw is None:
+                        raw = bool(schema.default)
+                    self._write_widget(w, schema, bool(raw))
+                    continue
                 raw = data.get(schema.name) or schema.default or ""
                 # default may be int (e.g. capture_height=45) — widgets
                 # all take strings, so coerce here once.
@@ -298,7 +320,10 @@ class MetadataPane(QFrame):
             return {}
 
     @staticmethod
-    def _write_widget(w: QWidget, schema: FieldSchema, value: str) -> None:
+    def _write_widget(w: QWidget, schema: FieldSchema, value) -> None:
+        if schema.type == "boolean":
+            w.setChecked(bool(value))
+            return
         if schema.type == "string":
             w.setText(value)
         elif schema.type == "choice":
