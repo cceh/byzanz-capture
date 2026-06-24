@@ -72,24 +72,42 @@ class ObjectTitleBar(QWidget):
         self._folder_row: QHBoxLayout | None = None
         self._folder_label: QLabel | None = None
         self._folder_button: QPushButton | None = None
+        self._simple_text_connected = False
         self._output_dir = ""
         self._refresh_title_row()
 
     # ---- simple mode ---------------------------------------------------
 
     def set_simple_mode(self, simple: bool, output_dir: str = "") -> None:
-        """Turn the title bar into the simple-mode layout: the name field
-        is a persistent filename override (live), and a folder row below
-        shows / changes the output directory. Call once at startup."""
+        """Switch the title bar between the simple-mode layout (name field is
+        a persistent filename override + a folder-picker row) and the papyri
+        layout (read-only Inv-No. display). Reversible — safe to call at
+        runtime in either direction (live mode switch)."""
         self._simple = simple
         if simple:
             self.nameField.setPlaceholderText("Filename (empty = camera name)")
             self._ensure_folder_row()
             self.set_output_folder(output_dir)
             # Live override — update on every keystroke (cheap; the slot in
-            # main.py just sets SimpleTarget.name_override).
-            self.nameField.textChanged.connect(self._on_simple_text_changed)
+            # main.py just sets SimpleTarget.name_override). Connect once.
+            if not self._simple_text_connected:
+                self.nameField.textChanged.connect(self._on_simple_text_changed)
+                self._simple_text_connected = True
+            self._set_folder_row_visible(True)
+        else:
+            self.nameField.setPlaceholderText("Inv-No.")
+            if self._simple_text_connected:
+                self.nameField.textChanged.disconnect(self._on_simple_text_changed)
+                self._simple_text_connected = False
+            self._set_folder_row_visible(False)
         self._refresh_title_row()
+
+    def _set_folder_row_visible(self, visible: bool) -> None:
+        """Show/hide the simple-mode output-folder row (no-op until it has
+        been created by _ensure_folder_row)."""
+        if self._folder_label is not None:
+            self._folder_label.setVisible(visible)
+            self._folder_button.setVisible(visible)
 
     def set_output_folder(self, path: str) -> None:
         """Update the folder-row label to reflect the current output dir."""

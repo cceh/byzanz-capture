@@ -594,6 +594,12 @@ class PapyriMainWindow(QMainWindow):
         # not re-import it (would be a different class → isinstance fails).
         install_rotated_sample_nudge(self, Object)
 
+        # Restore the last window geometry, overriding the .ui's baked-in
+        # default size (saved in closeEvent). No-op on first launch.
+        geometry = self.q_settings.value("windowGeometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+
     # ------------------------------------------------------------------ setup
 
     def _init_default_settings(self):
@@ -674,13 +680,11 @@ class PapyriMainWindow(QMainWindow):
         self.fusing_panel.set_bucket_selector(self.bucket_selector)
         self.bucket_selector.step_clicked.connect(self._on_workflow_step_clicked)
 
-        # Simple mode: the title bar becomes a filename-override field +
-        # an output-folder picker. Wire the picker to the folder chooser.
-        if self.mode.key == "simple":
-            self.title_bar.set_simple_mode(
-                True, self.q_settings.value("simpleOutputDirectory", ""))
-            self.title_bar.output_folder_requested.connect(
-                self._choose_simple_output_folder)
+        # Simple mode turns the title bar into a filename-override field + an
+        # output-folder picker; the per-mode toggle is applied in
+        # _apply_mode_state (re-runnable). Wire the picker once here.
+        self.title_bar.output_folder_requested.connect(
+            self._choose_simple_output_folder)
         self.viewer: ViewerWidget = self.findChild(ViewerWidget, "viewer")
         # The zoom bar lives in the panel's top toolbar (declared in the
         # .ui), not inside the viewer. Wire it to the viewer's
@@ -738,9 +742,8 @@ class PapyriMainWindow(QMainWindow):
         self.height_select: QComboBox = self.findChild(QComboBox, "heightSelect")
         self._populate_height_select()
         self.height_select.currentTextChanged.connect(self._on_height_changed)
-        height_visible = self.mode.key != "simple"
-        self.height_label.setVisible(height_visible)
-        self.height_select.setVisible(height_visible)
+        # Height-selector visibility is per-mode (papyri only) — set in
+        # _apply_mode_state so a live switch updates it too.
         self._last_config: dict[str, object] = {}
 
         # Override raw .ui-set icons with themed versions so they
@@ -780,12 +783,11 @@ class PapyriMainWindow(QMainWindow):
             lambda: self.open_advanced_camera_config(SPECTRUM_INFRARED),
             icon="ui/cam_settings.svg",
         )
-        # Mode toggle — switches between full papyri and simple capture
-        # mode by persisting the setting and relaunching (no live UI
-        # rebuild, so no state to reset). Label reflects the target mode.
+        # Mode toggle — switches between full papyri and simple capture mode
+        # live (no restart; see _switch_capture_mode). Label reflects the
+        # target mode and is kept current by _apply_mode_state.
         self.toggle_mode_action = self._action(
-            "Switch to full (papyri) mode" if self.mode.key == "simple"
-            else "Switch to simple capture mode",
+            self._mode_toggle_label(self.mode),
             self._toggle_capture_mode,
         )
         self.settings_menu = QMenu(self)
@@ -797,8 +799,10 @@ class PapyriMainWindow(QMainWindow):
         self.settings_menu.addAction(self.toggle_mode_action)
         self.settings_menu.aboutToShow.connect(self._refresh_settings_menu_state)
 
-        # Apply the startup mode's chrome once, now that every widget exists.
+        # Apply the startup mode's chrome + state once, now that every widget
+        # exists. Both are re-run by _switch_capture_mode on a live switch.
         self._apply_mode_chrome(self.mode)
+        self._apply_mode_state(self.mode)
 
     @property
     def effective_mode(self):
@@ -823,6 +827,29 @@ class PapyriMainWindow(QMainWindow):
         # The calibration bar carries the kind toggle + back button, so the
         # object title bar is hidden in the calibration sub-mode.
         self.title_bar.setVisible(mode.key != "calibration")
+
+    def _apply_mode_state(self, mode) -> None:
+        """Apply the non-chrome, mode-dependent widget state — the bits that
+        were one-time __init__ setup but must re-run on a live mode switch.
+        Idempotent; startup and _switch_capture_mode share this (no
+        duplication). Chrome (visibility/groups/filmstrip) is _apply_mode_chrome.
+        Does NOT open a target — that's the caller's concern (startup vs switch)."""
+        simple = mode.key == "simple"
+        # Title bar: filename-override + folder picker (simple) vs Inv-No.
+        # display (papyri). set_simple_mode is reversible.
+        self.title_bar.set_simple_mode(
+            simple, self.q_settings.value("simpleOutputDirectory", ""))
+        # Camera-height selector is papyri-only.
+        self.height_label.setVisible(not simple)
+        self.height_select.setVisible(not simple)
+        # The mode-toggle menu action names the OTHER mode.
+        self.toggle_mode_action.setText(self._mode_toggle_label(mode))
+
+    @staticmethod
+    def _mode_toggle_label(mode) -> str:
+        """Label for the mode-toggle action — names the mode it switches TO."""
+        return ("Switch to full (papyri) mode" if mode.key == "simple"
+                else "Switch to simple capture mode")
 
     def _action(self, label: str, slot, icon: str | None = None) -> QAction:
         action = QAction(label, self)
@@ -1411,15 +1438,20 @@ class PapyriMainWindow(QMainWindow):
 
         if self.session.live_view_paused or new_worker is None:
             return
-        # Don't auto-start live view if the new bucket already has captures
-        # — _on_directory_loaded will pause + show preview as soon as the
-        # async load completes. Starting here would actuate the shutter
-        # for nothing AND open a race window where late live frames
-        # overwrite the preview thumbnail.
+        # Papyri/calibration only: don't auto-start live view if the new
+        # bucket already has captures — those modes reload the bucket dir on
+        # switch, so _on_directory_loaded pauses + shows the preview as soon
+        # as the async load completes (starting here would actuate the shutter
+        # for nothing AND race late live frames over the preview thumbnail).
+        # Simple mode shares ONE folder across VIS/IR: directory_loaded does
+        # NOT fire on a camera switch and `count` isn't per-camera, so the
+        # new feed must always start here — otherwise live view sticks on the
+        # old camera.
         obj = self.session.current_object
-        if obj is not None and obj.count(
-            self.session.active_side, self.session.active_spectrum
-        ) > 0:
+        if (self.effective_mode.key != "simple"
+                and obj is not None
+                and obj.count(self.session.active_side,
+                              self.session.active_spectrum) > 0):
             return
         new_state = self.session.camera_state(new_spectrum)
         # Only start if the new camera is actually ready. If it's mid-
@@ -2304,13 +2336,12 @@ class PapyriMainWindow(QMainWindow):
     # ---------------------------------------------------------- calibration
 
     def _wire_calibration(self) -> None:
-        """Build the calibration controller and wire the bar (papyri mode
-        only — in simple mode the bar is hidden and the controller stays
-        None, guarded everywhere). The bar enters/leaves the calibration
-        sub-mode; the target is picked via the tabs and capture goes
-        through the normal Capture button."""
-        if not self.mode.show_calibration:
-            return
+        """Build the calibration controller and wire the bar, once at startup
+        regardless of mode. The bar's visibility is driven by
+        _apply_mode_chrome (hidden in simple mode), and _refresh_calibration_bar
+        no-ops while hidden — so a live simple↔papyri switch needs no
+        create/teardown here. The controller's working dir tracks the open box
+        (set on box change / mode switch); it's harmless with an empty dir."""
         self.calibration = CalibrationController(
             self.q_settings.value("workingDirectory", ""), self.q_settings, self
         )
@@ -2419,36 +2450,54 @@ class PapyriMainWindow(QMainWindow):
     # ---------------------------------------------------------- mode toggle
 
     def _toggle_capture_mode(self) -> None:
-        """Flip captureMode and relaunch. A confirm dialog guards the
-        restart; the new mode is read at startup (see __init__)."""
-        target = "papyri" if self.mode.key == "simple" else "simple"
-        target_label = "full papyri" if target == "papyri" else "simple capture"
-        if QMessageBox.question(
-            self,
-            "Switch capture mode",
-            f"Switch to {target_label} mode?\n\nThe application will "
-            f"restart to apply the change.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        ) != QMessageBox.StandardButton.Yes:
+        """Flip between papyri and simple, live (no restart)."""
+        self._switch_capture_mode(
+            "papyri" if self.mode.key == "simple" else "simple")
+
+    def _switch_capture_mode(self, target: str) -> None:
+        """Switch papyri↔simple at runtime, no restart. Mirrors the
+        calibration sub-mode swap and reuses the same idempotent setup the
+        startup path runs (_apply_mode_chrome / _apply_mode_state) — no code
+        duplication. Cameras are mode-agnostic, so workers are untouched.
+
+        State-safety: drop the current target FIRST (bind_object(None) flushes
+        any pending metadata to the old object), then flip the mode + chrome +
+        state, then open the new mode's last-used target. A final
+        current_object_changed re-emit repaints the object-dependent UI under
+        the new mode (covers the papyri "no object open" case, where opening
+        the box fires no object transition)."""
+        if target == self.mode.key:
             return
+        if isinstance(self.session.active_camera_state,
+                      CameraStates.CaptureInProgress):
+            QMessageBox.warning(self, "Camera is busy",
+                                "Finish the capture before switching mode.")
+            return
+        if self._calibration_active:
+            self._exit_calibration()
+
+        self.session.set_current_object(None)
+        self.mode = get_mode(target)
         self.q_settings.setValue("captureMode", target)
         self.q_settings.sync()
-        self._restart_app()
+        self._apply_mode_chrome(self.mode)
+        self._apply_mode_state(self.mode)
+        # set_groups rebuilt the bucket bars — re-assert a canonical bucket.
+        self.session.set_active_bucket(SIDE_A, SPECTRUM_VISIBLE)
 
-    def _restart_app(self) -> None:
-        """Relaunch this process, then quit. Worker threads are shut down
-        first (self.close → closeEvent) so the camera is released before
-        the new instance tries to claim it."""
-        from PyQt6.QtCore import QProcess
-        if getattr(sys, "frozen", False):
-            program, args = sys.executable, sys.argv[1:]
+        if self.mode.key == "simple":
+            self._open_simple_target(
+                self.q_settings.value("simpleOutputDirectory", ""))
         else:
-            program, args = sys.executable, sys.argv
-        self.logger.info("Restarting for mode switch: %s %s", program, args)
-        self.close()  # triggers closeEvent → graceful worker shutdown
-        QProcess.startDetached(program, args)
-        QApplication.quit()
+            wd = self.q_settings.value("workingDirectory", "")
+            if wd:
+                self._open_box(wd)          # repoints sidebar + calibration
+            self.objects_sidebar.refresh()  # force re-scan (same-path is a no-op)
+
+        # Repaint object-dependent UI under the new mode.
+        self.session.current_object_changed.emit(self.session.current_object)
+        self._refresh_calibration_bar()
+        self.logger.info("Switched capture mode → %s (no restart)", target)
 
     # ---------------------------------------------------------- dialogs
 
@@ -2578,6 +2627,9 @@ class PapyriMainWindow(QMainWindow):
     # ---------------------------------------------------------- lifecycle
 
     def closeEvent(self, event: QCloseEvent):
+        # Remember the window geometry (size + position + maximized state)
+        # for the next launch; restored in __init__.
+        self.q_settings.setValue("windowGeometry", self.saveGeometry())
         # Release the audio sink.
         self.focus_audio.set_active(False)
         # Worker shutdown:
