@@ -1,0 +1,4244 @@
+{
+  "camera_model": "D90",
+  "detected_as": "Nikon DSC D90 (PTP mode)",
+  "serial_number": "3532818",
+  "firmware": "V1.00",
+  "captured_date": "2026-06-16",
+  "note": "Complete snapshot of all gphoto2 config widgets. To restore, set each writable widget's 'name' back to its 'value'. Read-only widgets (status/info) are included for reference but reject writes.",
+  "total_widgets": 299,
+  "writable_count": 217,
+  "all_widgets": [
+    {
+      "name": "bulb",
+      "path": "/actions/bulb",
+      "type": "toggle",
+      "value": 2,
+      "readonly": false
+    },
+    {
+      "name": "autofocusdrive",
+      "path": "/actions/autofocusdrive",
+      "type": "toggle",
+      "value": 0,
+      "readonly": false
+    },
+    {
+      "name": "manualfocusdrive",
+      "path": "/actions/manualfocusdrive",
+      "type": "range",
+      "value": 0.0,
+      "readonly": false
+    },
+    {
+      "name": "changeafarea",
+      "path": "/actions/changeafarea",
+      "type": "text",
+      "value": "0x0",
+      "readonly": false
+    },
+    {
+      "name": "controlmode",
+      "path": "/actions/controlmode",
+      "type": "text",
+      "value": "0",
+      "readonly": false
+    },
+    {
+      "name": "viewfinder",
+      "path": "/actions/viewfinder",
+      "type": "toggle",
+      "value": 0,
+      "readonly": false
+    },
+    {
+      "name": "opcode",
+      "path": "/actions/opcode",
+      "type": "text",
+      "value": "0x1001,0xparam1,0xparam2",
+      "readonly": false
+    },
+    {
+      "name": "meterofftime",
+      "path": "/settings/meterofftime",
+      "type": "radio",
+      "value": "4 seconds",
+      "readonly": false,
+      "choices": [
+        "4 seconds",
+        "6 seconds",
+        "8 seconds",
+        "16 seconds",
+        "30 seconds",
+        "1 minute",
+        "5 minutes",
+        "10 minutes",
+        "30 minutes"
+      ]
+    },
+    {
+      "name": "datetime",
+      "path": "/settings/datetime",
+      "type": "date",
+      "value": 1188717999,
+      "readonly": false
+    },
+    {
+      "name": "imagecomment",
+      "path": "/settings/imagecomment",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "imagecommentenable",
+      "path": "/settings/imagecommentenable",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "infodisperrstatus",
+      "path": "/settings/infodisperrstatus",
+      "type": "radio",
+      "value": "On",
+      "readonly": true,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "recordingmedia",
+      "path": "/settings/recordingmedia",
+      "type": "radio",
+      "value": "Card",
+      "readonly": false,
+      "choices": [
+        "Card",
+        "SDRAM"
+      ]
+    },
+    {
+      "name": "reversedial",
+      "path": "/settings/reversedial",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "ccdnumber",
+      "path": "/settings/ccdnumber",
+      "type": "text",
+      "value": "7568279             ",
+      "readonly": true
+    },
+    {
+      "name": "menusandplayback",
+      "path": "/settings/menusandplayback",
+      "type": "radio",
+      "value": "On",
+      "readonly": false,
+      "choices": [
+        "Off",
+        "On",
+        "On (image review excluded)"
+      ]
+    },
+    {
+      "name": "thumbsize",
+      "path": "/settings/thumbsize",
+      "type": "radio",
+      "value": "",
+      "readonly": false,
+      "choices": [
+        "normal",
+        "large"
+      ]
+    },
+    {
+      "name": "fastfs",
+      "path": "/settings/fastfs",
+      "type": "toggle",
+      "value": 1,
+      "readonly": false
+    },
+    {
+      "name": "capturetarget",
+      "path": "/settings/capturetarget",
+      "type": "radio",
+      "value": "Internal RAM",
+      "readonly": false,
+      "choices": [
+        "Internal RAM",
+        "Memory card"
+      ]
+    },
+    {
+      "name": "autofocus",
+      "path": "/settings/autofocus",
+      "type": "radio",
+      "value": "On",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "serialnumber",
+      "path": "/status/serialnumber",
+      "type": "text",
+      "value": "3532818",
+      "readonly": true
+    },
+    {
+      "name": "manufacturer",
+      "path": "/status/manufacturer",
+      "type": "text",
+      "value": "Nikon Corporation",
+      "readonly": true
+    },
+    {
+      "name": "cameramodel",
+      "path": "/status/cameramodel",
+      "type": "text",
+      "value": "D90",
+      "readonly": true
+    },
+    {
+      "name": "deviceversion",
+      "path": "/status/deviceversion",
+      "type": "text",
+      "value": "V1.00",
+      "readonly": true
+    },
+    {
+      "name": "vendorextension",
+      "path": "/status/vendorextension",
+      "type": "text",
+      "value": "microsoft.com: 1.0",
+      "readonly": true
+    },
+    {
+      "name": "acpower",
+      "path": "/status/acpower",
+      "type": "radio",
+      "value": "Off",
+      "readonly": true,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "externalflash",
+      "path": "/status/externalflash",
+      "type": "radio",
+      "value": "Off",
+      "readonly": true,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "externalflashready",
+      "path": "/status/externalflashready",
+      "type": "radio",
+      "value": "Not ready",
+      "readonly": true,
+      "choices": [
+        "Not ready",
+        "Ready"
+      ]
+    },
+    {
+      "name": "batterylevel",
+      "path": "/status/batterylevel",
+      "type": "text",
+      "value": "60%",
+      "readonly": true
+    },
+    {
+      "name": "orientation",
+      "path": "/status/orientation",
+      "type": "radio",
+      "value": "0'",
+      "readonly": true,
+      "choices": [
+        "0'",
+        "270'",
+        "90'",
+        "180'"
+      ]
+    },
+    {
+      "name": "flashopen",
+      "path": "/status/flashopen",
+      "type": "radio",
+      "value": "Off",
+      "readonly": true,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "flashcharged",
+      "path": "/status/flashcharged",
+      "type": "radio",
+      "value": "Off",
+      "readonly": true,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "lensname",
+      "path": "/status/lensname",
+      "type": "radio",
+      "value": "Unknown",
+      "readonly": true,
+      "choices": [
+        "Unknown"
+      ]
+    },
+    {
+      "name": "minfocallength",
+      "path": "/status/minfocallength",
+      "type": "text",
+      "value": "60 mm",
+      "readonly": true
+    },
+    {
+      "name": "maxfocallength",
+      "path": "/status/maxfocallength",
+      "type": "text",
+      "value": "60 mm",
+      "readonly": true
+    },
+    {
+      "name": "apertureatminfocallength",
+      "path": "/status/apertureatminfocallength",
+      "type": "text",
+      "value": "4",
+      "readonly": true
+    },
+    {
+      "name": "apertureatmaxfocallength",
+      "path": "/status/apertureatmaxfocallength",
+      "type": "text",
+      "value": "4",
+      "readonly": true
+    },
+    {
+      "name": "lowlight",
+      "path": "/status/lowlight",
+      "type": "range",
+      "value": 0.0,
+      "readonly": true
+    },
+    {
+      "name": "lightmeter",
+      "path": "/status/lightmeter",
+      "type": "range",
+      "value": 0.0,
+      "readonly": true
+    },
+    {
+      "name": "aflocked",
+      "path": "/status/aflocked",
+      "type": "radio",
+      "value": "Off",
+      "readonly": true,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "aelocked",
+      "path": "/status/aelocked",
+      "type": "radio",
+      "value": "Off",
+      "readonly": true,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "fvlocked",
+      "path": "/status/fvlocked",
+      "type": "radio",
+      "value": "Off",
+      "readonly": true,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "liveviewprohibit",
+      "path": "/status/liveviewprohibit",
+      "type": "text",
+      "value": "Live View prohibit conditions: unhandled bitmask 1",
+      "readonly": true
+    },
+    {
+      "name": "imagesize",
+      "path": "/imgsettings/imagesize",
+      "type": "radio",
+      "value": "4288x2848",
+      "readonly": false,
+      "choices": [
+        "4288x2848",
+        "3216x2136",
+        "2144x1424"
+      ]
+    },
+    {
+      "name": "iso",
+      "path": "/imgsettings/iso",
+      "type": "radio",
+      "value": "200",
+      "readonly": false,
+      "choices": [
+        "100",
+        "125",
+        "160",
+        "200",
+        "250",
+        "320",
+        "400",
+        "500",
+        "640",
+        "800",
+        "1000",
+        "1250",
+        "1600",
+        "2000",
+        "2500",
+        "3200",
+        "4000",
+        "5000",
+        "6400"
+      ]
+    },
+    {
+      "name": "isoauto",
+      "path": "/imgsettings/isoauto",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "autoiso",
+      "path": "/imgsettings/autoiso",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "whitebalance",
+      "path": "/imgsettings/whitebalance",
+      "type": "radio",
+      "value": "Automatic",
+      "readonly": false,
+      "choices": [
+        "Automatic",
+        "Daylight",
+        "Fluorescent",
+        "Tungsten",
+        "Flash",
+        "Cloudy",
+        "Shade",
+        "Color Temperature",
+        "Preset"
+      ]
+    },
+    {
+      "name": "colorspace",
+      "path": "/imgsettings/colorspace",
+      "type": "radio",
+      "value": "sRGB",
+      "readonly": false,
+      "choices": [
+        "sRGB",
+        "AdobeRGB"
+      ]
+    },
+    {
+      "name": "minimumshutterspeed",
+      "path": "/capturesettings/minimumshutterspeed",
+      "type": "radio",
+      "value": "1/30",
+      "readonly": false,
+      "choices": [
+        "1/2000",
+        "1/1600",
+        "1/1250",
+        "1/1000",
+        "1/800",
+        "1/640",
+        "1/500",
+        "1/400",
+        "1/320",
+        "1/250",
+        "1/200",
+        "1/160",
+        "1/125",
+        "1/100",
+        "1/80",
+        "1/60",
+        "1/50",
+        "1/40",
+        "1/30",
+        "1/15",
+        "1/8",
+        "1/4",
+        "1/2",
+        "1"
+      ]
+    },
+    {
+      "name": "isoautohilimit",
+      "path": "/capturesettings/isoautohilimit",
+      "type": "radio",
+      "value": "3200",
+      "readonly": false,
+      "choices": [
+        "400",
+        "800",
+        "1600",
+        "3200",
+        "Hi 1"
+      ]
+    },
+    {
+      "name": "dlighting",
+      "path": "/capturesettings/dlighting",
+      "type": "radio",
+      "value": "Auto",
+      "readonly": false,
+      "choices": [
+        "Extra high",
+        "High",
+        "Normal",
+        "Low",
+        "Off",
+        "Auto"
+      ]
+    },
+    {
+      "name": "imagequality",
+      "path": "/capturesettings/imagequality",
+      "type": "radio",
+      "value": "NEF (Raw)",
+      "readonly": false,
+      "choices": [
+        "JPEG Basic",
+        "JPEG Normal",
+        "JPEG Fine",
+        "NEF (Raw)",
+        "NEF+Basic",
+        "NEF+Normal",
+        "NEF+Fine"
+      ]
+    },
+    {
+      "name": "shootingspeed",
+      "path": "/capturesettings/shootingspeed",
+      "type": "radio",
+      "value": "3 fps",
+      "readonly": false,
+      "choices": [
+        "4 fps",
+        "3 fps",
+        "2 fps",
+        "1 fps"
+      ]
+    },
+    {
+      "name": "highisonr",
+      "path": "/capturesettings/highisonr",
+      "type": "radio",
+      "value": "Normal",
+      "readonly": false,
+      "choices": [
+        "Off",
+        "Low",
+        "Normal",
+        "High"
+      ]
+    },
+    {
+      "name": "moviequality",
+      "path": "/capturesettings/moviequality",
+      "type": "radio",
+      "value": "640x424",
+      "readonly": false,
+      "choices": [
+        "320x216",
+        "640x424",
+        "1280x720"
+      ]
+    },
+    {
+      "name": "flashshutterspeed",
+      "path": "/capturesettings/flashshutterspeed",
+      "type": "radio",
+      "value": "1/60s",
+      "readonly": false,
+      "choices": [
+        "1/60s",
+        "1/30s",
+        "1/15s",
+        "1/8s",
+        "1/4s",
+        "1/2s",
+        "1s",
+        "2s",
+        "4s",
+        "8s",
+        "15s",
+        "30s"
+      ]
+    },
+    {
+      "name": "longexpnr",
+      "path": "/capturesettings/longexpnr",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "assistlight",
+      "path": "/capturesettings/assistlight",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "exposurecompensation",
+      "path": "/capturesettings/exposurecompensation",
+      "type": "radio",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "-5",
+        "-4.666",
+        "-4.333",
+        "-4",
+        "-3.666",
+        "-3.333",
+        "-3",
+        "-2.666",
+        "-2.333",
+        "-2",
+        "-1.666",
+        "-1.333",
+        "-1",
+        "-0.666",
+        "-0.333",
+        "0",
+        "0.333",
+        "0.666",
+        "1",
+        "1.333",
+        "1.666",
+        "2",
+        "2.333",
+        "2.666",
+        "3",
+        "3.333",
+        "3.666",
+        "4",
+        "4.333",
+        "4.666",
+        "5"
+      ]
+    },
+    {
+      "name": "exposurecompensation2",
+      "path": "/capturesettings/exposurecompensation2",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "flashmode",
+      "path": "/capturesettings/flashmode",
+      "type": "radio",
+      "value": "Flash off",
+      "readonly": false,
+      "choices": [
+        "Flash off"
+      ]
+    },
+    {
+      "name": "nikonflashmode",
+      "path": "/capturesettings/nikonflashmode",
+      "type": "radio",
+      "value": "iTTL",
+      "readonly": false,
+      "choices": [
+        "iTTL",
+        "Manual",
+        "Commander",
+        "Repeating"
+      ]
+    },
+    {
+      "name": "flashcommandchannel",
+      "path": "/capturesettings/flashcommandchannel",
+      "type": "radio",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    {
+      "name": "flashcommandselfmode",
+      "path": "/capturesettings/flashcommandselfmode",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "TTL",
+        "Manual",
+        "Off"
+      ]
+    },
+    {
+      "name": "flashcommandselfcompensation",
+      "path": "/capturesettings/flashcommandselfcompensation",
+      "type": "radio",
+      "value": "0.0",
+      "readonly": false,
+      "choices": [
+        "-3.0",
+        "-2.7",
+        "-2.3",
+        "-2.0",
+        "-1.7",
+        "-1.3",
+        "-1.0",
+        "-0.7",
+        "-0.3",
+        "0.0",
+        "0.3",
+        "0.7",
+        "1.0",
+        "1.3",
+        "1.7",
+        "2.0",
+        "2.3",
+        "2.7",
+        "3.0"
+      ]
+    },
+    {
+      "name": "flashcommandselfvalue",
+      "path": "/capturesettings/flashcommandselfvalue",
+      "type": "radio",
+      "value": "1/16",
+      "readonly": false,
+      "choices": [
+        "Full",
+        "1/1.3",
+        "1/1.7",
+        "1/2",
+        "1/2.5",
+        "1/3.2",
+        "1/4",
+        "1/5",
+        "1/6.4",
+        "1/8",
+        "1/10",
+        "1/13",
+        "1/16",
+        "1/20",
+        "1/25",
+        "1/32",
+        "1/40",
+        "1/50",
+        "1/64",
+        "1/80",
+        "1/100",
+        "1/128"
+      ]
+    },
+    {
+      "name": "flashcommandamode",
+      "path": "/capturesettings/flashcommandamode",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "TTL",
+        "Auto Aperture",
+        "Manual",
+        "Off"
+      ]
+    },
+    {
+      "name": "flashcommandacompensation",
+      "path": "/capturesettings/flashcommandacompensation",
+      "type": "radio",
+      "value": "0.0",
+      "readonly": false,
+      "choices": [
+        "-3.0",
+        "-2.7",
+        "-2.3",
+        "-2.0",
+        "-1.7",
+        "-1.3",
+        "-1.0",
+        "-0.7",
+        "-0.3",
+        "0.0",
+        "0.3",
+        "0.7",
+        "1.0",
+        "1.3",
+        "1.7",
+        "2.0",
+        "2.3",
+        "2.7",
+        "3.0"
+      ]
+    },
+    {
+      "name": "flashcommandavalue",
+      "path": "/capturesettings/flashcommandavalue",
+      "type": "radio",
+      "value": "1/16",
+      "readonly": false,
+      "choices": [
+        "Full",
+        "1/1.3",
+        "1/1.7",
+        "1/2",
+        "1/2.5",
+        "1/3.2",
+        "1/4",
+        "1/5",
+        "1/6.4",
+        "1/8",
+        "1/10",
+        "1/13",
+        "1/16",
+        "1/20",
+        "1/25",
+        "1/32",
+        "1/40",
+        "1/50",
+        "1/64",
+        "1/80",
+        "1/100",
+        "1/128"
+      ]
+    },
+    {
+      "name": "flashcommandbmode",
+      "path": "/capturesettings/flashcommandbmode",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "TTL",
+        "Auto Aperture",
+        "Manual",
+        "Off"
+      ]
+    },
+    {
+      "name": "flashcommandbcompensation",
+      "path": "/capturesettings/flashcommandbcompensation",
+      "type": "radio",
+      "value": "0.0",
+      "readonly": false,
+      "choices": [
+        "-3.0",
+        "-2.7",
+        "-2.3",
+        "-2.0",
+        "-1.7",
+        "-1.3",
+        "-1.0",
+        "-0.7",
+        "-0.3",
+        "0.0",
+        "0.3",
+        "0.7",
+        "1.0",
+        "1.3",
+        "1.7",
+        "2.0",
+        "2.3",
+        "2.7",
+        "3.0"
+      ]
+    },
+    {
+      "name": "flashcommandbvalue",
+      "path": "/capturesettings/flashcommandbvalue",
+      "type": "radio",
+      "value": "1/16",
+      "readonly": false,
+      "choices": [
+        "Full",
+        "1/1.3",
+        "1/1.7",
+        "1/2",
+        "1/2.5",
+        "1/3.2",
+        "1/4",
+        "1/5",
+        "1/6.4",
+        "1/8",
+        "1/10",
+        "1/13",
+        "1/16",
+        "1/20",
+        "1/25",
+        "1/32",
+        "1/40",
+        "1/50",
+        "1/64",
+        "1/80",
+        "1/100",
+        "1/128"
+      ]
+    },
+    {
+      "name": "af-area-illumination",
+      "path": "/capturesettings/af-area-illumination",
+      "type": "radio",
+      "value": "Auto",
+      "readonly": false,
+      "choices": [
+        "Auto",
+        "Off",
+        "On"
+      ]
+    },
+    {
+      "name": "afbeep",
+      "path": "/capturesettings/afbeep",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "f-number",
+      "path": "/capturesettings/f-number",
+      "type": "radio",
+      "value": "f/4",
+      "readonly": true,
+      "choices": [
+        "f/4",
+        "f/4.5",
+        "f/5",
+        "f/5.6",
+        "f/6.3",
+        "f/7.1",
+        "f/8",
+        "f/9",
+        "f/10",
+        "f/11",
+        "f/13",
+        "f/14",
+        "f/16",
+        "f/18",
+        "f/20",
+        "f/22",
+        "f/25",
+        "f/29",
+        "f/32",
+        "f/36",
+        "f/40",
+        "f/45"
+      ]
+    },
+    {
+      "name": "flexibleprogram",
+      "path": "/capturesettings/flexibleprogram",
+      "type": "range",
+      "value": 0.0,
+      "readonly": false
+    },
+    {
+      "name": "focallength",
+      "path": "/capturesettings/focallength",
+      "type": "range",
+      "value": 60.0,
+      "readonly": true
+    },
+    {
+      "name": "focusmode",
+      "path": "/capturesettings/focusmode",
+      "type": "radio",
+      "value": "Manual",
+      "readonly": true,
+      "choices": [
+        "Manual",
+        "AF-S",
+        "AF-C",
+        "AF-A"
+      ]
+    },
+    {
+      "name": "focusmode2",
+      "path": "/capturesettings/focusmode2",
+      "type": "radio",
+      "value": "MF (fixed)",
+      "readonly": false,
+      "choices": [
+        "AF-S",
+        "AF-C",
+        "AF-A",
+        "MF (fixed)",
+        "MF (selection)"
+      ]
+    },
+    {
+      "name": "expprogram",
+      "path": "/capturesettings/expprogram",
+      "type": "radio",
+      "value": "Night Landscape",
+      "readonly": true,
+      "choices": [
+        "M",
+        "P",
+        "A",
+        "S",
+        "Auto",
+        "Portrait",
+        "Landscape",
+        "Macro",
+        "Sports",
+        "Night Portrait",
+        "Night Landscape"
+      ]
+    },
+    {
+      "name": "capturemode",
+      "path": "/capturesettings/capturemode",
+      "type": "radio",
+      "value": "Single Shot",
+      "readonly": false,
+      "choices": [
+        "Single Shot",
+        "Burst",
+        "Continuous Low Speed",
+        "Timer",
+        "Quick Response Remote",
+        "Delayed Remote"
+      ]
+    },
+    {
+      "name": "focusmetermode",
+      "path": "/capturesettings/focusmetermode",
+      "type": "radio",
+      "value": "Closest Subject",
+      "readonly": false,
+      "choices": [
+        "Multi-spot",
+        "Single Area",
+        "Closest Subject",
+        "Group Dynamic"
+      ]
+    },
+    {
+      "name": "exposuremetermode",
+      "path": "/capturesettings/exposuremetermode",
+      "type": "radio",
+      "value": "Multi Spot",
+      "readonly": false,
+      "choices": [
+        "Center Weighted",
+        "Multi Spot",
+        "Center Spot"
+      ]
+    },
+    {
+      "name": "shutterspeed",
+      "path": "/capturesettings/shutterspeed",
+      "type": "radio",
+      "value": "0.0333s",
+      "readonly": true,
+      "choices": [
+        "0.0002s",
+        "0.0333s"
+      ]
+    },
+    {
+      "name": "shutterspeed2",
+      "path": "/capturesettings/shutterspeed2",
+      "type": "radio",
+      "value": "1/30",
+      "readonly": true,
+      "choices": [
+        "1/4000",
+        "1/30"
+      ]
+    },
+    {
+      "name": "focusareawrap",
+      "path": "/capturesettings/focusareawrap",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "exposuredelaymode",
+      "path": "/capturesettings/exposuredelaymode",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "exposurelock",
+      "path": "/capturesettings/exposurelock",
+      "type": "radio",
+      "value": "On",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "aelaflmode",
+      "path": "/capturesettings/aelaflmode",
+      "type": "radio",
+      "value": "AE/AF Lock",
+      "readonly": false,
+      "choices": [
+        "AE/AF Lock",
+        "AE Lock only",
+        "AF Lock Only",
+        "AF Lock Hold",
+        "AF On",
+        "Flash Level Lock"
+      ]
+    },
+    {
+      "name": "liveviewafmode",
+      "path": "/capturesettings/liveviewafmode",
+      "type": "radio",
+      "value": "Wide-area AF",
+      "readonly": false,
+      "choices": [
+        "Face-priority AF",
+        "Wide-area AF",
+        "Normal-area AF"
+      ]
+    },
+    {
+      "name": "liveviewimagezoomratio",
+      "path": "/capturesettings/liveviewimagezoomratio",
+      "type": "radio",
+      "value": "Entire Display",
+      "readonly": false,
+      "choices": [
+        "Entire Display",
+        "Unknown value 0001",
+        "25%",
+        "Unknown value 0003",
+        "50%",
+        "Unknown value 0005"
+      ]
+    },
+    {
+      "name": "filenrsequencing",
+      "path": "/capturesettings/filenrsequencing",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "flashsign",
+      "path": "/capturesettings/flashsign",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "modelflash",
+      "path": "/capturesettings/modelflash",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "viewfindergrid",
+      "path": "/capturesettings/viewfindergrid",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "imagerotationflag",
+      "path": "/capturesettings/imagerotationflag",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "nocfcardrelease",
+      "path": "/capturesettings/nocfcardrelease",
+      "type": "radio",
+      "value": "On",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "flashmodemanualpower",
+      "path": "/capturesettings/flashmodemanualpower",
+      "type": "radio",
+      "value": "Unknown value 000c",
+      "readonly": false,
+      "choices": [
+        "Full",
+        "1/2",
+        "1/4",
+        "1/8",
+        "1/16",
+        "1/32",
+        "Unknown value 0006",
+        "Unknown value 0007",
+        "Unknown value 0008",
+        "Unknown value 0009",
+        "Unknown value 000a",
+        "Unknown value 000b",
+        "Unknown value 000c",
+        "Unknown value 000d",
+        "Unknown value 000e",
+        "Unknown value 000f",
+        "Unknown value 0010",
+        "Unknown value 0011",
+        "Unknown value 0012",
+        "Unknown value 0013",
+        "Unknown value 0014",
+        "Unknown value 0015"
+      ]
+    },
+    {
+      "name": "autofocusarea",
+      "path": "/capturesettings/autofocusarea",
+      "type": "radio",
+      "value": "Top",
+      "readonly": false,
+      "choices": [
+        "Top",
+        "Bottom",
+        "Left",
+        "Right",
+        "Unknown value 0005",
+        "Unknown value 0006",
+        "Unknown value 0007",
+        "Unknown value 0008",
+        "Unknown value 0009",
+        "Unknown value 000a",
+        "Unknown value 000b"
+      ]
+    },
+    {
+      "name": "flashexposurecompensation",
+      "path": "/capturesettings/flashexposurecompensation",
+      "type": "range",
+      "value": 0.0,
+      "readonly": false
+    },
+    {
+      "name": "bracketing",
+      "path": "/capturesettings/bracketing",
+      "type": "radio",
+      "value": "Off",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "evstep",
+      "path": "/capturesettings/evstep",
+      "type": "radio",
+      "value": "1/3",
+      "readonly": false,
+      "choices": [
+        "1/3",
+        "1/2",
+        "Unknown value 0002"
+      ]
+    },
+    {
+      "name": "bracketset",
+      "path": "/capturesettings/bracketset",
+      "type": "radio",
+      "value": "AE & Flash",
+      "readonly": false,
+      "choices": [
+        "AE & Flash",
+        "AE only",
+        "Flash only",
+        "WB bracketing",
+        "ADL bracketing"
+      ]
+    },
+    {
+      "name": "bracketorder",
+      "path": "/capturesettings/bracketorder",
+      "type": "radio",
+      "value": "MTR > Under",
+      "readonly": false,
+      "choices": [
+        "MTR > Under",
+        "Under > MTR"
+      ]
+    },
+    {
+      "name": "aebracketingstep",
+      "path": "/capturesettings/aebracketingstep",
+      "type": "radio",
+      "value": "1/3 EV",
+      "readonly": false,
+      "choices": [
+        "1/3 EV",
+        "1/2 EV",
+        "2/3 EV",
+        "1 EV",
+        "2 EV",
+        "3 EV",
+        "Unknown value 0006",
+        "Unknown value 0007"
+      ]
+    },
+    {
+      "name": "wbbracketingstep",
+      "path": "/capturesettings/wbbracketingstep",
+      "type": "radio",
+      "value": "1 EV",
+      "readonly": false,
+      "choices": [
+        "1 EV",
+        "2 EV",
+        "3 EV"
+      ]
+    },
+    {
+      "name": "aebracketingpattern",
+      "path": "/capturesettings/aebracketingpattern",
+      "type": "radio",
+      "value": "2 images (normal and under)",
+      "readonly": false,
+      "choices": [
+        "2 images (normal and under)",
+        "2 images (normal and over)",
+        "3 images (normal and 2 unders)"
+      ]
+    },
+    {
+      "name": "wbbracketingpattern",
+      "path": "/capturesettings/wbbracketingpattern",
+      "type": "radio",
+      "value": "3 images (normal and 2 unders)",
+      "readonly": false,
+      "choices": [
+        "2 images (normal and under)",
+        "2 images (normal and over)",
+        "3 images (normal and 2 unders)"
+      ]
+    },
+    {
+      "name": "aebracketingcount",
+      "path": "/capturesettings/aebracketingcount",
+      "type": "range",
+      "value": 1.0,
+      "readonly": true
+    },
+    {
+      "name": "wbpresetcomment1",
+      "path": "/capturesettings/wbpresetcomment1",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "wbpresetcomment2",
+      "path": "/capturesettings/wbpresetcomment2",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "wbpresetcomment3",
+      "path": "/capturesettings/wbpresetcomment3",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "wbpresetcomment4",
+      "path": "/capturesettings/wbpresetcomment4",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "burstnumber",
+      "path": "/capturesettings/burstnumber",
+      "type": "range",
+      "value": 1.0,
+      "readonly": false
+    },
+    {
+      "name": "maximumshots",
+      "path": "/capturesettings/maximumshots",
+      "type": "range",
+      "value": 8.0,
+      "readonly": true
+    },
+    {
+      "name": "autowhitebias",
+      "path": "/capturesettings/autowhitebias",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "tungstenwhitebias",
+      "path": "/capturesettings/tungstenwhitebias",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "flourescentwhitebias",
+      "path": "/capturesettings/flourescentwhitebias",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "daylightwhitebias",
+      "path": "/capturesettings/daylightwhitebias",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "flashwhitebias",
+      "path": "/capturesettings/flashwhitebias",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "cloudywhitebias",
+      "path": "/capturesettings/cloudywhitebias",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "shadewhitebias",
+      "path": "/capturesettings/shadewhitebias",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "whitebiaspresetno",
+      "path": "/capturesettings/whitebiaspresetno",
+      "type": "radio",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "whitebiaspreset0",
+      "path": "/capturesettings/whitebiaspreset0",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "whitebiaspreset1",
+      "path": "/capturesettings/whitebiaspreset1",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "whitebiaspreset2",
+      "path": "/capturesettings/whitebiaspreset2",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "whitebiaspreset3",
+      "path": "/capturesettings/whitebiaspreset3",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "whitebiaspreset4",
+      "path": "/capturesettings/whitebiaspreset4",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "selftimerdelay",
+      "path": "/capturesettings/selftimerdelay",
+      "type": "radio",
+      "value": "5 seconds",
+      "readonly": false,
+      "choices": [
+        "2 seconds",
+        "5 seconds",
+        "10 seconds",
+        "20 seconds"
+      ]
+    },
+    {
+      "name": "centerweightsize",
+      "path": "/capturesettings/centerweightsize",
+      "type": "radio",
+      "value": "8 mm",
+      "readonly": false,
+      "choices": [
+        "6 mm",
+        "8 mm",
+        "10 mm"
+      ]
+    },
+    {
+      "name": "remotetimeout",
+      "path": "/capturesettings/remotetimeout",
+      "type": "radio",
+      "value": "1 minute",
+      "readonly": false,
+      "choices": [
+        "1 minute",
+        "5 minutes",
+        "10 minutes",
+        "15 minutes"
+      ]
+    },
+    {
+      "name": "moviesound",
+      "path": "/capturesettings/moviesound",
+      "type": "radio",
+      "value": "On",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "reverseindicators",
+      "path": "/capturesettings/reverseindicators",
+      "type": "radio",
+      "value": "On",
+      "readonly": false,
+      "choices": [
+        "On",
+        "Off"
+      ]
+    },
+    {
+      "name": "5001",
+      "path": "/other/5001",
+      "type": "menu",
+      "value": "60",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "50",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57",
+        "58",
+        "59",
+        "60",
+        "61",
+        "62",
+        "63",
+        "64",
+        "65",
+        "66",
+        "67",
+        "68",
+        "69",
+        "70",
+        "71",
+        "72",
+        "73",
+        "74",
+        "75",
+        "76",
+        "77",
+        "78",
+        "79",
+        "80",
+        "81",
+        "82",
+        "83",
+        "84",
+        "85",
+        "86",
+        "87",
+        "88",
+        "89",
+        "90",
+        "91",
+        "92",
+        "93",
+        "94",
+        "95",
+        "96",
+        "97",
+        "98",
+        "99",
+        "100"
+      ]
+    },
+    {
+      "name": "5003",
+      "path": "/other/5003",
+      "type": "menu",
+      "value": "4288x2848",
+      "readonly": false,
+      "choices": [
+        "4288x2848",
+        "3216x2136",
+        "2144x1424"
+      ]
+    },
+    {
+      "name": "5004",
+      "path": "/other/5004",
+      "type": "menu",
+      "value": "4",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "4",
+        "5",
+        "6",
+        "7"
+      ]
+    },
+    {
+      "name": "5005",
+      "path": "/other/5005",
+      "type": "menu",
+      "value": "2",
+      "readonly": false,
+      "choices": [
+        "2",
+        "4",
+        "5",
+        "6",
+        "7",
+        "32784",
+        "32785",
+        "32786",
+        "32787"
+      ]
+    },
+    {
+      "name": "5007",
+      "path": "/other/5007",
+      "type": "menu",
+      "value": "400",
+      "readonly": true,
+      "choices": [
+        "400",
+        "450",
+        "500",
+        "560",
+        "630",
+        "710",
+        "800",
+        "900",
+        "1000",
+        "1100",
+        "1300",
+        "1400",
+        "1600",
+        "1800",
+        "2000",
+        "2200",
+        "2500",
+        "2900",
+        "3200",
+        "3600",
+        "4000",
+        "4500"
+      ]
+    },
+    {
+      "name": "5008",
+      "path": "/other/5008",
+      "type": "menu",
+      "value": "6000",
+      "readonly": true,
+      "choices": [
+        "6000"
+      ]
+    },
+    {
+      "name": "500a",
+      "path": "/other/500a",
+      "type": "menu",
+      "value": "1",
+      "readonly": true,
+      "choices": [
+        "1",
+        "32784",
+        "32785",
+        "32786"
+      ]
+    },
+    {
+      "name": "500b",
+      "path": "/other/500b",
+      "type": "menu",
+      "value": "3",
+      "readonly": false,
+      "choices": [
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    {
+      "name": "500c",
+      "path": "/other/500c",
+      "type": "menu",
+      "value": "2",
+      "readonly": false,
+      "choices": [
+        "2"
+      ]
+    },
+    {
+      "name": "500d",
+      "path": "/other/500d",
+      "type": "menu",
+      "value": "333",
+      "readonly": true,
+      "choices": [
+        "2",
+        "333"
+      ]
+    },
+    {
+      "name": "500e",
+      "path": "/other/500e",
+      "type": "menu",
+      "value": "32790",
+      "readonly": true,
+      "choices": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "32784",
+        "32785",
+        "32786",
+        "32787",
+        "32788",
+        "32789",
+        "32790"
+      ]
+    },
+    {
+      "name": "500f",
+      "path": "/other/500f",
+      "type": "menu",
+      "value": "200",
+      "readonly": false,
+      "choices": [
+        "100",
+        "125",
+        "160",
+        "200",
+        "250",
+        "320",
+        "400",
+        "500",
+        "640",
+        "800",
+        "1000",
+        "1250",
+        "1600",
+        "2000",
+        "2500",
+        "3200",
+        "4000",
+        "5000",
+        "6400"
+      ]
+    },
+    {
+      "name": "5010",
+      "path": "/other/5010",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "-5000",
+        "-4666",
+        "-4333",
+        "-4000",
+        "-3666",
+        "-3333",
+        "-3000",
+        "-2666",
+        "-2333",
+        "-2000",
+        "-1666",
+        "-1333",
+        "-1000",
+        "-666",
+        "-333",
+        "0",
+        "333",
+        "666",
+        "1000",
+        "1333",
+        "1666",
+        "2000",
+        "2333",
+        "2666",
+        "3000",
+        "3333",
+        "3666",
+        "4000",
+        "4333",
+        "4666",
+        "5000"
+      ]
+    },
+    {
+      "name": "5011",
+      "path": "/other/5011",
+      "type": "text",
+      "value": "20070902T002639",
+      "readonly": false
+    },
+    {
+      "name": "5013",
+      "path": "/other/5013",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "1",
+        "2",
+        "32784",
+        "32785",
+        "32788",
+        "32789"
+      ]
+    },
+    {
+      "name": "5018",
+      "path": "/other/5018",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "50",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57",
+        "58",
+        "59",
+        "60",
+        "61",
+        "62",
+        "63",
+        "64",
+        "65",
+        "66",
+        "67",
+        "68",
+        "69",
+        "70",
+        "71",
+        "72",
+        "73",
+        "74",
+        "75",
+        "76",
+        "77",
+        "78",
+        "79",
+        "80",
+        "81",
+        "82",
+        "83",
+        "84",
+        "85",
+        "86",
+        "87",
+        "88",
+        "89",
+        "90",
+        "91",
+        "92",
+        "93",
+        "94",
+        "95",
+        "96",
+        "97",
+        "98",
+        "99",
+        "100"
+      ]
+    },
+    {
+      "name": "501c",
+      "path": "/other/501c",
+      "type": "menu",
+      "value": "32785",
+      "readonly": false,
+      "choices": [
+        "2",
+        "32784",
+        "32785",
+        "32786"
+      ]
+    },
+    {
+      "name": "d406",
+      "path": "/other/d406",
+      "type": "text",
+      "value": "Windows/6.0.5330.0 MTPClassDriver/6.0.5330.0",
+      "readonly": false
+    },
+    {
+      "name": "d407",
+      "path": "/other/d407",
+      "type": "text",
+      "value": "1",
+      "readonly": true
+    },
+    {
+      "name": "d017",
+      "path": "/other/d017",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d018",
+      "path": "/other/d018",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d019",
+      "path": "/other/d019",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d01a",
+      "path": "/other/d01a",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d01b",
+      "path": "/other/d01b",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d01c",
+      "path": "/other/d01c",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d01d",
+      "path": "/other/d01d",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d01e",
+      "path": "/other/d01e",
+      "type": "menu",
+      "value": "20",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30"
+      ]
+    },
+    {
+      "name": "d01f",
+      "path": "/other/d01f",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    {
+      "name": "d020",
+      "path": "/other/d020",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "d021",
+      "path": "/other/d021",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "d022",
+      "path": "/other/d022",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "d023",
+      "path": "/other/d023",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "d024",
+      "path": "/other/d024",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "d025",
+      "path": "/other/d025",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "d026",
+      "path": "/other/d026",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "d027",
+      "path": "/other/d027",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "d028",
+      "path": "/other/d028",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "d029",
+      "path": "/other/d029",
+      "type": "text",
+      "value": "30212431",
+      "readonly": true
+    },
+    {
+      "name": "d032",
+      "path": "/other/d032",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d045",
+      "path": "/other/d045",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d04f",
+      "path": "/other/d04f",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d050",
+      "path": "/other/d050",
+      "type": "menu",
+      "value": "7",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10"
+      ]
+    },
+    {
+      "name": "d052",
+      "path": "/other/d052",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d054",
+      "path": "/other/d054",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d056",
+      "path": "/other/d056",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d058",
+      "path": "/other/d058",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d059",
+      "path": "/other/d059",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d05a",
+      "path": "/other/d05a",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "-6",
+        "-5",
+        "-4",
+        "-3",
+        "-2",
+        "-1",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ]
+    },
+    {
+      "name": "d05b",
+      "path": "/other/d05b",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "-6",
+        "-5",
+        "-4",
+        "-3",
+        "-2",
+        "-1",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ]
+    },
+    {
+      "name": "d05c",
+      "path": "/other/d05c",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "-6",
+        "-5",
+        "-4",
+        "-3",
+        "-2",
+        "-1",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ]
+    },
+    {
+      "name": "d05d",
+      "path": "/other/d05d",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d05e",
+      "path": "/other/d05e",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d05f",
+      "path": "/other/d05f",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "d062",
+      "path": "/other/d062",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8"
+      ]
+    },
+    {
+      "name": "d063",
+      "path": "/other/d063",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d065",
+      "path": "/other/d065",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "d068",
+      "path": "/other/d068",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d06a",
+      "path": "/other/d06a",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d06b",
+      "path": "/other/d06b",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d06c",
+      "path": "/other/d06c",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d06f",
+      "path": "/other/d06f",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d070",
+      "path": "/other/d070",
+      "type": "menu",
+      "value": "2",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d071",
+      "path": "/other/d071",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d075",
+      "path": "/other/d075",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11"
+      ]
+    },
+    {
+      "name": "d077",
+      "path": "/other/d077",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d078",
+      "path": "/other/d078",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    {
+      "name": "d07a",
+      "path": "/other/d07a",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d080",
+      "path": "/other/d080",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d084",
+      "path": "/other/d084",
+      "type": "menu",
+      "value": "3",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ]
+    },
+    {
+      "name": "d085",
+      "path": "/other/d085",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d086",
+      "path": "/other/d086",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d088",
+      "path": "/other/d088",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d08a",
+      "path": "/other/d08a",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d090",
+      "path": "/other/d090",
+      "type": "text",
+      "value": "                                    ",
+      "readonly": false
+    },
+    {
+      "name": "d091",
+      "path": "/other/d091",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d092",
+      "path": "/other/d092",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d0a0",
+      "path": "/other/d0a0",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d0a1",
+      "path": "/other/d0a1",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d0c0",
+      "path": "/other/d0c0",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d0c1",
+      "path": "/other/d0c1",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ]
+    },
+    {
+      "name": "d0c2",
+      "path": "/other/d0c2",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d0c3",
+      "path": "/other/d0c3",
+      "type": "menu",
+      "value": "1",
+      "readonly": true,
+      "choices": [
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d0c4",
+      "path": "/other/d0c4",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d0c5",
+      "path": "/other/d0c5",
+      "type": "menu",
+      "value": "2",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d0e0",
+      "path": "/other/d0e0",
+      "type": "text",
+      "value": "0",
+      "readonly": true
+    },
+    {
+      "name": "d0e1",
+      "path": "/other/d0e1",
+      "type": "menu",
+      "value": "1",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d0e2",
+      "path": "/other/d0e2",
+      "type": "text",
+      "value": "0",
+      "readonly": true
+    },
+    {
+      "name": "d0e3",
+      "path": "/other/d0e3",
+      "type": "text",
+      "value": "6000",
+      "readonly": true
+    },
+    {
+      "name": "d0e4",
+      "path": "/other/d0e4",
+      "type": "text",
+      "value": "6000",
+      "readonly": true
+    },
+    {
+      "name": "d0e5",
+      "path": "/other/d0e5",
+      "type": "text",
+      "value": "400",
+      "readonly": true
+    },
+    {
+      "name": "d0e6",
+      "path": "/other/d0e6",
+      "type": "text",
+      "value": "400",
+      "readonly": true
+    },
+    {
+      "name": "d0f0",
+      "path": "/other/d0f0",
+      "type": "menu",
+      "value": "2",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d0f2",
+      "path": "/other/d0f2",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "d0f3",
+      "path": "/other/d0f3",
+      "type": "menu",
+      "value": "2",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "d0f4",
+      "path": "/other/d0f4",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "d0f5",
+      "path": "/other/d0f5",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8"
+      ]
+    },
+    {
+      "name": "d100",
+      "path": "/other/d100",
+      "type": "menu",
+      "value": "65566",
+      "readonly": true,
+      "choices": [
+        "69536",
+        "65566"
+      ]
+    },
+    {
+      "name": "d101",
+      "path": "/other/d101",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d102",
+      "path": "/other/d102",
+      "type": "text",
+      "value": "0",
+      "readonly": true
+    },
+    {
+      "name": "d103",
+      "path": "/other/d103",
+      "type": "menu",
+      "value": "8",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "50",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57",
+        "58",
+        "59",
+        "60",
+        "61",
+        "62",
+        "63",
+        "64",
+        "65",
+        "66",
+        "67",
+        "68",
+        "69",
+        "70",
+        "71",
+        "72",
+        "73",
+        "74",
+        "75",
+        "76",
+        "77",
+        "78",
+        "79",
+        "80",
+        "81",
+        "82",
+        "83",
+        "84",
+        "85",
+        "86",
+        "87",
+        "88",
+        "89",
+        "90",
+        "91",
+        "92",
+        "93",
+        "94",
+        "95",
+        "96",
+        "97",
+        "98",
+        "99"
+      ]
+    },
+    {
+      "name": "d104",
+      "path": "/other/d104",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d105",
+      "path": "/other/d105",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d106",
+      "path": "/other/d106",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d108",
+      "path": "/other/d108",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11"
+      ]
+    },
+    {
+      "name": "d109",
+      "path": "/other/d109",
+      "type": "range",
+      "value": 0.0,
+      "readonly": false
+    },
+    {
+      "name": "d10b",
+      "path": "/other/d10b",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d10c",
+      "path": "/other/d10c",
+      "type": "menu",
+      "value": "1",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d10d",
+      "path": "/other/d10d",
+      "type": "text",
+      "value": "7568279             ",
+      "readonly": true
+    },
+    {
+      "name": "d10e",
+      "path": "/other/d10e",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d114",
+      "path": "/other/d114",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d120",
+      "path": "/other/d120",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d121",
+      "path": "/other/d121",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d122",
+      "path": "/other/d122",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d124",
+      "path": "/other/d124",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "-18",
+        "-17",
+        "-16",
+        "-15",
+        "-14",
+        "-13",
+        "-12",
+        "-11",
+        "-10",
+        "-9",
+        "-8",
+        "-7",
+        "-6",
+        "-5",
+        "-4",
+        "-3",
+        "-2",
+        "-1",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18"
+      ]
+    },
+    {
+      "name": "d125",
+      "path": "/other/d125",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ]
+    },
+    {
+      "name": "d126",
+      "path": "/other/d126",
+      "type": "range",
+      "value": 0.0,
+      "readonly": false
+    },
+    {
+      "name": "d14e",
+      "path": "/other/d14e",
+      "type": "menu",
+      "value": "5",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "d14f",
+      "path": "/other/d14f",
+      "type": "menu",
+      "value": "3",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ]
+    },
+    {
+      "name": "d150",
+      "path": "/other/d150",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d151",
+      "path": "/other/d151",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d152",
+      "path": "/other/d152",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d153",
+      "path": "/other/d153",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d154",
+      "path": "/other/d154",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d155",
+      "path": "/other/d155",
+      "type": "range",
+      "value": 84.0,
+      "readonly": false
+    },
+    {
+      "name": "d160",
+      "path": "/other/d160",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d161",
+      "path": "/other/d161",
+      "type": "menu",
+      "value": "3",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    {
+      "name": "d163",
+      "path": "/other/d163",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d164",
+      "path": "/other/d164",
+      "type": "menu",
+      "value": "18",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23"
+      ]
+    },
+    {
+      "name": "d166",
+      "path": "/other/d166",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d167",
+      "path": "/other/d167",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d169",
+      "path": "/other/d169",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d16a",
+      "path": "/other/d16a",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d16b",
+      "path": "/other/d16b",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d16c",
+      "path": "/other/d16c",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d16d",
+      "path": "/other/d16d",
+      "type": "menu",
+      "value": "12",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21"
+      ]
+    },
+    {
+      "name": "d16f",
+      "path": "/other/d16f",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d181",
+      "path": "/other/d181",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d182",
+      "path": "/other/d182",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d183",
+      "path": "/other/d183",
+      "type": "menu",
+      "value": "3",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    {
+      "name": "d187",
+      "path": "/other/d187",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d18d",
+      "path": "/other/d18d",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d1a2",
+      "path": "/other/d1a2",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d1a3",
+      "path": "/other/d1a3",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "d1a4",
+      "path": "/other/d1a4",
+      "type": "text",
+      "value": "1",
+      "readonly": true
+    },
+    {
+      "name": "d1b0",
+      "path": "/other/d1b0",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8"
+      ]
+    },
+    {
+      "name": "d1b1",
+      "path": "/other/d1b1",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "-60",
+        "-59",
+        "-58",
+        "-57",
+        "-56",
+        "-55",
+        "-54",
+        "-53",
+        "-52",
+        "-51",
+        "-50",
+        "-49",
+        "-48",
+        "-47",
+        "-46",
+        "-45",
+        "-44",
+        "-43",
+        "-42",
+        "-41",
+        "-40",
+        "-39",
+        "-38",
+        "-37",
+        "-36",
+        "-35",
+        "-34",
+        "-33",
+        "-32",
+        "-31",
+        "-30",
+        "-29",
+        "-28",
+        "-27",
+        "-26",
+        "-25",
+        "-24",
+        "-23",
+        "-22",
+        "-21",
+        "-20",
+        "-19",
+        "-18",
+        "-17",
+        "-16",
+        "-15",
+        "-14",
+        "-13",
+        "-12",
+        "-11",
+        "-10",
+        "-9",
+        "-8",
+        "-7",
+        "-6",
+        "-5",
+        "-4",
+        "-3",
+        "-2",
+        "-1",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "50",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57",
+        "58",
+        "59",
+        "60"
+      ]
+    },
+    {
+      "name": "d1b2",
+      "path": "/other/d1b2",
+      "type": "menu",
+      "value": "1",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d1b3",
+      "path": "/other/d1b3",
+      "type": "menu",
+      "value": "1",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d1c0",
+      "path": "/other/d1c0",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d1c1",
+      "path": "/other/d1c1",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "d1d0",
+      "path": "/other/d1d0",
+      "type": "menu",
+      "value": "3",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "d1d1",
+      "path": "/other/d1d1",
+      "type": "menu",
+      "value": "8",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ]
+    },
+    {
+      "name": "d1d2",
+      "path": "/other/d1d2",
+      "type": "menu",
+      "value": "9",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13"
+      ]
+    },
+    {
+      "name": "d1d3",
+      "path": "/other/d1d3",
+      "type": "menu",
+      "value": "0",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d1d4",
+      "path": "/other/d1d4",
+      "type": "menu",
+      "value": "2",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "d1d5",
+      "path": "/other/d1d5",
+      "type": "menu",
+      "value": "9",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18"
+      ]
+    },
+    {
+      "name": "d1d6",
+      "path": "/other/d1d6",
+      "type": "menu",
+      "value": "12",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21"
+      ]
+    },
+    {
+      "name": "d1d7",
+      "path": "/other/d1d7",
+      "type": "menu",
+      "value": "3",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d1d8",
+      "path": "/other/d1d8",
+      "type": "menu",
+      "value": "9",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18"
+      ]
+    },
+    {
+      "name": "d1d9",
+      "path": "/other/d1d9",
+      "type": "menu",
+      "value": "12",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21"
+      ]
+    },
+    {
+      "name": "d1da",
+      "path": "/other/d1da",
+      "type": "menu",
+      "value": "3",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "name": "d1db",
+      "path": "/other/d1db",
+      "type": "menu",
+      "value": "9",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18"
+      ]
+    },
+    {
+      "name": "d1dc",
+      "path": "/other/d1dc",
+      "type": "menu",
+      "value": "12",
+      "readonly": false,
+      "choices": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21"
+      ]
+    },
+    {
+      "name": "d200",
+      "path": "/other/d200",
+      "type": "menu",
+      "value": "1",
+      "readonly": false,
+      "choices": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "101",
+        "102",
+        "103",
+        "104",
+        "201",
+        "202",
+        "203",
+        "204",
+        "205",
+        "206",
+        "207",
+        "208",
+        "209"
+      ]
+    },
+    {
+      "name": "d201",
+      "path": "/other/d201",
+      "type": "menu",
+      "value": "0",
+      "readonly": true,
+      "choices": []
+    }
+  ]
+}
