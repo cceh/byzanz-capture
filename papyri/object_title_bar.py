@@ -1,16 +1,18 @@
 """Object title bar — the fat name field at the top of the window.
 
-Hosts the object name (also doubles as input for new objects) and
-rename / close buttons. Layout, sizes, fonts, QSS, and button
-signal-forwards live in `papyri/ui/object_title_bar.ui` — see the .ui
-for everything static. This module carries only the dynamic state
-logic (bind_object, name-input return handling).
+Shows the current object's Inv-No. (read-only) plus the new / rename /
+close buttons. Object creation and rename both happen in a dialog (see
+main.py) — the name field is display-only in the papyri object workspace.
+Layout, sizes, fonts, QSS, and button signal-forwards live in
+`papyri/ui/object_title_bar.ui` — see the .ui for everything static. This
+module carries only the dynamic state logic (bind_object, visibility).
 
 The .ui wires:
     renameButton.clicked  → rename_requested
     closeButton.clicked   → close_requested
-    nameField.returnPressed → _on_name_return  (then emits
-        start_object_requested if the field is editable + non-empty)
+    nameField.returnPressed → _on_name_return  (only meaningful in simple
+        mode, where the field is an editable filename override)
+newButton.clicked → new_object_requested is wired in __init__.
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING
@@ -30,15 +32,16 @@ if TYPE_CHECKING:
 class ObjectTitleBar(QWidget):
     """Top-of-window title row, bound to the current object.
 
-    State propagation:
-        None      → name field editable + empty + placeholder;
+    State propagation (papyri mode — simple mode differs, see set_simple_mode):
+        None      → name field empty (Inv-No. placeholder); "+ New" shown,
                     rename/close hidden.
-        Object    → name field read-only and showing obj.name;
-                    rename/close visible.
+        Object    → name field shows obj.name; "+ New" + rename/close shown.
+    The field is always read-only here — creation/rename use a dialog.
     """
 
     rename_requested = pyqtSignal()
     close_requested = pyqtSignal()
+    new_object_requested = pyqtSignal()
     start_object_requested = pyqtSignal(str)
     # Simple mode only: user clicked the output-folder affordance.
     output_folder_requested = pyqtSignal()
@@ -50,6 +53,7 @@ class ObjectTitleBar(QWidget):
         # uic.loadUi installs child widgets as attributes by objectName.
         # Re-declared here for the type checker / IDE.
         self.nameField: QLineEdit
+        self.newButton: QToolButton
         self.renameButton: QToolButton
         self.closeButton: QToolButton
 
@@ -58,6 +62,8 @@ class ObjectTitleBar(QWidget):
         # refresh on scheme change.
         set_themed_icon(self.renameButton.setIcon, get_ui_path("ui/rename.svg"))
         set_themed_icon(self.closeButton.setIcon, get_ui_path("ui/cancel.svg"))
+        # "+ New" sits in the same button cluster (text-only, no icon).
+        self.newButton.clicked.connect(self.new_object_requested.emit)
 
         self._obj: "Object | None" = None
         # Simple-mode state: the name field becomes a free-text filename
@@ -129,35 +135,32 @@ class ObjectTitleBar(QWidget):
         self._obj = obj
         self._refresh_title_row()
 
-    def focus_name_input(self) -> None:
-        """Move keyboard focus to the name field (used by the sidebar's
-        'New object' affordance). No-op when read-only (object bound)."""
-        if not self.nameField.isReadOnly():
-            self.nameField.setFocus()
-            self.nameField.selectAll()
-
     # ---- internals -----------------------------------------------------
 
     def _refresh_title_row(self) -> None:
         if self._simple:
             # Persistent override field — never read-only, never cleared on
-            # rebind (preserve what the user typed), no rename/close.
+            # rebind (preserve what the user typed), no rename/close/new.
             self.nameField.setReadOnly(False)
+            self.newButton.setVisible(False)
             self.renameButton.setVisible(False)
             self.closeButton.setVisible(False)
             self.nameField.style().unpolish(self.nameField)
             self.nameField.style().polish(self.nameField)
             return
-        if self._obj is None:
-            self.nameField.setReadOnly(False)
-            self.nameField.clear()
-            self.renameButton.setVisible(False)
-            self.closeButton.setVisible(False)
-        else:
-            self.nameField.setReadOnly(True)
+        # Non-simple: the name field is a read-only display of the current
+        # object (or empty with the Inv-No. placeholder). Object creation and
+        # rename both go through the dialog buttons — never inline. "+ New" is
+        # always available; rename/close need an object bound.
+        has_obj = self._obj is not None
+        self.nameField.setReadOnly(True)
+        if has_obj:
             self.nameField.setText(self._obj.name)
-            self.renameButton.setVisible(True)
-            self.closeButton.setVisible(True)
+        else:
+            self.nameField.clear()
+        self.newButton.setVisible(True)
+        self.renameButton.setVisible(has_obj)
+        self.closeButton.setVisible(has_obj)
         # Force re-evaluation of the [readOnly="true"] QSS attribute
         # selector — Qt doesn't repolish on dynamic-property change.
         self.nameField.style().unpolish(self.nameField)

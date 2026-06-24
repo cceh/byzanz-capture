@@ -44,7 +44,35 @@
         </font>
        </property>
        <property name="placeholderText">
-        <string>Object name</string>
+        <string>Inv-No.</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="newButton">
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>24</height>
+        </size>
+       </property>
+       <property name="cursor">
+        <cursorShape>PointingHandCursor</cursorShape>
+       </property>
+       <property name="visible">
+        <bool>true</bool>
+       </property>
+       <property name="toolTip">
+        <string>New object</string>
+       </property>
+       <property name="text">
+        <string>+ New</string>
+       </property>
+       <property name="toolButtonStyle">
+        <enum>Qt::ToolButtonTextOnly</enum>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
        </property>
       </widget>
      </item>

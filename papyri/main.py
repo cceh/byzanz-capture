@@ -685,7 +685,8 @@ class PapyriMainWindow(QMainWindow):
         # The zoom bar lives in the panel's top toolbar (declared in the
         # .ui), not inside the viewer. Wire it to the viewer's
         # photo_viewer here.
-        self.viewer.attach_zoom_bar(self.findChild(ZoomControlBar, "zoomControlBar"))
+        self.zoom_control_bar = self.findChild(ZoomControlBar, "zoomControlBar")
+        self.viewer.attach_zoom_bar(self.zoom_control_bar)
         # Inject the papyri-specific "no object open" CTA into the
         # generic viewer's overlay slot. Drives via show_overlay /
         # show_photo from `_refresh_no_object_lockout`.
@@ -842,6 +843,9 @@ class PapyriMainWindow(QMainWindow):
         self.title_bar.start_object_requested.connect(self.start_object)
         self.title_bar.rename_requested.connect(self.rename_current_object)
         self.title_bar.close_requested.connect(self.close_object)
+        # "+ New" in the title bar reuses the sidebar's new-object flow
+        # (close current, then focus the name field for typing + Enter).
+        self.title_bar.new_object_requested.connect(self._on_sidebar_new_object)
 
         # Connect/disconnect buttons live inside CameraStateWidget —
         # widget-internal wiring, no main.py plumbing needed.
@@ -1663,6 +1667,9 @@ class PapyriMainWindow(QMainWindow):
             self._live_sharpness_enabled and live)
         self.focus_assist_button.setVisible(self._focus_audio_enabled and live)
         self._update_focus_audio()
+        # Zoom controls (fit / 1:1 / −/slider/+) apply to a still capture, not
+        # the live feed — hide them while streaming.
+        self.zoom_control_bar.setVisible(not live)
 
         # ISO/aperture/shutter combos: gated on readiness + not-capturing,
         # intersected with each widget's intrinsic settable-ness.
@@ -2171,16 +2178,18 @@ class PapyriMainWindow(QMainWindow):
         self.objects_sidebar.refresh()
 
     def _on_sidebar_new_object(self) -> None:
-        """Sidebar '+ New object' clicked: close any current object and focus
-        the title bar's name input so the user can type + Enter to create.
+        """'+ New object' (sidebar or title bar): prompt for the inventory
+        number in a dialog — mirrors rename_current_object — then create.
+        start_object handles sanitising / duplicate / empty and switches to
+        the new object (flushing the previous object's metadata on rebind).
         With no box open there's nowhere to put an object, so funnel the user
         to pick/create a box first."""
         if not self.q_settings.value("workingDirectory", ""):
             self._on_new_box()
             return
-        if self.session.current_object is not None:
-            self.close_object()
-        self.title_bar.focus_name_input()
+        name, ok = QInputDialog.getText(self, "New object", "Inv-No.:")
+        if ok and name.strip():
+            self.start_object(name)
 
     # ---- box (= working directory) switching ----
 
