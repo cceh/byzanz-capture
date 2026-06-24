@@ -88,14 +88,38 @@
        </widget>
       </item>
       <item row="4" column="1">
-       <widget class="QCheckBox" name="enableSharpnessCheckCheckbox">
-        <property name="toolTip">
-         <string>Compute a Laplace-variance sharpness metric on every loaded capture. Adds ~300 ms to first-time loads of each image; cached afterward.</string>
-        </property>
-        <property name="text">
-         <string>Compute sharpness on each capture (detects defocus + vibration)</string>
-        </property>
-       </widget>
+       <layout class="QVBoxLayout" name="sharpnessChecksLayout">
+        <item>
+         <widget class="QCheckBox" name="enableSharpnessCheckCheckbox">
+          <property name="toolTip">
+           <string>Compute a Laplace-variance sharpness metric on every loaded capture. Adds ~300 ms to first-time loads of each image; cached afterward.</string>
+          </property>
+          <property name="text">
+           <string>Compute sharpness on each capture (detects defocus + vibration)</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="enableLiveSharpnessCheckbox">
+          <property name="toolTip">
+           <string>Show a live focus-sharpness readout in live view.</string>
+          </property>
+          <property name="text">
+           <string>Show live focus sharpness in live view</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="enableAuditiveFocusAssistCheckbox">
+          <property name="toolTip">
+           <string>Add a live-view toggle that plays a focus tone (pitch rises with sharpness).</string>
+          </property>
+          <property name="text">
+           <string>Enable auditive focus assist (pitch tracks sharpness)</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item row="5" column="0">
        <widget class="QLabel" name="calibrationReminderLabel">

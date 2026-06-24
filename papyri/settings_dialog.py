@@ -18,6 +18,7 @@ from PyQt6.uic import loadUi
 
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.profiles.base import Profile
+from papyri.focus_audio import AUDIO_AVAILABLE
 
 
 _NO_IR_LABEL = "(none — IR disabled)"
@@ -60,6 +61,12 @@ class PapyriSettingsDialog(QDialog):
         )
         self.sharpness_check_checkbox: QCheckBox = self.findChild(
             QCheckBox, "enableSharpnessCheckCheckbox"
+        )
+        self.live_sharpness_checkbox: QCheckBox = self.findChild(
+            QCheckBox, "enableLiveSharpnessCheckbox"
+        )
+        self.auditive_focus_checkbox: QCheckBox = self.findChild(
+            QCheckBox, "enableAuditiveFocusAssistCheckbox"
         )
         self.calibration_trigger_combo: QComboBox = self.findChild(
             QComboBox, "calibrationTriggerSelect"
@@ -121,6 +128,16 @@ class PapyriSettingsDialog(QDialog):
                 "sharpnessCheckEnabled", self.sharpness_check_checkbox.isChecked()
             )
         )
+        self.live_sharpness_checkbox.stateChanged.connect(
+            lambda: self._set(
+                "liveViewSharpnessEnabled", self.live_sharpness_checkbox.isChecked()
+            )
+        )
+        self.auditive_focus_checkbox.stateChanged.connect(
+            lambda: self._set(
+                "enableAuditiveFocusAssist", self.auditive_focus_checkbox.isChecked()
+            )
+        )
         self.calibration_trigger_combo.currentIndexChanged.connect(
             self._on_calibration_trigger_changed
         )
@@ -167,6 +184,18 @@ class PapyriSettingsDialog(QDialog):
         self.sharpness_check_checkbox.setChecked(
             self._q_settings.value("sharpnessCheckEnabled", True, type=bool)
         )
+        self.live_sharpness_checkbox.setChecked(
+            self._q_settings.value("liveViewSharpnessEnabled", True, type=bool)
+        )
+        self.auditive_focus_checkbox.setChecked(
+            self._q_settings.value("enableAuditiveFocusAssist", False, type=bool)
+        )
+        # Greyed out when QtMultimedia isn't available in this build.
+        if not AUDIO_AVAILABLE:
+            self.auditive_focus_checkbox.setEnabled(False)
+            self.auditive_focus_checkbox.setToolTip(
+                "Audio output unavailable in this build (QtMultimedia missing)."
+            )
 
         trigger = self._q_settings.value("calibrationTrigger", "time") or "time"
         t_idx = self.calibration_trigger_combo.findData(trigger)

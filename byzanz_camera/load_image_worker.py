@@ -100,42 +100,46 @@ def _resolved_sharpness(
     return sharp
 
 
-def compute_sharpness(path: str) -> Optional[float]:
-    """Laplace variance on a center-crop of a half-res decode of the
-    capture's JPEG. Designed to catch both subtle defocus and
-    vibration-induced softness:
+def compute_sharpness(source: "str | Image.Image") -> Optional[float]:
+    """Laplace variance on a center-crop of the image — the focus/blur
+    measure, ~70–110 for sharp papyrus captures and single digits for
+    visibly defocused / shaken ones (verified against real ARW samples).
 
-      - decoding at `IMREAD_REDUCED_COLOR_2` (half each side) keeps
-        enough high-frequency content for half-pixel-blur sensitivity
-        without paying the full 60 MP demosaic cost
-      - center-cropping 70% × 70% (~50% of pixels) trims background
-        from the metric — the papyrus is roughly centered on the
-        stand — and halves the Laplace compute cost
-      - the resulting variance is ~70–110 for sharp papyrus captures
-        and drops to single digits for visibly defocused / shaken
-        ones (verified against real ARW samples).
+    `source` is either a file path or an already-decoded frame, so the
+    same metric backs both the post-capture check and the live-view
+    focus readout:
+      - str path → JPEG is decoded at half res (`IMREAD_REDUCED_COLOR_2`,
+        keeps enough high-frequency content for half-pixel-blur
+        sensitivity without the full 60 MP demosaic); RAW pulls the
+        embedded full-res JPEG thumb via rawpy instead of demosaicing.
+      - PIL Image → an in-memory frame (e.g. a live-view preview). Low-res
+        live frames land on a smaller absolute scale than capture files,
+        so compare live values to each other, not to capture numbers.
 
-    For RAW inputs, uses `rawpy.extract_thumb` to pull the embedded
-    full-res JPEG instead of demosaicing the sensor data — same
-    pixels for sharpness purposes, much faster.
-
-    Returns None on any IO/decode failure — sharpness is advisory,
-    never blocks the load."""
+    center-cropping 70% × 70% (~50% of pixels) trims background — the
+    papyrus is roughly centered — and halves the Laplace cost. Returns
+    None on any IO/decode failure — sharpness is advisory, never blocks
+    the load."""
     try:
-        if is_raw(path):
-            with rawpy.imread(path) as raw:
-                thumb = raw.extract_thumb()
-            if thumb.format != rawpy.ThumbFormat.JPEG:
-                return None
-            data = thumb.data
+        if isinstance(source, Image.Image):
+            gray = np.asarray(source.convert("L"))
         else:
-            with open(path, "rb") as f:
-                data = f.read()
-        arr = np.frombuffer(data, np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_REDUCED_COLOR_2)
-        if img is None:
+            if is_raw(source):
+                with rawpy.imread(source) as raw:
+                    thumb = raw.extract_thumb()
+                if thumb.format != rawpy.ThumbFormat.JPEG:
+                    return None
+                data = thumb.data
+            else:
+                with open(source, "rb") as f:
+                    data = f.read()
+            img = cv2.imdecode(np.frombuffer(data, np.uint8),
+                               cv2.IMREAD_REDUCED_COLOR_2)
+            if img is None:
+                return None
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if gray.ndim != 2 or gray.size == 0:
             return None
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         h, w = gray.shape
         crop_w = int(w * 0.7); crop_h = int(h * 0.7)
         x = (w - crop_w) // 2; y = (h - crop_h) // 2
@@ -303,7 +307,15 @@ def _raw_full_qimage(raw) -> QImage:
     # Default user_flip: libraw applies the RAW's Orientation flag, so the
     # decode reflects the file's own orientation (written at capture / on
     # rotate). RTI/dome files carry flip 0, so this is a no-op for them.
-    rgb = raw.postprocess(use_camera_wb=True, output_bps=8)
+    #
+    # no_auto_bright=True: libraw's default auto-brightness stretches each
+    # image's histogram independently, which silently equalises exposure
+    # differences between shots. The preview is meant to let the user judge
+    # the lighting/exposure settings they dialled in (proper development
+    # happens later), so we keep camera WB + sRGB gamma for a natural look
+    # but switch the per-image auto-exposure off so relative brightness is
+    # faithful.
+    rgb = raw.postprocess(use_camera_wb=True, output_bps=8, no_auto_bright=True)
     rgb = np.ascontiguousarray(rgb)
     h, w, _ = rgb.shape
     # .copy() detaches the QImage from the numpy buffer so it survives

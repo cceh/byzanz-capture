@@ -56,7 +56,9 @@ from byzanz_camera.camera_worker import (
     CameraStates, CameraWorker, CaptureImagesRequest, ConfigRequest,
 )
 from byzanz_camera.filmstrip_widget import get_file_index
-from byzanz_camera.load_image_worker import ImageMode, LoadImageWorker
+from byzanz_camera.load_image_worker import (
+    ImageMode, LoadImageWorker, compute_sharpness,
+)
 from byzanz_camera.orientation import read_orientation, write_orientation
 from byzanz_camera.helpers import (
     get_app_icon, get_ui_path, set_state, set_themed_icon, set_themed_pixmap,
@@ -65,6 +67,7 @@ from byzanz_camera.viewer_widget import ViewerWidget
 from byzanz_camera.zoom_control_bar import ZoomControlBar
 from byzanz_camera.config_combo import ConfigComboBox
 from papyri.capture_model import Capture, _CopyRunner
+from papyri.focus_audio import AUDIO_AVAILABLE, FocusAudio
 from papyri._layout import (
     BUCKETS,
     JPG_EXTENSIONS,
@@ -600,6 +603,8 @@ class PapyriMainWindow(QMainWindow):
             "maxPixmapCache": 256,
             "enableSecondScreenMirror": False,
             "sharpnessCheckEnabled": True,
+            "liveViewSharpnessEnabled": True,
+            "enableAuditiveFocusAssist": False,
         }
         for key, value in defaults.items():
             if self.q_settings.value(key) is None:
@@ -610,6 +615,14 @@ class PapyriMainWindow(QMainWindow):
         set_sharpness_enabled(self.q_settings.value(
             "sharpnessCheckEnabled", True, type=bool,
         ))
+        # Gates the live-view sharpness compute and its label.
+        self._live_sharpness_enabled = self.q_settings.value(
+            "liveViewSharpnessEnabled", True, type=bool,
+        )
+        # Master gate for the focus tone; off if QtMultimedia is absent.
+        self._focus_audio_enabled = AUDIO_AVAILABLE and self.q_settings.value(
+            "enableAuditiveFocusAssist", False, type=bool,
+        )
 
     def _bind_widgets(self):
         self.visible_camera_state: CameraStateWidget = self.findChild(
@@ -683,6 +696,9 @@ class PapyriMainWindow(QMainWindow):
         self.magnify_button: QPushButton = self.findChild(QPushButton, "magnifyButton")
         self.rotate_live_view_button: QPushButton = self.findChild(QPushButton, "rotateLiveViewButton")
         self.rotation_label: QLabel = self.findChild(QLabel, "rotationLabel")
+        self.focus_sharpness_label: QLabel = self.findChild(QLabel, "focusSharpnessLabel")
+        self.focus_assist_button: QPushButton = self.findChild(QPushButton, "focusAssistButton")
+        self.focus_audio = FocusAudio(self)
         self.capture_status_label: QLabel = self.findChild(QLabel, "captureStatusLabel")
         self.capture_button: QPushButton = self.findChild(QPushButton, "captureButton")
 
@@ -825,6 +841,7 @@ class PapyriMainWindow(QMainWindow):
         self.pause_live_view_button.toggled.connect(self._on_pause_toggled)
         self.autofocus_button.clicked.connect(self._trigger_autofocus)
         self.magnify_button.toggled.connect(self._on_magnify_toggled)
+        self.focus_assist_button.toggled.connect(self._on_focus_assist_toggled)
         self.rotate_live_view_button.clicked.connect(self._rotate_view)
         self.capture_button.clicked.connect(self.capture_image)
 
@@ -1362,6 +1379,8 @@ class PapyriMainWindow(QMainWindow):
         because the OLD value is by definition gone from session state by
         the time we'd want to use it; this isn't a reactive refresh, it's
         a one-shot business action triggered by the workflow-step click."""
+        # New camera = new sharpness scale; drop the adaptive audio range.
+        self.focus_audio.reset()
         old_worker = (
             self.visible_worker if old_spectrum == SPECTRUM_VISIBLE
             else self.ir_worker
@@ -1549,6 +1568,13 @@ class PapyriMainWindow(QMainWindow):
         # whatever's displayed (preview thumbnail, last-paused frame).
         if self.session.live_view_paused:
             return
+        # One sharpness compute feeds both the readout and the focus tone.
+        if self._live_sharpness_enabled or self.focus_audio.is_active():
+            sharp = compute_sharpness(image.image)
+            if self._live_sharpness_enabled:
+                self.focus_sharpness_label.setText(
+                    f"◎ {sharp:.0f}" if sharp is not None else "◎ –")
+            self.focus_audio.push(sharp)
         # Fit-to-viewport only on the first frame of a live-view session
         # — the transition from any non-"live" view_mode (paused / preview
         # / empty) into live is the natural trigger. After that, subsequent
@@ -1566,6 +1592,22 @@ class PapyriMainWindow(QMainWindow):
         # Each arriving live frame asserts "live" — handles transitions
         # away from preview/paused without needing extra plumbing.
         self.session.set_view_mode("live")
+
+    def _on_focus_assist_toggled(self, _checked: bool) -> None:
+        self._update_focus_audio()
+
+    def _update_focus_audio(self) -> None:
+        """Play the focus tone only when enabled, the button is on, and live
+        view is streaming. Idempotent."""
+        live = isinstance(
+            self.session.active_camera_state,
+            (CameraStates.LiveViewStarted, CameraStates.LiveViewActive),
+        )
+        self.focus_audio.set_active(
+            self._focus_audio_enabled
+            and self.focus_assist_button.isChecked()
+            and live
+        )
 
     # ---- B3+B4 + B5 receiver (camera-state-driven UI) -----------------
 
@@ -1607,6 +1649,12 @@ class PapyriMainWindow(QMainWindow):
             self.magnify_button.blockSignals(True)
             self.magnify_button.setChecked(False)
             self.magnify_button.blockSignals(False)
+
+        # Focus aids: show each only while streaming AND its feature is on.
+        self.focus_sharpness_label.setVisible(
+            self._live_sharpness_enabled and live)
+        self.focus_assist_button.setVisible(self._focus_audio_enabled and live)
+        self._update_focus_audio()
 
         # ISO/aperture/shutter combos: gated on readiness + not-capturing,
         # intersected with each widget's intrinsic settable-ness.
@@ -2414,6 +2462,12 @@ class PapyriMainWindow(QMainWindow):
             elif name == "sharpnessCheckEnabled":
                 from byzanz_camera.load_image_worker import set_sharpness_enabled
                 set_sharpness_enabled(bool(value))
+            elif name == "liveViewSharpnessEnabled":
+                self._live_sharpness_enabled = bool(value)
+                self._refresh_camera_dependent_ui()
+            elif name == "enableAuditiveFocusAssist":
+                self._focus_audio_enabled = AUDIO_AVAILABLE and bool(value)
+                self._refresh_camera_dependent_ui()
             elif name in ("calibrationTrigger", "calibrationIntervalMinutes"):
                 # Controller reads these from QSettings live; refresh so the
                 # bar reflects the new trigger/interval immediately.
@@ -2497,6 +2551,8 @@ class PapyriMainWindow(QMainWindow):
     # ---------------------------------------------------------- lifecycle
 
     def closeEvent(self, event: QCloseEvent):
+        # Release the audio sink.
+        self.focus_audio.set_active(False)
         # Worker shutdown:
         #   1. requestInterruption() so polling loops in __find_camera /
         #      captureImages break out of their while-conditions.
