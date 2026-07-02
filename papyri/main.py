@@ -68,20 +68,23 @@ from byzanz_camera.zoom_control_bar import ZoomControlBar
 from byzanz_camera.config_combo import ConfigComboBox
 from papyri.capture_model import Capture, _CopyRunner
 from papyri.focus_audio import AUDIO_AVAILABLE, FocusAudio
-from papyri._layout import (
-    BUCKETS,
+from papyri.capture_vocab import (
     JPG_EXTENSIONS,
     RAW_EXTENSIONS,
     SIDE_A,
     SIDE_B,
+    SPECTRUM_INFIX,
     SPECTRUM_INFRARED,
     SPECTRUM_VISIBLE,
+    is_hidden_file,
+    sanitize_name,
+)
+from papyri.object_layout import (
+    BUCKETS,
     chosen_path_for,
     dir_for_bucket,
-    is_hidden_file,
     is_managed_object_dir,
     meta_path_for,
-    sanitize_name,
     side_dir_for,
 )
 from papyri.camera_state_widget import CameraStateWidget
@@ -101,7 +104,7 @@ from byzanz_camera.profiles.virtual_camera_vusb import VirtualCameraVusb
 from papyri.bucket_selector import BucketSelector, FusingPanel
 from papyri.calibration import CalibrationController
 from papyri.calibration_bar import CalibrationBar
-from papyri.calibration_spec import first_slot_for, label_for_slot
+from papyri.calibration_layout import first_slot_for, label_for_slot
 from papyri.calibration_target import CalibrationTarget
 from papyri.capture_mode import CALIBRATION_MODE, get_mode
 from papyri._metadata import parse_height_choices
@@ -166,7 +169,6 @@ class Object(QObject):
 
     # File-name infixes used in `next_template`.
     _SIDE_INFIX = {SIDE_A: "a", SIDE_B: "b"}
-    _SPECTRUM_INFIX = {SPECTRUM_VISIBLE: "vis", SPECTRUM_INFRARED: "ir"}
 
     def __init__(self, working_dir: str, name: str, parent=None):
         super().__init__(parent)
@@ -251,7 +253,7 @@ class Object(QObject):
         collide with the existing 003."""
         n = self._max_index_on_disk(side, spectrum) + 1
         s_inf = self._SIDE_INFIX[side]
-        sp_inf = self._SPECTRUM_INFIX[spectrum]
+        sp_inf = SPECTRUM_INFIX[spectrum]
         stem = f"{self.name}_{s_inf}_{sp_inf}_{n:03d}"
         return stem, self.dir_for(side, spectrum)
 
@@ -304,7 +306,7 @@ class Object(QObject):
             return []
         base = self._max_index_on_disk(side, spectrum)
         s_inf = self._SIDE_INFIX[side]
-        sp_inf = self._SPECTRUM_INFIX[spectrum]
+        sp_inf = SPECTRUM_INFIX[spectrum]
         bucket_dir = Path(self.dir_for(side, spectrum))
         os.makedirs(bucket_dir, exist_ok=True)
         plan: list[tuple[Path, Path]] = []
@@ -334,7 +336,7 @@ class Object(QObject):
         os.makedirs(dest_dir, exist_ok=True)
         next_idx = self._max_index_on_disk(dest_side, src_spectrum) + 1
         s_inf = self._SIDE_INFIX[dest_side]
-        sp_inf = self._SPECTRUM_INFIX[src_spectrum]
+        sp_inf = SPECTRUM_INFIX[src_spectrum]
         new_stem = f"{self.name}_{s_inf}_{sp_inf}_{next_idx:03d}"
 
         # Move every file for this stem (jpg + raw if present).

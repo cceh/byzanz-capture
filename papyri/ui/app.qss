@@ -84,17 +84,58 @@
 #sidebarList {
     background: transparent;
     border: none;
-    font-size: 11pt;
+    font-size: 11pt;             /* inherited by the row name labels */
 }
 #sidebarList::item {
-    padding: 6px 6px;
     border-radius: 4px;
 }
 #sidebarList::item:selected {
     background: $vis_soft;       /* low-weight tint, identifies the
                                     selected row without competing
-                                    with the photo viewer below */
-    color: $vis_text_dark;
+                                    with the photo viewer below.
+                                    Row widgets are transparent, so
+                                    this shines through behind them. */
+}
+/* Object rows (_ObjectRowWidget): name + ⚠/VIS/IR pills, date below. */
+#sidebarRowName[empty="true"] {
+    color: $ink_3;               /* object with no captures yet recedes */
+}
+#sidebarRowDate {
+    color: $ink_3;
+    font-size: 8pt;
+}
+#sidebarRowWarn {
+    color: $cal_due;             /* has captures, metadata incomplete */
+    font-size: 10pt;
+    font-weight: 700;
+}
+/* Spectrum mini-pill — same recipe as #cameraSideBadge, one size down.
+   Filled = spectrum complete (both sides captured); outlined ("partial")
+   = only one side so far. The transparent border keeps both variants
+   exactly the same size. */
+#sidebarSpectrumPill {
+    color: white;
+    padding: 1px 5px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 7pt;
+}
+#sidebarSpectrumPill[spectrum="VIS"] {
+    background: $vis;
+}
+#sidebarSpectrumPill[spectrum="IR"] {
+    background: $ir;
+}
+#sidebarSpectrumPill[spectrum="VIS"][partial="true"] {
+    background: transparent;
+    color: $vis;
+    border-color: $vis;
+}
+#sidebarSpectrumPill[spectrum="IR"][partial="true"] {
+    background: transparent;
+    color: $ir;
+    border-color: $ir;
 }
 #sidebarWorkdir {
     color: $ink_3;

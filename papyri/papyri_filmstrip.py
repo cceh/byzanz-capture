@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import QMenu
 from byzanz_camera.capture_filmstrip import CaptureFilmstrip
 from byzanz_camera.filmstrip_widget import THUMB_GAP, stem_of
 from byzanz_camera.load_image_worker import SUPPORTED_EXTENSIONS
-from papyri._layout import SIDE_A, SIDE_B, SPECTRUM_VISIBLE
+from papyri.capture_vocab import SIDE_A, SIDE_B, SPECTRUM_VISIBLE
 
 
 class _DropMarker(QWidget):

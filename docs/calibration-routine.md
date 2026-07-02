@@ -102,7 +102,7 @@ a single fixed height (Settings → "Camera height IR (cm)").
 
 ## Implementation (for developers)
 
-- **`papyri/calibration_spec.py`** — the single source of truth: which
+- **`papyri/calibration_layout.py`** — the single source of truth: which
   targets exist per camera (`CALIBRATION_TARGETS`), each with `per_height`
   (Flatfield) and `required` (ColorChecker is not). Edit this list to
   add/remove a target; asymmetry between cameras is fine.

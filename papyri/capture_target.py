@@ -5,6 +5,12 @@ There are three implementations, all duck-typed (no inheritance):
   - `SimpleTarget`      (simple_target.py)   simple mode: one flat folder
   - `CalibrationTarget` (calibration_target.py) calibration: per (slot, spectrum)
 
+The map of where each family's on-disk layout is written down:
+  - objects     → object_layout.py       (tree, naming, completeness)
+  - calibration → calibration_layout.py  (tree, naming, completeness)
+  - simple      → no layout module: flat folder, naming inline in simple_target.py
+  - shared axes + file primitives for all families → capture_vocab.py
+
 `main.py` and the filmstrip drive a target purely through this surface, so
 the capture pipeline / live view / filmstrip never branch on the mode — the
 target object decides where files go and what comes back. That mode-blind

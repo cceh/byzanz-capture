@@ -10,7 +10,7 @@ import json
 import os
 from dataclasses import dataclass
 
-from papyri._layout import meta_path_for
+from papyri.object_layout import meta_path_for
 
 
 # Camera-height presets. The capture-row "Height" control, the per-height
@@ -53,7 +53,7 @@ class FieldSchema:
 
 
 # Inventory number is intentionally NOT a metadata field: the object's
-# directory name IS its inv no (per the layout convention in `_layout.py`).
+# directory name IS its inv no (per the layout convention in `object_layout.py`).
 # Adding it to the form would risk drift between filename and metadata.
 #
 # Box no. is likewise NOT a form field: a box is a whole working directory

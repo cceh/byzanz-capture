@@ -1,10 +1,13 @@
-"""On-disk layout constants and helpers shared between Object (main.py) and
-the objects sidebar. Lives in its own module to avoid a main↔sidebar import
-cycle.
+"""Object layout — the on-disk contract of the FULL-mode papyri object
+family: directory scheme, marker file, per-bucket scans, completeness
+rules. Pure path functions, no Qt — shared between `Object` (main.py) and
+the objects sidebar without a main↔sidebar import cycle.
 
-Two orthogonal axes:
-    SIDE     — A or B, the physical face of the papyrus
-    SPECTRUM — visible or infrared, which camera/wavelength was used
+One layout module per storage family, all built alike (tree diagram,
+naming, completeness): this one for objects, `calibration_layout.py` for
+calibration runs; simple mode has no layout module (flat folder, naming
+inline in `simple_target.py`). The axes and file-level primitives that
+all families share live in `capture_vocab.py`.
 
 Layout:
     <working_dir>/
@@ -21,6 +24,13 @@ Layout:
                 visible/  ...
                 infrared/ ...
 
+Completeness rules (drive the sidebar chips):
+    - a SPECTRUM is complete when every side has ≥1 capture
+      (`is_spectrum_complete`); the calibration counterpart is the
+      `required` flag in `calibration_layout.py`
+    - metadata completeness is a separate, schema-driven rule — see
+      `papyri._metadata.is_metadata_complete`
+
 Naming rule: identifiers that mean "side" (A/B) use SIDE_*; identifiers
 that mean "spectrum" (visible/infrared) use SPECTRUM_*. Earlier code used
 "side" to mean spectrum — that terminology has been retired.
@@ -28,46 +38,22 @@ that mean "spectrum" (visible/infrared) use SPECTRUM_*. Earlier code used
 from __future__ import annotations
 import os
 
+from papyri.capture_vocab import (
+    CAPTURE_EXTENSIONS, SIDE_A, SIDE_B, SIDES, SPECTRA, SPECTRUM_INFRARED,
+    SPECTRUM_VISIBLE, is_hidden_file,
+)
+
 META_FILENAME = "_meta.json"
-
-# Sides — physical faces of the papyrus.
-SIDE_A = "side_a"
-SIDE_B = "side_b"
-SIDES: tuple[str, ...] = (SIDE_A, SIDE_B)
-
-# Spectra — which camera / wavelength.
-SPECTRUM_VISIBLE = "visible"
-SPECTRUM_INFRARED = "infrared"
-SPECTRA: tuple[str, ...] = (SPECTRUM_VISIBLE, SPECTRUM_INFRARED)
 
 # Subdir name = side or spectrum identifier directly.
 _SIDE_SUBDIRS = {SIDE_A: "side_a", SIDE_B: "side_b"}
 _SPECTRUM_SUBDIRS = {SPECTRUM_VISIBLE: "visible", SPECTRUM_INFRARED: "infrared"}
 
-# All four (side, spectrum) buckets in a stable iteration order.
+# All four (side, spectrum) buckets in a stable iteration order — the
+# object family's bucket universe (counterpart: CALIBRATION_BUCKETS).
 BUCKETS: tuple[tuple[str, str], ...] = tuple(
     (s, sp) for s in SIDES for sp in SPECTRA
 )
-
-JPG_EXTENSIONS = {".jpg", ".jpeg"}
-RAW_EXTENSIONS = {".arw", ".nef", ".cr2", ".cr3", ".dng", ".raf", ".orf", ".rw2"}
-CAPTURE_EXTENSIONS = JPG_EXTENSIONS | RAW_EXTENSIONS
-
-
-def sanitize_name(text: str) -> str:
-    """Normalize a user-typed object name / filename prefix into a single
-    path component. Slashes and backslashes become underscores so the name
-    can't smuggle in subdirectories; spaces are kept verbatim."""
-    return (text or "").strip().replace("/", "_").replace("\\", "_")
-
-
-def is_hidden_file(name: str) -> bool:
-    """True for dot-files — hidden entries and macOS AppleDouble sidecars
-    (`._foo.ARW`), which macOS writes next to every real file on exFAT/SMB
-    volumes that can't store extended attributes natively. They share the
-    real file's extension and trailing index, so capture scans must skip
-    them or each take shows up twice."""
-    return name.startswith(".")
 
 
 # ---- core helpers ---------------------------------------------------------
@@ -115,20 +101,40 @@ def has_captures_for_bucket(object_dir: str, side: str, spectrum: str) -> bool:
     return False
 
 
-def has_any_captures(object_dir: str) -> bool:
-    """True if any of the four buckets contains at least one capture."""
-    return any(
-        has_captures_for_bucket(object_dir, side, spectrum)
-        for side, spectrum in BUCKETS
-    )
-
-
-def filled_bucket_count(object_dir: str) -> int:
-    """How many of the 4 buckets have ≥ 1 capture (used for sidebar badge)."""
+def captured_sides_for_spectrum(object_dir: str, spectrum: str) -> int:
+    """How many of the two sides have ≥1 capture for `spectrum` (0–2)."""
     return sum(
-        1 for side, spectrum in BUCKETS
+        1 for side in SIDES
         if has_captures_for_bucket(object_dir, side, spectrum)
     )
+
+
+def is_spectrum_complete(object_dir: str, spectrum: str) -> bool:
+    """THE completeness rule of the object family: a spectrum is complete
+    when every physical side has ≥1 capture for it."""
+    return captured_sides_for_spectrum(object_dir, spectrum) == len(SIDES)
+
+
+def newest_capture_mtime(object_dir: str) -> float | None:
+    """mtime of the newest capture file across all four buckets, or None if
+    the object has no captures. Drives the sidebar's per-object date line."""
+    newest: float | None = None
+    for side, spectrum in BUCKETS:
+        bucket_dir = dir_for_bucket(object_dir, side, spectrum)
+        if not os.path.isdir(bucket_dir):
+            continue
+        for f in os.listdir(bucket_dir):
+            if is_hidden_file(f):
+                continue
+            if os.path.splitext(f)[1].lower() not in CAPTURE_EXTENSIONS:
+                continue
+            try:
+                mtime = os.path.getmtime(os.path.join(bucket_dir, f))
+            except OSError:
+                continue    # file vanished between listdir and stat
+            if newest is None or mtime > newest:
+                newest = mtime
+    return newest
 
 
 # ---- working-dir-level helpers --------------------------------------------
@@ -144,10 +150,3 @@ def list_managed_objects(working_dir: str | None) -> list[str]:
     )
 
 
-def has_any_captures_for(working_dir: str, name: str) -> bool:
-    """Convenience: any captures (across all 4 buckets) for `(working_dir, name)`."""
-    return has_any_captures(os.path.join(working_dir, name))
-
-
-def filled_bucket_count_for(working_dir: str, name: str) -> int:
-    return filled_bucket_count(os.path.join(working_dir, name))

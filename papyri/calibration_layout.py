@@ -1,5 +1,18 @@
-"""Calibration layout — the single source of truth for "which calibration
-targets exist, per camera".
+"""Calibration layout — the on-disk contract of the calibration family:
+the single source of truth for "which calibration targets exist, per
+camera", their folders and naming.
+
+One layout module per storage family, all built alike: this one for
+calibration runs, `object_layout.py` for full papyri objects; simple mode
+has no layout module (flat folder, naming inline in `simple_target.py`).
+The axes and file-level primitives all families share live in
+`capture_vocab.py`.
+
+Completeness rule of this family: per camera, every spec with
+`required=True` needs a fresh-enough capture. It is *evaluated* by
+`calibration.CalibrationController`, because freshness involves time and
+rig height — which don't belong in a pure layout module. The object
+counterpart is `object_layout.is_spectrum_complete`.
 
 One list (`CALIBRATION_TARGETS`) drives three things, so they can never
 drift apart:
@@ -26,11 +39,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from papyri._layout import SPECTRUM_INFRARED, SPECTRUM_VISIBLE
+from papyri.capture_vocab import (
+    SPECTRUM_INFIX, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
+)
 
 CALIBRATION_DIRNAME = "_calibration"
-
-_INFIX = {SPECTRUM_VISIBLE: "vis", SPECTRUM_INFRARED: "ir"}
 
 
 @dataclass(frozen=True)
@@ -71,13 +84,9 @@ _LABEL_FOR_SLOT = {s.slot: s.label for s in CALIBRATION_TARGETS}
 _PER_HEIGHT_SLOTS = {s.slot for s in CALIBRATION_TARGETS if s.per_height}
 
 
-def infix_for(spectrum: str) -> str:
-    return _INFIX.get(spectrum, "vis")
-
-
 def cal_step_id(slot: str, spectrum: str) -> str:
     """Stepper id for a calibration bucket, e.g. ('cal_cc','visible') → 'cal_cc_vis'."""
-    return f"{slot}_{infix_for(spectrum)}"
+    return f"{slot}_{SPECTRUM_INFIX[spectrum]}"
 
 
 def folder_for_slot(slot: str) -> str:

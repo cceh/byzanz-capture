@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from papyri._layout import SIDE_A, SPECTRUM_INFRARED, SPECTRUM_VISIBLE
+from papyri.capture_vocab import SIDE_A, SPECTRUM_INFRARED, SPECTRUM_VISIBLE
 
 if TYPE_CHECKING:
     from byzanz_camera.camera_worker import CameraStates

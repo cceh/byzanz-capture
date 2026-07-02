@@ -39,7 +39,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from papyri._layout import list_managed_objects
+from papyri.object_layout import list_managed_objects
 
 _logger = logging.getLogger("RotatedSampleNudge")
 

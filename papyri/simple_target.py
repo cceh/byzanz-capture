@@ -31,9 +31,9 @@ from PyQt6.QtCore import QObject, QThreadPool, pyqtSignal
 
 from byzanz_camera.filmstrip_widget import get_file_index
 from papyri.capture_model import Capture, _CopyRunner
-from papyri._layout import (
-    JPG_EXTENSIONS, RAW_EXTENSIONS, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
-    is_hidden_file, sanitize_name,
+from papyri.capture_vocab import (
+    JPG_EXTENSIONS, RAW_EXTENSIONS, SPECTRUM_INFIX, is_hidden_file,
+    sanitize_name,
 )
 
 
@@ -50,7 +50,6 @@ class SimpleTarget(QObject):
     state_changed = pyqtSignal()
     import_failed = pyqtSignal(Path)
 
-    _SPECTRUM_INFIX = {SPECTRUM_VISIBLE: "vis", SPECTRUM_INFRARED: "ir"}
 
     def __init__(self, output_dir: str, name_override: str = "", parent=None):
         super().__init__(parent)
@@ -113,7 +112,7 @@ class SimpleTarget(QObject):
         self.ensure_dir()
         if not self._name_override:
             return os.path.join(self.output_dir, "${basename}${extension}")
-        infix = self._SPECTRUM_INFIX.get(spectrum, "vis")
+        infix = SPECTRUM_INFIX[spectrum]
         prefix = f"{self._name_override}_{infix}"
         n = self._max_index_for(prefix) + 1
         stem = f"{prefix}_{n:03d}"
@@ -174,7 +173,7 @@ class SimpleTarget(QObject):
                 for src in paths:
                     plan.append((src, out / src.name))
             return plan
-        infix = self._SPECTRUM_INFIX.get(spectrum, "vis")
+        infix = SPECTRUM_INFIX[spectrum]
         prefix = f"{self._name_override}_{infix}"
         base = self._max_index_for(prefix)
         for i, paths in enumerate(groups.values()):

@@ -20,10 +20,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from papyri._layout import (
+from papyri.capture_vocab import (
     SIDE_A, SIDE_B, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
 )
-from papyri.calibration_spec import CALIBRATION_TARGETS, cal_step_id, specs_for
+from papyri.calibration_layout import CALIBRATION_TARGETS, cal_step_id, specs_for
 from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
 
 

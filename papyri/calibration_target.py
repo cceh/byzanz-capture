@@ -12,7 +12,7 @@ change just starts a fresh run:
 e.g. `_calibration/2026-06-21_093015/visible/colorchecker/colorchecker_vis_001.jpg`.
 
 The set of buckets + their folders comes entirely from
-`papyri.calibration_spec` — this class has no hard-coded notion of
+`papyri.calibration_layout` — this class has no hard-coded notion of
 "ColorChecker" or "Flatfield", so adding/removing a target is a spec edit.
 There is no metadata, no keeper file (the card thumbnail just shows the
 latest take), and no move-between-buckets.
@@ -26,12 +26,13 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QThreadPool, pyqtSignal
 
 from byzanz_camera.filmstrip_widget import get_file_index
-from papyri.calibration_spec import (
-    CALIBRATION_BUCKETS, CALIBRATION_DIRNAME, folder_for_slot, infix_for,
-    is_per_height,
+from papyri.calibration_layout import (
+    CALIBRATION_BUCKETS, CALIBRATION_DIRNAME, folder_for_slot, is_per_height,
 )
 from papyri.capture_model import Capture, _CopyRunner
-from papyri._layout import JPG_EXTENSIONS, RAW_EXTENSIONS, is_hidden_file
+from papyri.capture_vocab import (
+    JPG_EXTENSIONS, RAW_EXTENSIONS, SPECTRUM_INFIX, is_hidden_file,
+)
 
 
 class CalibrationTarget(QObject):
@@ -90,7 +91,7 @@ class CalibrationTarget(QObject):
         sequence."""
         bucket_dir = self.dir_for(slot, spectrum)
         os.makedirs(bucket_dir, exist_ok=True)
-        prefix = f"{folder_for_slot(slot)}_{infix_for(spectrum)}"
+        prefix = f"{folder_for_slot(slot)}_{SPECTRUM_INFIX[spectrum]}"
         if is_per_height(slot):
             height = self._height_for(spectrum)
             if height:
@@ -166,7 +167,7 @@ class CalibrationTarget(QObject):
             return []
         out = Path(self.dir_for(slot, spectrum))
         os.makedirs(out, exist_ok=True)
-        prefix = f"{folder_for_slot(slot)}_{infix_for(spectrum)}"
+        prefix = f"{folder_for_slot(slot)}_{SPECTRUM_INFIX[spectrum]}"
         base = self._max_index_for(str(out), prefix)
         plan: list[tuple[Path, Path]] = []
         for i, paths in enumerate(groups.values()):

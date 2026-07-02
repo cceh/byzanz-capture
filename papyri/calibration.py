@@ -1,7 +1,7 @@
 """Calibration due-tracking — the periodic reminder behind the bar's idle chip.
 
 A camera's calibration is "done" when every *required* target for it
-(from `papyri.calibration_spec`) has a recent enough shot — across all
+(from `papyri.calibration_layout`) has a recent enough shot — across all
 timestamped runs under `_calibration/<run>/<spectrum>/<folder>/`. Capture +
 review themselves live in `CalibrationTarget`; this module only answers
 "is calibration due, per camera?" for the idle status chip.
@@ -24,10 +24,10 @@ from datetime import datetime
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
-from papyri.calibration_spec import (
+from papyri.calibration_layout import (
     CALIBRATION_DIRNAME, CALIBRATION_TARGETS, is_per_height, required_specs_for,
 )
-from papyri._layout import (
+from papyri.capture_vocab import (
     CAPTURE_EXTENSIONS, SPECTRUM_INFRARED, SPECTRUM_VISIBLE, is_hidden_file,
 )
 
