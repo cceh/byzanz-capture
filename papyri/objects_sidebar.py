@@ -11,7 +11,7 @@ two-line row each:
                     for that spectrum yet
     ⚠             — amber: has captures but required metadata is missing
                     (per the schema in `papyri._metadata`)
-    no captures   — dimmed name, "no captures" as the date line
+    no captures   — no pills, "no captures" as the (muted) date line
     (active row uses Qt's standard list selection highlight)
 
 Box no. is the box directory's name, not a per-object field — switching or
@@ -148,7 +148,6 @@ class _ObjectRowWidget(QWidget):
         # elide instead.
         name.setSizePolicy(QSizePolicy.Policy.Ignored,
                            QSizePolicy.Policy.Preferred)
-        set_state(name, "empty", not entry.has_captures)
         top.addWidget(name, 1)
 
         if entry.needs_metadata:

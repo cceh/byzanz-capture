@@ -295,7 +295,7 @@ class BucketTabBar(QTabBar):
         badge_label = self._short_label
         if badge_label:
             badge_font = p.font()
-            badge_font.setPointSize(8)
+            badge_font.setPointSize(9)
             badge_font.setBold(True)
             badge_text_w = QFontMetricsF(badge_font).horizontalAdvance(badge_label)
             badge_rect = QRectF(
@@ -317,7 +317,7 @@ class BucketTabBar(QTabBar):
 
         text_w = rect.right() - text_x - 8
         font = p.font()
-        font.setPointSize(11)
+        font.setPointSize(12)
         font.setBold(True)
         p.setFont(font)
         p.setPen(QPen(self._accent_color if active
