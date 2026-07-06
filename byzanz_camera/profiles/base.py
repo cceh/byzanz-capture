@@ -16,6 +16,18 @@ class Profile(ABC):
         """
         return None
 
+    def gphoto2_port(self) -> str | None:
+        """Exact gphoto2 port path this profile must bind to, or `None` to
+        pick the first camera matching gphoto2_model_pattern (the normal
+        case — a real camera's USB port is discovered at detection time and
+        must not be hard-pinned, or it wouldn't survive re-enumeration).
+
+        Only the virtual-camera profiles override this: the vusb emulator
+        exposes two identical "Nikon DSC D750" cameras that differ only by
+        port ("vusb:" vs "vusb:2"), so pinning the port is the only way to
+        assign one to the visible slot and the other to IR."""
+        return None
+
     def has_settable_aperture(self) -> bool:
         """Whether the body can drive the aperture electronically. Return
         False for a manual aperture-ring lens (e.g. D90 + CoastalOpt 60/4

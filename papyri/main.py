@@ -121,6 +121,12 @@ PROFILES = {
     "CCeHDomeNikonD800E": CCeHDomeNikonD800E(),
     "NikonD90": NikonD90(),
     "VirtualCameraVusb": VirtualCameraVusb(),
+    # Second emulator on the "vusb:2" port (patched vendor build), so the
+    # visible AND infrared slots can both run without hardware: assign this
+    # to the IR profile in Settings while the visible slot uses the first.
+    "VirtualCameraVusb2": VirtualCameraVusb(
+        port="vusb:2", name="Virtual Camera 2 (vusb)"
+    ),
 }
 
 
@@ -1107,6 +1113,7 @@ class PapyriMainWindow(QMainWindow):
         pattern. Caller wires the signals and starts the thread."""
         worker = CameraWorker()
         worker.target_model_pattern = profile.gphoto2_model_pattern()
+        worker.pinned_port = profile.gphoto2_port()
         thread = QThread()
         worker.moveToThread(thread)
         thread.started.connect(worker.initialize)

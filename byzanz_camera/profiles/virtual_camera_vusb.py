@@ -6,10 +6,14 @@ class VirtualCameraVusb(Profile):
     driver + `ptp2` camlib), for running the app without real hardware.
 
     Requires the patched vendor build — see scripts/bootstrap-gphoto2.sh and
-    vendor/patches/. With those applied the virtual camera coexists with a
-    real USB camera in the same process: autodetect reports it as
-    "Nikon DSC D750" on the `vusb:` port, so this profile can be assigned to
-    one camera slot (e.g. IR) while a real body drives the other (VIS).
+    vendor/patches/. With those applied the emulator coexists with a real USB
+    camera in the same process AND exposes two independent virtual cameras,
+    reported by autodetect as "Nikon DSC D750" on the `vusb:` and `vusb:2`
+    ports. So a single instance can back one slot (e.g. IR) alongside a real
+    body (VIS), or — with `VirtualCameraVusb2` pinned to `vusb:2` — both the
+    visible and IR slots can run on the emulator with no hardware at all.
+    The `port` ctor arg is what assigns an instance to a specific vusb port
+    (they are otherwise indistinguishable — same model name).
 
     The emulator is deliberately minimal. What it does and does NOT do
     shapes every method below:
@@ -27,13 +31,26 @@ class VirtualCameraVusb(Profile):
         nothing real to set.
     """
 
+    def __init__(self, port: str = "vusb:", name: str = "Virtual Camera (vusb)"):
+        # `port` pins this profile to a specific vusb port. The patched
+        # vendor build exposes two identical "Nikon DSC D750" cameras on
+        # "vusb:" and "vusb:2" (see libgphoto2_port/vusb/vusb.c), so papyri
+        # can run BOTH the visible and IR slots on the emulator by giving
+        # each worker a different port — the model pattern alone can't tell
+        # two identical virtual cameras apart.
+        self._port = port
+        self._name = name
+
     def name(self) -> str:
-        return "Virtual Camera (vusb)"
+        return self._name
 
     def gphoto2_model_pattern(self) -> str:
         # The vcamera defaults to emulating a Nikon D750; autodetect reports
         # it as "Nikon DSC D750" (see libgphoto2_port/vusb/vusb.c).
         return "Nikon DSC D750"
+
+    def gphoto2_port(self) -> str:
+        return self._port
 
     def supports_live_view(self) -> bool:
         # capture_preview() is unsupported by the emulator. Returning False

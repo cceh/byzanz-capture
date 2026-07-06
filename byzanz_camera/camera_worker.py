@@ -273,7 +273,17 @@ class CameraWorker(QObject):
         # Multi-camera identification (set by the orchestrator before
         # emitting find_camera). When None, behavior matches single-camera
         # mode: pick the first detected camera, no port pinning.
+        #
+        # target_model_pattern filters detection by model name.
+        # pinned_port additionally requires an exact port match — needed
+        # when two cameras report the SAME model and only differ by port
+        # (the two vusb virtual cameras on "vusb:" / "vusb:2"). Unlike a
+        # real camera's discovered port, a pin is stable across reconnects
+        # by design, so it lives in its own field and is never overwritten
+        # by detection. target_port below is the DISCOVERED port that
+        # __connect_camera binds to.
         self.target_model_pattern: str | None = None
+        self.pinned_port: str | None = None
         self.target_port: str | None = None
 
         self.filesCounter = 0
@@ -361,8 +371,11 @@ class CameraWorker(QObject):
     def __find_camera(self):
         self.__set_state(CameraStates.Waiting())
         pattern = self.target_model_pattern  # snapshot — orchestrator may rebind
+        pin = self.pinned_port               # snapshot — exact-port requirement, if any
         found = None
         log_target = f" matching {pattern!r}" if pattern else ""
+        if pin:
+            log_target += f" on port {pin!r}"
 
         # INFO once, DEBUG on the ~1s retries — a camera that's switched
         # off overnight would otherwise write thousands of identical
@@ -378,9 +391,12 @@ class CameraWorker(QObject):
             with _GPHOTO2_GLOBAL_LOCK:
                 detected = _gphoto2_autodetect()
             for model, port in detected:
-                if pattern is None or pattern in model:
-                    found = (model, port)
-                    break
+                if pattern is not None and pattern not in model:
+                    continue
+                if pin is not None and port != pin:
+                    continue
+                found = (model, port)
+                break
             if not found:
                 sleep(1)
 
