@@ -1,0 +1,33 @@
+diff --git a/libgphoto2_port/vusb/vusb.c b/libgphoto2_port/vusb/vusb.c
+index 7ed302626..49dc8e5d1 100644
+--- a/libgphoto2_port/vusb/vusb.c
++++ b/libgphoto2_port/vusb/vusb.c
+@@ -95,6 +95,28 @@ gp_port_library_list (GPPortInfoList *list)
+ 	gp_port_info_set_name (info, "Virtual Camera");
+ 	gp_port_info_set_path (info, "vusb:");
+ 	CHECK (gp_port_info_list_append (list, info));
++
++	/* byzanz-capture second-camera patch:
++	 *
++	 * A second concrete, *named* entry so gp_camera_autodetect reports
++	 * TWO virtual cameras on distinct ports ("vusb:" and "vusb:2") — the
++	 * papyri app drives a visible and an infrared slot from two separate
++	 * CameraWorker threads, and this lets both run against the emulator
++	 * with no hardware at all.
++	 *
++	 * They are safe to coexist: gp_port_vusb_init allocates the emulated
++	 * vcamera in per-port private data, so each open gets its own
++	 * independent camera state. The path string "vusb:2" only has to be
++	 * DISTINCT (it keys the static path cache in find_device_lib and the
++	 * app pins it via gp_port_info_list_lookup_path); the trailing "2" is
++	 * fed to open() as an idfile, harmlessly fails, and both cameras fall
++	 * back to the default emulated Nikon D750. The app tells the two apart
++	 * by port, not by model (see VirtualCameraVusb.gphoto2_port). */
++	gp_port_info_new (&info);
++	gp_port_info_set_type (info, GP_PORT_USB);
++	gp_port_info_set_name (info, "Virtual Camera 2");
++	gp_port_info_set_path (info, "vusb:2");
++	CHECK (gp_port_info_list_append (list, info));
+ 	return GP_OK;
+ }
+ 

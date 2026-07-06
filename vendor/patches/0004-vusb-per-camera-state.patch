@@ -1,0 +1,472 @@
+diff --git a/libgphoto2_port/vusb/vcamera.c b/libgphoto2_port/vusb/vcamera.c
+index a37ad2120..434fdf9db 100644
+--- a/libgphoto2_port/vusb/vcamera.c
++++ b/libgphoto2_port/vusb/vcamera.c
+@@ -415,8 +415,12 @@ struct ptp_dirent {
+ 	struct ptp_dirent 	*next;
+ };
+ 
+-static struct ptp_dirent *first_dirent = NULL;
+-static uint32_t	ptp_objectid = 0;
++/* byzanz-capture: first_dirent (the emulated filesystem tree) and
++ * ptp_objectid (its object-id counter) live in the vcamera struct
++ * (cam->first_dirent / cam->ptp_objectid), not in file-scope globals.
++ * Shared globals race between two emulated cameras in separate threads
++ * (papyri VIS+IR dual-vusb) and corrupt the heap; per-camera state also
++ * gives each camera its own virtual filesystem, as two real cameras have. */
+ 
+ static void *read_file(struct ptp_dirent *cur) {
+ 	FILE *file = fopen(cur->fsname, "rb");
+@@ -439,7 +443,7 @@ static void *read_file(struct ptp_dirent *cur) {
+ }
+ 
+ static void
+-read_directories(const char *path, struct ptp_dirent *parent) {
++read_directories(vcamera *cam, const char *path, struct ptp_dirent *parent) {
+ 	struct ptp_dirent	*cur;
+ 	gp_system_dir		dir;
+ 	gp_system_dirent	de;
+@@ -454,14 +458,14 @@ read_directories(const char *path, struct ptp_dirent *parent) {
+ 		if (!cur) break;
+ 		cur->name = strdup(gp_system_filename(de));
+ 		cur->fsname = aprintf("%s/%s", path, gp_system_filename(de));
+-		cur->id = ptp_objectid++;
+-		cur->next = first_dirent;
++		cur->id = cam->ptp_objectid++;
++		cur->next = cam->first_dirent;
+ 		cur->parent = parent;
+-		first_dirent = cur;
++		cam->first_dirent = cur;
+ 		if (-1 == stat(cur->fsname, &cur->stbuf))
+ 			continue;
+ 		if (S_ISDIR(cur->stbuf.st_mode))
+-			read_directories(cur->fsname, cur); /* recurse! */
++			read_directories(cam, cur->fsname, cur); /* recurse! */
+ 	}
+ 	gp_system_closedir(dir);
+ }
+@@ -474,23 +478,23 @@ free_dirent(struct ptp_dirent *ent) {
+ }
+ 
+ static void
+-read_tree(const char *path) {
++read_tree(vcamera *cam, const char *path) {
+ 	struct	ptp_dirent *root = NULL, *dir, *dcim = NULL;
+ 
+-	if (first_dirent)
++	if (cam->first_dirent)
+ 		return;
+ 
+-	first_dirent = malloc(sizeof(struct ptp_dirent));
+-	first_dirent->name = strdup("");
+-	first_dirent->fsname = strdup(path);
+-	first_dirent->id = ptp_objectid++;
+-	first_dirent->next = NULL;
+-	stat(first_dirent->fsname, &first_dirent->stbuf); /* assuming it works */
+-	root = first_dirent;
+-	read_directories(path,first_dirent);
++	cam->first_dirent = malloc(sizeof(struct ptp_dirent));
++	cam->first_dirent->name = strdup("");
++	cam->first_dirent->fsname = strdup(path);
++	cam->first_dirent->id = cam->ptp_objectid++;
++	cam->first_dirent->next = NULL;
++	stat(cam->first_dirent->fsname, &cam->first_dirent->stbuf); /* assuming it works */
++	root = cam->first_dirent;
++	read_directories(cam, path, cam->first_dirent);
+ 
+ 	/* See if we have a DCIM directory, if not, create one. */
+-	dir = first_dirent;
++	dir = cam->first_dirent;
+ 	while (dir) {
+ 		if (!strcmp(dir->name,"DCIM") && dir->parent && !dir->parent->id)
+ 			dcim = dir;
+@@ -500,11 +504,11 @@ read_tree(const char *path) {
+ 		dcim = malloc(sizeof(struct ptp_dirent));
+ 		dcim->name = strdup("DCIM");
+ 		dcim->fsname = strdup(path);
+-		dcim->id = ptp_objectid++;
+-		dcim->next = first_dirent;
++		dcim->id = cam->ptp_objectid++;
++		dcim->next = cam->first_dirent;
+ 		dcim->parent = root;
+ 		stat(dcim->fsname, &dcim->stbuf); /* assuming it works */
+-		first_dirent = dcim;
++		cam->first_dirent = dcim;
+ 	}
+ }
+ 
+@@ -674,7 +678,7 @@ ptp_getnumobjects_write(vcamera *cam, ptpcontainer *ptp) {
+ 	if (ptp->nparams >= 3) {
+ 		mode = ptp->params[2];
+ 		if ((mode != 0) && (mode != 0xffffffff)) {
+-			cur = first_dirent;
++			cur = cam->first_dirent;
+ 			while (cur) {
+ 				if (cur->id == mode) break;
+ 				cur = cur->next;
+@@ -692,7 +696,7 @@ ptp_getnumobjects_write(vcamera *cam, ptpcontainer *ptp) {
+ 		}
+ 	}
+ 
+-	cnt = 0; cur = first_dirent;
++	cnt = 0; cur = cam->first_dirent;
+ 	while (cur) {
+ 		if (cur->id) { /* do not include 0 entry */
+ 			switch (mode) {
+@@ -746,7 +750,7 @@ ptp_getobjecthandles_write(vcamera *cam, ptpcontainer *ptp) {
+ 	if (ptp->nparams >= 3) {
+ 		mode = ptp->params[2];
+ 		if ((mode != 0) && (mode != 0xffffffff)) {
+-			cur = first_dirent;
++			cur = cam->first_dirent;
+ 			while (cur) {
+ 				if (cur->id == mode) break;
+ 				cur = cur->next;
+@@ -764,7 +768,7 @@ ptp_getobjecthandles_write(vcamera *cam, ptpcontainer *ptp) {
+ 		}
+ 	}
+ 
+-	cnt = 0; cur = first_dirent;
++	cnt = 0; cur = cam->first_dirent;
+ 	while (cur) {
+ 		if (cur->id) { /* do not include 0 entry */
+ 			switch (mode) {
+@@ -786,7 +790,7 @@ ptp_getobjecthandles_write(vcamera *cam, ptpcontainer *ptp) {
+ 
+ 	data = malloc(4+4*cnt);
+ 	x = put_32bit_le(data + x,cnt);
+-	cur = first_dirent;
++	cur = cam->first_dirent;
+ 	while (cur) {
+ 		if (cur->id) { /* do not include 0 entry */
+ 			switch (mode) {
+@@ -879,7 +883,7 @@ ptp_getobjectinfo_write(vcamera *cam, ptpcontainer *ptp) {
+ 	CHECK_SESSION();
+ 	CHECK_PARAM_COUNT(1);
+ 
+-	cur = first_dirent;
++	cur = cam->first_dirent;
+ 	while (cur) {
+ 		if (cur->id == ptp->params[0])
+ 			break;
+@@ -1006,7 +1010,7 @@ ptp_getobject_write(vcamera *cam, ptpcontainer *ptp) {
+ 	CHECK_SESSION();
+ 	CHECK_PARAM_COUNT(1);
+ 
+-	cur = first_dirent;
++	cur = cam->first_dirent;
+ 	while (cur) {
+ 		if (cur->id == ptp->params[0]) break;
+ 		cur = cur->next;
+@@ -1040,7 +1044,7 @@ ptp_getthumb_write(vcamera *cam, ptpcontainer *ptp) {
+ 	CHECK_SESSION();
+ 	CHECK_PARAM_COUNT(1);
+ 
+-	cur = first_dirent;
++	cur = cam->first_dirent;
+ 	while (cur) {
+ 		if (cur->id == ptp->params[0]) break;
+ 		cur = cur->next;
+@@ -1114,7 +1118,7 @@ ptp_initiatecapture_write(vcamera *cam, ptpcontainer *ptp) {
+ 	}
+ 
+ 	/* just search for first jpeg we find in the tree, we will use this to send back as the captured image */
+-	cur = first_dirent;
++	cur = cam->first_dirent;
+ 	while (cur) {
+ 		if (strstr (cur->name, ".jpg") || strstr (cur->name, ".JPG"))
+ 			break;
+@@ -1126,7 +1130,7 @@ ptp_initiatecapture_write(vcamera *cam, ptpcontainer *ptp) {
+ 		return 1;
+ 	}
+ 	/* identify the DCIM dir, so we can attach a virtual xxxGPHOT directory to virtually store the new picture in */
+-	dir = first_dirent;
++	dir = cam->first_dirent;
+ 	while (dir) {
+ 		if (!strcmp(dir->name,"DCIM") && dir->parent && !dir->parent->id)
+ 			dcim = dir;
+@@ -1134,7 +1138,7 @@ ptp_initiatecapture_write(vcamera *cam, ptpcontainer *ptp) {
+ 	}
+ 	/* find the nnnGPHOT directories, where nnn is 100-999. (See DCIM standard.) */
+ 	sprintf(buf, "%03dGPHOT", 100 + ((capcnt / 100) % 900));
+-	dir = first_dirent;
++	dir = cam->first_dirent;
+ 	while (dir) {
+ 		if (!strcmp (dir->name, buf) && (dir->parent == dcim))
+ 			break;
+@@ -1143,34 +1147,34 @@ ptp_initiatecapture_write(vcamera *cam, ptpcontainer *ptp) {
+ 	/* if not yet found, create the virtual /DCIM/xxxGPHOT/ directory. */
+ 	if (!dir) {
+ 		dir 		= malloc (sizeof(struct ptp_dirent));
+-		dir->id		= ++ptp_objectid;
++		dir->id		= ++cam->ptp_objectid;
+ 		dir->fsname	= "virtual";
+ 		dir->stbuf	= dcim->stbuf; /* only the S_ISDIR flag is used */
+ 		dir->parent	= dcim;
+-		dir->next	= first_dirent;
++		dir->next	= cam->first_dirent;
+ 		dir->name	= strdup (buf);
+-		first_dirent	= dir;
++		cam->first_dirent	= dir;
+ 		/* Emit ObjectAdded event for the created folder */
+-		ptp_inject_interrupt (cam, 80, 0x4002, 1, ptp_objectid, cam->seqnr);	/* objectadded */
++		ptp_inject_interrupt (cam, 80, 0x4002, 1, cam->ptp_objectid, cam->seqnr);	/* objectadded */
+ 	}
+ 	if (capcnt++ == 150) {
+ 		/* The start of the operation succeeds, but the memory runs full during it. */
+-		ptp_inject_interrupt (cam, 100, 0x400A, 1, ptp_objectid, cam->seqnr);	/* storefull */
++		ptp_inject_interrupt (cam, 100, 0x400A, 1, cam->ptp_objectid, cam->seqnr);	/* storefull */
+ 		ptp_response (cam, PTP_RC_OK, 0);
+ 		return 1;
+ 	}
+ 
+ 	newcur 		= malloc (sizeof(struct ptp_dirent));
+-	newcur->id	= ++ptp_objectid;
++	newcur->id	= ++cam->ptp_objectid;
+ 	newcur->fsname	= strdup(cur->fsname);
+ 	newcur->stbuf	= cur->stbuf;
+ 	newcur->parent	= dir;
+-	newcur->next	= first_dirent;
++	newcur->next	= cam->first_dirent;
+ 	newcur->name	= malloc(8+3+1+1);
+ 	sprintf(newcur->name,"GPH_%04d.JPG", capcnt++);
+-	first_dirent	= newcur;
++	cam->first_dirent	= newcur;
+ 
+-	ptp_inject_interrupt (cam, 100, 0x4002, 1, ptp_objectid, cam->seqnr);	/* objectadded */
++	ptp_inject_interrupt (cam, 100, 0x4002, 1, cam->ptp_objectid, cam->seqnr);	/* objectadded */
+ 	ptp_inject_interrupt (cam, 120, 0x400d, 0, 0, cam->seqnr);		/* capturecomplete */
+ 	ptp_response (cam, PTP_RC_OK, 0);
+ 	return 1;
+@@ -1190,14 +1194,14 @@ ptp_deleteobject_write(vcamera *cam, ptpcontainer *ptp) {
+ 	}
+ 	if (ptp->params[0] == 0xffffffff) { /* delete all mode */
+ 		gp_log (GP_LOG_DEBUG, __FUNCTION__, "delete all");
+-		cur = first_dirent;
++		cur = cam->first_dirent;
+ 
+ 		while (cur) {
+ 			xcur = cur->next;
+ 			free_dirent(cur);
+ 			cur = xcur;
+ 		}
+-		first_dirent = NULL;
++		cam->first_dirent = NULL;
+ 		ptp_response (cam, PTP_RC_OK, 0);
+ 		return 1;
+ 	}
+@@ -1209,7 +1213,7 @@ ptp_deleteobject_write(vcamera *cam, ptpcontainer *ptp) {
+ 	}
+ 	/* for associations this even means recursive deletion */
+ 
+-	cur = first_dirent;
++	cur = cam->first_dirent;
+ 	while (cur) {
+ 		if (cur->id == ptp->params[0]) break;
+ 		cur = cur->next;
+@@ -1224,11 +1228,11 @@ ptp_deleteobject_write(vcamera *cam, ptpcontainer *ptp) {
+ 		ptp_response(cam,PTP_RC_ObjectWriteProtected,0);
+ 		return 1;
+ 	}
+-	if (cur == first_dirent) {
+-		first_dirent = cur->next;
++	if (cur == cam->first_dirent) {
++		cam->first_dirent = cur->next;
+ 		free_dirent (cur);
+ 	} else {
+-		xcur = first_dirent;
++		xcur = cam->first_dirent;
+ 		while (xcur) {
+ 			if (xcur->next == cur) {
+ 				xcur->next = xcur->next->next;
+@@ -1419,7 +1423,7 @@ ptp_vusb_write(vcamera *cam, ptpcontainer *ptp) {
+ 		struct ptp_dirent	*cur, *newcur, *dir, *dcim = NULL;
+ 		char			buf[10];
+ 
+-		cur = first_dirent;
++		cur = cam->first_dirent;
+ 		while (cur) {
+ 			if (strstr (cur->name, ".jpg") || strstr (cur->name, ".JPG"))
+ 				break;
+@@ -1430,14 +1434,14 @@ ptp_vusb_write(vcamera *cam, ptpcontainer *ptp) {
+ 			ptp_response (cam, PTP_RC_GeneralError, 0);
+ 			return 1;
+ 		}
+-		dir = first_dirent;
++		dir = cam->first_dirent;
+ 		while (dir) {
+ 			if (!strcmp(dir->name,"DCIM") && dir->parent && !dir->parent->id)
+ 				dcim = dir;
+ 			dir = dir->next;
+ 		}
+ 
+-		cur = first_dirent;
++		cur = cam->first_dirent;
+ 		while (cur) {
+ 			if (strstr (cur->name, ".jpg") || strstr (cur->name, ".JPG"))
+ 				break;
+@@ -1448,7 +1452,7 @@ ptp_vusb_write(vcamera *cam, ptpcontainer *ptp) {
+ 			ptp_response (cam, PTP_RC_GeneralError, 0);
+ 			return 1;
+ 		}
+-		dir = first_dirent;
++		dir = cam->first_dirent;
+ 		while (dir) {
+ 			if (!strcmp(dir->name,"DCIM") && dir->parent && !dir->parent->id)
+ 				dcim = dir;
+@@ -1456,7 +1460,7 @@ ptp_vusb_write(vcamera *cam, ptpcontainer *ptp) {
+ 		}
+ 		/* nnnGPHOT directories, where nnn is 100-999. (See DCIM standard.) */
+ 		sprintf(buf, "%03dGPHOT", 100 + ((capcnt / 100) % 900));
+-		dir = first_dirent;
++		dir = cam->first_dirent;
+ 		while (dir) {
+ 			if (!strcmp (dir->name, buf) && (dir->parent == dcim))
+ 				break;
+@@ -1464,35 +1468,35 @@ ptp_vusb_write(vcamera *cam, ptpcontainer *ptp) {
+ 		}
+ 		if (!dir) {
+ 			dir 		= malloc (sizeof(struct ptp_dirent));
+-			dir->id		= ++ptp_objectid;
++			dir->id		= ++cam->ptp_objectid;
+ 			dir->fsname	= "virtual";
+ 			dir->stbuf	= dcim->stbuf; /* only the S_ISDIR flag is used */
+ 			dir->parent	= dcim;
+-			dir->next	= first_dirent;
++			dir->next	= cam->first_dirent;
+ 			dir->name	= strdup (buf);
+-			first_dirent	= dir;
++			cam->first_dirent	= dir;
+ 			/* Emit ObjectAdded event for the created folder */
+-			ptp_inject_interrupt (cam, 80, 0x4002, 1, ptp_objectid, cam->seqnr);	/* objectadded */
++			ptp_inject_interrupt (cam, 80, 0x4002, 1, cam->ptp_objectid, cam->seqnr);	/* objectadded */
+ 		}
+ 
+ 		newcur 		= malloc (sizeof(struct ptp_dirent));
+-		newcur->id	= ++ptp_objectid;
++		newcur->id	= ++cam->ptp_objectid;
+ 		newcur->fsname	= strdup(cur->fsname);
+ 		newcur->stbuf	= cur->stbuf;
+ 		newcur->parent	= dir;
+-		newcur->next	= first_dirent;
++		newcur->next	= cam->first_dirent;
+ 		newcur->name	= malloc(8+3+1+1);
+ 		sprintf(newcur->name,"GPH_%04d.JPG", capcnt++);
+-		first_dirent	= newcur;
++		cam->first_dirent	= newcur;
+ 
+-		ptp_inject_interrupt (cam, timeout, 0x4002, 1, ptp_objectid, cam->seqnr);	/* objectadded */
++		ptp_inject_interrupt (cam, timeout, 0x4002, 1, cam->ptp_objectid, cam->seqnr);	/* objectadded */
+ 		ptp_response (cam, PTP_RC_OK, 0);
+ 		break;
+ 	}
+ 	case 1:	{/* remove 1 image from directory */
+ 		struct ptp_dirent	**pcur, *cur;
+ 
+-		pcur = &first_dirent;
++		pcur = &cam->first_dirent;
+ 		while (*pcur) {
+ 			if (strstr ((*pcur)->name, ".jpg") || strstr ((*pcur)->name, ".JPG"))
+ 				break;
+@@ -2019,7 +2023,10 @@ struct ptp_interrupt {
+ 	struct ptp_interrupt	*next;
+ };
+ 
+-static struct ptp_interrupt *first_interrupt;
++/* byzanz-capture: the interrupt-event queue lives in the vcamera struct
++ * (cam->first_interrupt), not in a file-scope global. A single shared
++ * global races between two emulated cameras running in separate threads
++ * (papyri VIS+IR dual-vusb) and corrupts the malloc freelist. */
+ 
+ static int
+ ptp_inject_interrupt(vcamera*cam, int when, uint16_t code, int nparams, uint32_t param1, uint32_t transid) {
+@@ -2052,7 +2059,7 @@ ptp_inject_interrupt(vcamera*cam, int when, uint16_t code, int nparams, uint32_t
+ 	interrupt->next		= NULL;
+ 
+ 	/* Insert into list, sorted by trigger time, next triggering one first */
+-	pint = &first_interrupt;
++	pint = &cam->first_interrupt;
+ 	while (*pint) {
+ 		if (now.tv_sec > (*pint)->triggertime.tv_sec) {
+ 			pint = &((*pint)->next);
+@@ -2078,7 +2085,7 @@ vcam_readint(vcamera*cam, unsigned char *data, int bytes, int timeout) {
+ 	int 			newtimeout, tocopy;
+ 	struct ptp_interrupt	*pint;
+ 
+-	if (!first_interrupt) {
++	if (!cam->first_interrupt) {
+ #ifdef FUZZING
+ #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+ 		usleep (timeout*1000);
+@@ -2097,29 +2104,29 @@ vcam_readint(vcamera*cam, unsigned char *data, int bytes, int timeout) {
+ 		end.tv_usec -= 1000000;
+ 		end.tv_sec++;
+ 	}
+-	if (first_interrupt->triggertime.tv_sec > end.tv_sec) {
++	if (cam->first_interrupt->triggertime.tv_sec > end.tv_sec) {
+ #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+ 		usleep (1000*timeout);
+ #endif
+ 		return GP_ERROR_TIMEOUT;
+ 	}
+-	if (	(first_interrupt->triggertime.tv_sec == end.tv_sec) &&
+-		(first_interrupt->triggertime.tv_usec > end.tv_usec)
++	if (	(cam->first_interrupt->triggertime.tv_sec == end.tv_sec) &&
++		(cam->first_interrupt->triggertime.tv_usec > end.tv_usec)
+ 	) {
+ #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+ 		usleep (1000*timeout);
+ #endif
+ 		return GP_ERROR_TIMEOUT;
+ 	}
+-	newtimeout = (first_interrupt->triggertime.tv_sec - now.tv_sec)*1000 + (first_interrupt->triggertime.tv_usec - now.tv_usec)/1000;
++	newtimeout = (cam->first_interrupt->triggertime.tv_sec - now.tv_sec)*1000 + (cam->first_interrupt->triggertime.tv_usec - now.tv_usec)/1000;
+ 	if (newtimeout > timeout)
+ 		gp_log (GP_LOG_ERROR, __FUNCTION__, "miscalculated? %d vs %d", timeout, newtimeout);
+-	tocopy = first_interrupt->size;
++	tocopy = cam->first_interrupt->size;
+ 	if (tocopy > bytes)
+ 		tocopy = bytes;
+-	memcpy (data, first_interrupt->data, tocopy);
+-	pint = first_interrupt;
+-	first_interrupt = first_interrupt->next;
++	memcpy (data, cam->first_interrupt->data, tocopy);
++	pint = cam->first_interrupt;
++	cam->first_interrupt = cam->first_interrupt->next;
+ 	free (pint->data);
+ 	free (pint);
+ 	return tocopy;
+@@ -2133,7 +2140,7 @@ vcamera_new(vcameratype type) {
+ 	if (!cam) return NULL;
+ 
+ 	const char *vcameradir_env = getenv("VCAMERADIR");
+-	read_tree(vcameradir_env != NULL ? vcameradir_env : VCAMERADIR);
++	read_tree(cam, vcameradir_env != NULL ? vcameradir_env : VCAMERADIR);
+ 
+ 	cam->init = vcam_init;
+ 	cam->exit = vcam_exit;
+diff --git a/libgphoto2_port/vusb/vcamera.h b/libgphoto2_port/vusb/vcamera.h
+index fd8789bbf..22f14ae1b 100644
+--- a/libgphoto2_port/vusb/vcamera.h
++++ b/libgphoto2_port/vusb/vcamera.h
+@@ -61,6 +61,20 @@ typedef struct vcamera {
+ 
+ 	unsigned int	seqnr;
+ 
++	/* byzanz-capture: per-camera emulator state. Upstream keeps the
++	 * interrupt-event queue, the emulated-filesystem tree and its object-id
++	 * counter as file-scope globals in vcamera.c. A single shared copy
++	 * races and corrupts the heap once two emulated cameras run in one
++	 * process (the papyri VIS+IR dual-vusb setup) — both are linked lists
++	 * mutated with malloc/free from two worker threads. Moving them here
++	 * gives each camera its own independent state (and its own virtual
++	 * filesystem, which is what two real cameras would have anyway).
++	 * `struct ptp_interrupt` / `struct ptp_dirent` are defined in
++	 * vcamera.c; incomplete types are fine for pointers here. */
++	struct ptp_interrupt	*first_interrupt;
++	struct ptp_dirent	*first_dirent;
++	unsigned int		ptp_objectid;
++
+ 	unsigned int	session;
+ 	ptpcontainer	ptpcmd;
+ 
