@@ -1033,7 +1033,7 @@ class PapyriMainWindow(QMainWindow):
         session each call so over-running is harmless."""
         s = self.session
 
-        # B1+B2 active_bucket
+        # active_bucket
         s.active_bucket_changed.connect(self._refresh_workflow_stepper_active)
         s.active_bucket_changed.connect(self._refresh_capture_button_label)
         s.active_bucket_changed.connect(self._refresh_camera_state_emphasis)
@@ -1044,13 +1044,14 @@ class PapyriMainWindow(QMainWindow):
         s.active_bucket_changed.connect(self._populate_capture_setting_combos)
         s.active_bucket_changed.connect(self._refresh_camera_dependent_ui)
         s.active_bucket_changed.connect(self._refresh_height_select_enabled)
+        s.active_bucket_changed.connect(self._on_active_bucket_changed_live_view)
         self._refresh_workflow_stepper_active()
         self._refresh_capture_button_label()
         self._refresh_camera_state_emphasis()
         self._refresh_filmstrip_binding()
         self._refresh_height_select_enabled()
 
-        # B5 current_object
+        # current_object
         s.current_object_changed.connect(self._refresh_metadata_pane_binding)
         s.current_object_changed.connect(self._refresh_title_bar_binding)
         s.current_object_changed.connect(self._refresh_objects_sidebar_active)
@@ -1067,20 +1068,17 @@ class PapyriMainWindow(QMainWindow):
         self._refresh_objects_sidebar_active()
         self._refresh_objects_sidebar_entries()
         self._refresh_bucket_chosen_thumbs()
-        # _refresh_filmstrip_binding already called above (B1+B2 init)
+        # _refresh_filmstrip_binding already called above (active_bucket init)
         self._handle_current_object_subscription()
         self._handle_current_object_view_mode_reset()
         self._refresh_no_object_lockout()
 
-        # B6 live_view_paused
+        # live_view_paused
         s.live_view_paused_changed.connect(self._refresh_live_view_button)
-        s.live_view_paused_changed.connect(self._handle_live_view_paused)
+        s.live_view_paused_changed.connect(self._sync_live_view)
         self._refresh_live_view_button()
-        # _handle_live_view_paused NOT invoked at init: it would emit a
-        # live_view command to the active worker before the camera is
-        # connected — pointless and noisy.
 
-        # B7 view_mode
+        # view_mode
         s.view_mode_changed.connect(self._refresh_view_mode_indicator)
         self._refresh_view_mode_indicator()
         # Rotate button is independent of live view: usable whenever the
@@ -1088,12 +1086,12 @@ class PapyriMainWindow(QMainWindow):
         s.view_mode_changed.connect(self._refresh_rotate_button)
         self._refresh_rotate_button()
 
-        # B3+B4 camera_state (per-spectrum). Three receivers, each with
-        # its own match block — see the design note above
-        # _refresh_camera_dependent_ui for the per-state-vs-per-purpose
-        # split rationale.
+        # camera_state (per-spectrum). Several receivers, each with its own
+        # match block — see the design note above _refresh_camera_dependent_ui
+        # for the per-state-vs-per-purpose split rationale.
         s.camera_state_changed.connect(self._handle_camera_lifecycle)
         s.camera_state_changed.connect(self._handle_active_camera_state)
+        s.camera_state_changed.connect(self._sync_live_view)
         s.camera_state_changed.connect(self._refresh_camera_dependent_ui)
         # Camera-state also drives the capture-button caption (flips
         # to "<X> camera not connected" when the active camera isn't
@@ -1145,14 +1143,6 @@ class PapyriMainWindow(QMainWindow):
         manual-focus body (e.g. IR D90 + CoastalOpt 60/4) never enables it."""
         profile = self._active_profile()
         return bool(profile and profile.supports_autofocus())
-
-    def _live_view_supported(self) -> bool:
-        """Whether the active camera can stream a live preview. Gates the
-        auto-resume below so a no-live-view body (e.g. the vusb virtual
-        camera) isn't asked to start a preview it can only reject. The
-        worker also no-ops the request defensively."""
-        profile = self._active_profile()
-        return bool(profile and profile.supports_live_view())
 
     def _focus_magnify_supported(self) -> bool:
         """Whether the active camera can magnify the live view for focus
@@ -1269,7 +1259,7 @@ class PapyriMainWindow(QMainWindow):
         except OSError:
             pass
 
-    # ---- B1+B2 receivers (active_bucket_changed) -----------------------
+    # ---- active-bucket receivers ----------------------------------------
 
     def _refresh_bucket_chosen_thumbs(self) -> None:
         """Update each bucket card's thumb to its chosen-take preview.
@@ -1325,7 +1315,8 @@ class PapyriMainWindow(QMainWindow):
         )
 
     def _refresh_workflow_stepper_active(self) -> None:
-        """Active step highlight. Reads B1+B2 + B5 — when no object is
+        """Active step highlight. Reads active bucket + current object —
+        when no object is
         loaded there's no "where the next capture goes" to point at, so
         clear the highlight rather than leave it pointing at a stale
         bucket from the closed object."""
@@ -1389,7 +1380,7 @@ class PapyriMainWindow(QMainWindow):
 
     def _refresh_camera_state_emphasis(self) -> None:
         """Top-bar camera-state pill emphasis: the active spectrum's
-        widget gets a 2px colored border. Reads B2."""
+        widget gets a 2px colored border. Reads the active spectrum."""
         self.visible_camera_state.set_emphasized(
             self.session.active_spectrum == SPECTRUM_VISIBLE
         )
@@ -1401,7 +1392,7 @@ class PapyriMainWindow(QMainWindow):
         """Re-bind PapyriFilmstrip to (current_object, active_side,
         active_spectrum). Safe with current_object=None (filmstrip closes
         its directory; the directory_closed signal also clears the viewer).
-        Reads B1+B2+B5."""
+        Reads active bucket + current object."""
         self.filmstrip.bind_object(
             self.session.current_object,
             self.session.active_side,
@@ -1416,85 +1407,54 @@ class PapyriMainWindow(QMainWindow):
         self.viewer.show_image(pixmap)
         self._refresh_rotation_indicator()
 
-    # ---- B1+B2 imperative handlers (not signal-driven) ------------------
+    # ---- live-view reconciliation ---------------------------------------
 
-    def _handle_live_view_handoff(
-        self, old_spectrum: str, new_spectrum: str
-    ) -> None:
-        """When the active spectrum flips, stop live view on the old worker
-        (if running) and start it on the new (if its camera is in a state
-        we can, and the user hasn't paused). Takes (old, new) explicitly
-        because the OLD value is by definition gone from session state by
-        the time we'd want to use it; this isn't a reactive refresh, it's
-        a one-shot business action triggered by the workflow-step click."""
-        # New camera = new sharpness scale; drop the adaptive audio range.
-        self.focus_audio.reset()
-        old_worker = (
-            self.visible_worker if old_spectrum == SPECTRUM_VISIBLE
-            else self.ir_worker
-        )
-        new_worker = (
-            self.visible_worker if new_spectrum == SPECTRUM_VISIBLE
-            else self.ir_worker
-        )
+    def _sync_live_view(self, *_) -> None:
+        """Single owner of the live-view rule: stream on the active camera
+        iff not paused, the profile supports it, and the camera is in a
+        startable state. Connected to every input that can change the
+        outcome (active bucket, camera state, pause intent); stale or
+        duplicate commands are refused worker-side, so this stays stateless."""
+        for spectrum, worker, profile in (
+            (SPECTRUM_VISIBLE, self.visible_worker, self.profile),
+            (SPECTRUM_INFRARED, self.ir_worker, self.ir_profile),
+        ):
+            if worker is None:
+                continue
+            desired = (
+                spectrum == self.session.active_spectrum
+                and not self.session.live_view_paused
+                and profile.supports_live_view()
+            )
+            state = self.session.camera_state(spectrum)
+            if isinstance(state, CameraStates.LIVE_VIEW_STREAMING) and not desired:
+                worker.commands.live_view.emit(False)
+            elif isinstance(state, CameraStates.LIVE_VIEW_STARTABLE) and desired:
+                worker.commands.live_view.emit(True)
 
-        old_state = self.session.camera_state(old_spectrum)
-        if old_worker is not None and isinstance(old_state, (
-            CameraStates.LiveViewStarted,
-            CameraStates.LiveViewActive,
-        )):
-            old_worker.commands.live_view.emit(False)
-
-        if self.session.live_view_paused or new_worker is None:
-            return
-        # Papyri/calibration only: don't auto-start live view if the new
-        # bucket already has captures — those modes reload the bucket dir on
-        # switch, so _on_directory_loaded pauses + shows the preview as soon
-        # as the async load completes (starting here would actuate the shutter
-        # for nothing AND race late live frames over the preview thumbnail).
-        # Simple mode shares ONE folder across VIS/IR: directory_loaded does
-        # NOT fire on a camera switch and `count` isn't per-camera, so the
-        # new feed must always start here — otherwise live view sticks on the
-        # old camera.
+    def _on_active_bucket_changed_live_view(self, side: str, spectrum: str) -> None:
+        """A bucket with captures opens in review (paused), an empty one
+        opens live. Decided here, synchronously, so _sync_live_view acts on
+        it immediately; the async directory load re-asserts the same
+        decision once the filmstrip catches up. Simple mode is exempt: its
+        one shared folder says nothing about the entered bucket."""
+        self.focus_audio.reset()  # new target = new sharpness scale
         obj = self.session.current_object
-        if (self.effective_mode.key != "simple"
-                and obj is not None
-                and obj.count(self.session.active_side,
-                              self.session.active_spectrum) > 0):
-            return
-        new_state = self.session.camera_state(new_spectrum)
-        # Only start if the new camera is actually ready. If it's mid-
-        # connect / reconnecting, the Ready→auto-start path in
-        # _handle_active_camera_state will pick up live view when it gets there.
-        if isinstance(new_state, (
-            CameraStates.Ready,
-            CameraStates.LiveViewStopped,
-            CameraStates.CaptureFinished,
-        )):
-            new_worker.commands.live_view.emit(True)
+        if self.effective_mode.key != "simple" and obj is not None:
+            self.session.set_live_view_paused(obj.count(side, spectrum) > 0)
+        self._sync_live_view()
 
     def _on_workflow_step_clicked(self, step_id: str) -> None:
-        """Stepper click → translate id back to (side, spectrum), apply
-        IR-fallback (H1, caller-side because SessionState is ignorant of
-        worker availability), update session, then run live-view handoff
-        if the spectrum actually changed."""
+        """Stepper click → translate id back to (side, spectrum). The
+        IR→VIS fallback lives here because SessionState doesn't know
+        worker availability."""
         bucket = self.effective_mode.bucket_by_step_id.get(step_id)
         if bucket is None:
             return
         side, spectrum = bucket
-        # H1 IR-fallback — silently downgrade to VIS if no IR worker.
         if spectrum == SPECTRUM_INFRARED and self.ir_worker is None:
             spectrum = SPECTRUM_VISIBLE
-
-        old_spectrum = self.session.active_spectrum
         self.session.set_active_bucket(side, spectrum)
-        if old_spectrum != self.session.active_spectrum:
-            self._handle_live_view_handoff(
-                old_spectrum, self.session.active_spectrum
-            )
-        # update_ui handles capture-button enable/disable etc. that depend
-        # on derived state across multiple axes; will dissolve into
-        # receivers in Stage 5.
         self._refresh_camera_dependent_ui()
 
     # ---------------------------------------------------------- camera state
@@ -1542,7 +1502,7 @@ class PapyriMainWindow(QMainWindow):
             if w is not None:
                 w.commands.find_camera.emit()
 
-    # ---- B3+B4 receivers (camera_state_changed) ------------------------
+    # ---- camera-state receivers ------------------------------------------
 
     def _handle_camera_lifecycle(
         self, spectrum: str, state: CameraStates.StateType
@@ -1581,21 +1541,23 @@ class PapyriMainWindow(QMainWindow):
         self, spectrum: str, state: CameraStates.StateType
     ) -> None:
         """Active-only side effects — fire only when the emitting spectrum
-        is the active one. Otherwise we'd e.g. start live view on IR while
-        the user is working with VIS."""
+        is the active one, so the inactive camera's errors don't clear the
+        viewer the user is looking at."""
         if spectrum != self.session.active_spectrum:
             return
         match state:
-            case CameraStates.Ready():
-                # Live view is the papyri default; auto-resume on every
-                # Ready (initial connect, post-capture, etc.) unless
-                # the user paused — or the camera has no live view (e.g.
-                # the vusb virtual camera), which stays in Ready and is
-                # captured from directly. Safe with capture_one — it never
-                # transitions through Ready between live-view and
-                # CaptureInProgress.
-                if not self.session.live_view_paused and self._live_view_supported():
-                    self.active_worker.commands.live_view.emit(True)
+            case CameraStates.CaptureFinished():
+                # A capture just landed in the active bucket → enter review of
+                # the shot. Declaring the pause intent here, as the capture
+                # settles, is what keeps _sync_live_view from bouncing live
+                # view back on for the ~1.5 s until the async filmstrip reload
+                # (_on_directory_loaded) sets the same intent — on a real body
+                # that restart is a physical mirror actuation for nothing.
+                # Worker emits CaptureFinished before Ready, so this lands
+                # before the reconciler ever sees the post-capture Ready.
+                # CaptureError is deliberately NOT paused: a failed shot
+                # resumes live view on its Ready so the user can retry.
+                self.session.set_live_view_paused(True)
             case CameraStates.ConnectionError(error=err):
                 self.logger.error("Connection error: %s", err)
                 # No live frames possible — clear stale "live" pill.
@@ -1605,9 +1567,9 @@ class PapyriMainWindow(QMainWindow):
             case CameraStates.Disconnected():
                 # Active camera is gone — clear the live indicator so the
                 # viewer doesn't show stale "live" pill / border with no
-                # frames possible. Reconnect path: H17 auto-resumes live
-                # view on the next Ready, which sets view_mode back to
-                # "live" via the next preview frame in _on_preview_image.
+                # frames possible. On reconnect, _sync_live_view resumes
+                # live view at the next Ready, and the first preview frame
+                # sets view_mode back to "live" in _on_preview_image.
                 self.session.set_view_mode("empty")
 
     def _on_preview_image(self, spectrum: str, image):
@@ -1662,13 +1624,13 @@ class PapyriMainWindow(QMainWindow):
             and live
         )
 
-    # ---- B3+B4 + B5 receiver (camera-state-driven UI) -----------------
+    # ---- camera-state-driven UI receiver ---------------------------------
 
     def _refresh_camera_dependent_ui(self):
         """Autofocus button enable, capture status label, plus the
         capture/pause-button enables that gate on camera readiness AND
-        object-loaded state. Reads B3/B4 (active spectrum's state) + B5.
-        Wired to camera_state_changed AND current_object_changed.
+        object-loaded state. Reads the active spectrum's camera state +
+        current object. Wired to camera_state_changed AND current_object_changed.
 
         The match block is the single per-state scan target — use it
         to answer "what UI changes when camera reaches state X?"."""
@@ -1792,8 +1754,11 @@ class PapyriMainWindow(QMainWindow):
         live view (the "jumps back" bug when switching between two filled
         buckets). Bucket with captures → review the auto-selected take
         (preview, paused); empty bucket → frame it live to compose the next
-        shot. Setting the pause intent is enough — the live_view_paused
-        receiver (_handle_live_view_paused) starts/stops the camera to match.
+        shot. Setting the pause intent is enough — _sync_live_view starts or
+        stops the camera to match. Usually this re-asserts what
+        _on_active_bucket_changed_live_view already decided at switch time;
+        it corrects the cases only the load can see (disk changed, object
+        freshly opened).
         """
         obj = self.session.current_object
         if obj is None:
@@ -1805,23 +1770,23 @@ class PapyriMainWindow(QMainWindow):
             # current_file_name is only the pill label here — the decision
             # above doesn't depend on it, so a transient None can't misroute
             # us into live view. The take itself is shown by the filmstrip's
-            # auto-selection (H22).
+            # auto-selection.
             self.session.set_live_view_paused(True)
             name = self.filmstrip.current_file_name()
             self.session.set_view_mode(
                 "preview", os.path.splitext(name)[0] if name else "")
         else:
-            # Empty bucket — nothing to review, so frame it live. Clearing the
-            # pause intent starts live view (via _handle_live_view_paused) once
-            # the camera is ready. F-VIEW-1: until the first live frame asserts
-            # "live", the pill shows "empty".
+            # Empty bucket — nothing to review, so frame it live. Clearing
+            # the pause intent lets _sync_live_view start the feed once the
+            # camera is ready. Until the first live frame asserts "live",
+            # the pill shows "empty".
             self.session.set_live_view_paused(False)
             self.session.set_view_mode("empty")
         self._refresh_camera_dependent_ui()
 
     def _on_image_selected(self, _path: str):
         """Action handler for PhotoBrowser.image_selected — only fires on
-        USER click (auto-selection during load is suppressed per H22).
+        USER click (auto-selection during load doesn't emit it).
         Pauses live view so the chosen image persists; flips view_mode to
         preview with the file stem."""
         self.session.set_live_view_paused(True)
@@ -2133,11 +2098,11 @@ class PapyriMainWindow(QMainWindow):
             self.viewer.show_image(None)
             self.viewer.show_overlay()
 
-    # ---- B6 receivers (live_view_paused_changed) -----------------------
+    # ---- live-view-pause receivers ----------------------------------------
 
     def _refresh_live_view_button(self) -> None:
-        """Live View toggle's checked state mirrors B6 (checked = live view
-        on = not paused). Label + eye icon are static (set in the .ui /
+        """Live View toggle's checked state mirrors the pause intent
+        (checked = live view on = not paused). Label + eye icon are static (set in the .ui /
         _bind_widgets); the button is not the source of truth.
 
         setChecked may fire `toggled` if the value differs; the handler then
@@ -2145,21 +2110,7 @@ class PapyriMainWindow(QMainWindow):
         value), breaking the cycle."""
         self.pause_live_view_button.setChecked(not self.session.live_view_paused)
 
-    def _handle_live_view_paused(self, paused: bool) -> None:
-        """When paused intent flips, send live_view command to active
-        worker. Started/stopped policy mirrors the prior in-handler
-        logic — only auto-resume when the camera is in a state ready
-        for it."""
-        if paused:
-            self.active_worker.commands.live_view.emit(False)
-        elif isinstance(self.session.active_camera_state, (
-            CameraStates.Ready,
-            CameraStates.LiveViewStopped,
-            CameraStates.CaptureFinished,
-        )):
-            self.active_worker.commands.live_view.emit(True)
-
-    # ---- B7 receivers (view_mode_changed) ------------------------------
+    # ---- view_mode receivers --------------------------------------------
 
     def _refresh_view_mode_indicator(self) -> None:
         """Pill text/border + viewer border tint. ViewerWidget owns the

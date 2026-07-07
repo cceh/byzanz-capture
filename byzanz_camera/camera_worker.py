@@ -213,6 +213,9 @@ class CameraStates:
         LiveViewStarted, LiveViewStopped, LiveViewActive, FocusStarted, FocusFinished
     ]
 
+    LIVE_VIEW_STARTABLE = (Ready, LiveViewStopped, CaptureFinished)
+    LIVE_VIEW_STREAMING = (LiveViewStarted, LiveViewActive)
+
 
 class CameraCommands(QObject):
     capture_images = pyqtSignal(CaptureImagesRequest)
@@ -239,6 +242,10 @@ class CameraEvents(QObject):
 
 
 class CameraWorker(QObject):
+    # Consecutive capture_preview() failures tolerated before the connection
+    # is considered dead (~250 ms at the 50 ms frame interval).
+    MAX_PREVIEW_FAILURES = 5
+
     FORMAT_SETTINGS_MAP = {
         CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW:
             lambda profile: profile.capture_format_jpeg_and_raw_settings(),
@@ -288,6 +295,11 @@ class CameraWorker(QObject):
 
         self.filesCounter = 0
         self.captureComplete = False
+
+        # Live-view health, reset on every connect (__connect_camera).
+        self.__preview_failures = 0        # consecutive capture_preview() errors
+        self.__live_view_rejected = False  # camera answered -6: refuse restarts until reconnect
+        self.__live_view_reject_logged = False
 
         self.shouldCancel = False
         self.timer: QTimer = None
@@ -417,6 +429,9 @@ class CameraWorker(QObject):
     @__handle_camera_error
     def __connect_camera(self, profile: Profile):
         self.profile = profile
+        self.__preview_failures = 0
+        self.__live_view_rejected = False
+        self.__live_view_reject_logged = False
         self.__set_state(CameraStates.Connecting(self.camera_name))
         self.__last_ptp_error = None
 
@@ -696,6 +711,23 @@ class CameraWorker(QObject):
 
     @__handle_camera_error
     def __start_live_view(self):
+        # Start commands are queued from the UI, which decides on a lagging
+        # copy of our state — refuse anything invalid by the time it lands.
+        if not self.profile.supports_live_view():
+            self.__logger.warning("Profile '%s' does not support live view, ignoring start",
+                                  self.profile.name())
+            return
+        if self.__live_view_rejected:
+            log = self.__logger.debug if self.__live_view_reject_logged else self.__logger.warning
+            log("Camera rejected live view (unsupported), ignoring start until reconnect")
+            self.__live_view_reject_logged = True
+            return
+        if not isinstance(self.__state, CameraStates.LIVE_VIEW_STARTABLE):
+            self.__logger.debug("Ignoring live-view start in state %s",
+                                self.__state.__class__.__name__)
+            return
+
+        self.__preview_failures = 0
         lightmeter: int = 0
         self.__apply_settings(self.profile.start_live_view_settings())
         self.__set_state(CameraStates.LiveViewStarted(current_lightmeter_value=lightmeter))
@@ -703,8 +735,26 @@ class CameraWorker(QObject):
 
     @__handle_camera_error
     def __live_view_capture_preview(self):
-        lightmeter = None
-        camera_file = self.camera.capture_preview()
+        try:
+            camera_file = self.camera.capture_preview()
+        except gp.GPhoto2Error as err:
+            if err.code == gp.GP_ERROR_NOT_SUPPORTED:
+                # Capability answer, not a connection problem: stop live view,
+                # refuse restarts until reconnect, keep the camera usable.
+                self.__logger.error("Camera does not support live view (profile '%s'): %s",
+                                    self.profile.name(), err.string)
+                self.__live_view_rejected = True
+                self.__set_state(CameraStates.LiveViewStopped())
+                self.__set_state(CameraStates.Ready(self.camera_name))
+                return
+            self.__preview_failures += 1
+            if self.__preview_failures >= self.MAX_PREVIEW_FAILURES:
+                raise  # sustained failure — let the decorator disconnect/reconnect
+            self.__logger.warning("Preview frame failed (%d/%d): %s", self.__preview_failures,
+                                  self.MAX_PREVIEW_FAILURES, err.string)
+            return
+        self.__preview_failures = 0
+
         file_data = camera_file.get_data_and_size()
         try:
             image = Image.open(io.BytesIO(file_data))
@@ -720,9 +770,6 @@ class CameraWorker(QObject):
 
         self.empty_event_queue(1)
         self.preview_image.emit(LiveViewImage(image=image))
-
-        #
-        # self.preview_image.emit(LiveViewImage(image=image, lightmeter_value=lightmeter))
 
     @__handle_camera_error
     def __stop_live_view(self):
