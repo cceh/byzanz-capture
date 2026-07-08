@@ -46,7 +46,8 @@ from stitching.stitching_error import StitchingError
 
 from byzanz_camera.load_image_worker import read_embedded_jpeg
 from papyri.object_layout import (
-    stitch_dir_for, stitch_preview_path_for, stitch_report_path_for,
+    GREEN_VERDICTS, stitch_dir_for, stitch_preview_path_for,
+    stitch_report_path_for,
 )
 
 _logger = logging.getLogger("stitching")
@@ -96,7 +97,7 @@ class StitchReport:
     def is_green(self) -> bool:
         """The set is complete enough to stitch (thin overlap is a hint,
         not a blocker)."""
-        return self.verdict in ("ok", "thin")
+        return self.verdict in GREEN_VERDICTS
 
     @property
     def level(self) -> str:

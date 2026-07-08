@@ -1547,9 +1547,11 @@ class PapyriMainWindow(QMainWindow):
     def _on_stitch_check_finished(
         self, obj_dir: str, side: str, spectrum: str, report,
     ) -> None:
-        """A check completed. Apply it only if its bucket is still the
-        active one — the user may have switched to a bucket whose fresh
-        report needed no check (so no generation bump guarded this)."""
+        """A check completed and wrote report.json — this object's stitch
+        completeness may have changed, so refresh the sidebar regardless of
+        the active bucket. Update the bar/dots only if this bucket is still
+        the active one (the user may have switched away since it started)."""
+        self.objects_sidebar.refresh()
         bucket = self._active_stitch_bucket()
         if bucket is None:
             return

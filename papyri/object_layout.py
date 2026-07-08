@@ -143,6 +143,22 @@ def stitch_preview_path_for(object_dir: str, side: str, spectrum: str) -> str:
     return os.path.join(stitch_dir_for(object_dir, side, spectrum), "preview.jpg")
 
 
+# Verdicts that count as "the set stitches" — the single source of truth for
+# "green", shared by StitchReport.is_green and the completeness rule below.
+GREEN_VERDICTS = frozenset({"ok", "thin"})
+
+
+def stitch_verdict(object_dir: str, side: str, spectrum: str) -> str | None:
+    """The verdict string from a bucket's `_stitch/report.json`, or None if
+    there is no report. Kept here (Qt-free) so disk-scan callers — the
+    sidebar completeness rule — can read it without a StitchController."""
+    try:
+        with open(stitch_report_path_for(object_dir, side, spectrum)) as f:
+            return json.load(f).get("verdict")
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError):
+        return None
+
+
 # ---- _meta.json I/O --------------------------------------------------------
 # The single reader/writer pair for the object marker file. Callers with
 # plain key updates (capture stamping, the Stitch toggle) go through
@@ -305,9 +321,28 @@ def captured_sides_for_spectrum(object_dir: str, spectrum: str) -> int:
     )
 
 
+def is_stitch_bucket_complete(object_dir: str, side: str, spectrum: str) -> bool:
+    """A stitching bucket is complete when its segments cover the fragment:
+    the last check is green (≥2 connecting segments), OR it is a single shot
+    (verdict `too_few` with ≥1 capture — the IR field often covers the whole
+    fragment in one frame, so there is nothing to stitch). A broken
+    multi-segment set (split / isolated) or an empty bucket is not complete."""
+    verdict = stitch_verdict(object_dir, side, spectrum)
+    if verdict in GREEN_VERDICTS:
+        return True
+    if verdict == "too_few":
+        return has_captures_for_bucket(object_dir, side, spectrum)
+    return False
+
+
 def is_spectrum_complete(object_dir: str, spectrum: str) -> bool:
-    """THE completeness rule of the object family: a spectrum is complete
-    when every physical side has ≥1 capture for it."""
+    """THE completeness rule of the object family. Normal objects: every
+    physical side has ≥1 capture. Stitching objects (oversized, captured as
+    overlapping segments): every side is stitch-complete (see
+    `is_stitch_bucket_complete`)."""
+    if is_stitching_object(object_dir):
+        return all(is_stitch_bucket_complete(object_dir, side, spectrum)
+                   for side in SIDES)
     return captured_sides_for_spectrum(object_dir, spectrum) == len(SIDES)
 
 
