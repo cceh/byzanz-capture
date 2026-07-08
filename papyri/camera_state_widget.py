@@ -83,6 +83,12 @@ class CameraStateWidget(QFrame):
         self._on_state(CameraStates.Waiting())
         self._refresh_chrome()
 
+    def set_profile(self, profile: "Profile") -> None:
+        """Rebind the profile emitted on a manual Connect click. Called on a
+        profile hot-switch — without this, Connect would reconnect with the
+        profile from the original bind_worker."""
+        self._profile = profile
+
     def set_emphasized(self, emphasized: bool) -> None:
         """When True, draws a 2px spectrum-colored border around the pill so
         the user can tell at a glance which camera is the active one."""

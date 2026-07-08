@@ -311,8 +311,14 @@ class CameraWorker(QObject):
 
         # macOS USB-claim recovery budget. Recovery runs at most twice
         # per connection cycle to avoid pushing launchd into marking
-        # ptpcamerad permanently disabled. Resets when we reach Ready.
+        # ptpcamerad permanently disabled. Resets when we reach Ready,
+        # after RECOVERY_COOLDOWN_SECONDS without an attempt (the budget
+        # throttles tight loops, it shouldn't permanently ban recovery on
+        # an unattended machine), and on a profile hot-switch via
+        # reset_usb_recovery_budget() (a new target camera deserves a
+        # fresh allowance).
         self.__macos_recovery_attempts: int = 0
+        self.__last_macos_recovery: float = 0.0
 
         self.__last_ptp_error: NikonPTPError = None
         self.__last_config_poll = 0.0
@@ -382,19 +388,26 @@ class CameraWorker(QObject):
 
     def __find_camera(self):
         self.__set_state(CameraStates.Waiting())
-        pattern = self.target_model_pattern  # snapshot — orchestrator may rebind
-        pin = self.pinned_port               # snapshot — exact-port requirement, if any
-        found = None
-        log_target = f" matching {pattern!r}" if pattern else ""
-        if pin:
-            log_target += f" on port {pin!r}"
 
+        def describe_target(pattern, pin):
+            target = f" matching {pattern!r}" if pattern else ""
+            if pin:
+                target += f" on port {pin!r}"
+            return target
+
+        found = None
         # INFO once, DEBUG on the ~1s retries — a camera that's switched
         # off overnight would otherwise write thousands of identical
         # lines and churn the log rotation.
-        self.__logger.info(f"Waiting for camera{log_target}...")
+        self.__logger.info(f"Waiting for camera{describe_target(self.target_model_pattern, self.pinned_port)}...")
         while not found and not self.thread().isInterruptionRequested():
-            self.__logger.debug(f"Waiting for camera{log_target}...")
+            # Re-read the filter every iteration — the orchestrator rebinds
+            # these attributes on a profile hot-switch, and while we're stuck
+            # in this loop no queued command can reach us. Attribute reads
+            # are GIL-atomic; no locking needed.
+            pattern = self.target_model_pattern
+            pin = self.pinned_port
+            self.__logger.debug(f"Waiting for camera{describe_target(pattern, pin)}...")
             # `_gphoto2_autodetect()` uses a ctypes wrapper around
             # `gp_camera_autodetect` that releases the GIL during the USB
             # scan, so the Qt UI thread isn't frozen for the duration.
@@ -502,6 +515,7 @@ class CameraWorker(QObject):
             if not self.__should_attempt_macos_recovery(err):
                 raise
             self.__macos_recovery_attempts += 1
+            self.__last_macos_recovery = time.monotonic()
             self.__logger.warning(
                 "camera.init() failed with claim error (-53); "
                 "attempting macOS USB recovery (attempt %d/2)",
@@ -524,12 +538,33 @@ class CameraWorker(QObject):
                 self.usb_offenders_detected.emit(result.offenders)
             raise
 
+    # Seconds without a recovery attempt after which the budget refills.
+    # Keeps the worst case at one recovery salvo (2 attempts) per cooldown
+    # window instead of "never again until app restart" — on an unattended
+    # machine the stuck-device condition the budget guards against may
+    # clear on its own (offending app quit, device re-enumerated).
+    RECOVERY_COOLDOWN_SECONDS = 30.0
+
+    def reset_usb_recovery_budget(self):
+        """Grant a fresh recovery allowance. Called by the orchestrator on
+        a profile hot-switch: the budget was spent on the OLD target
+        camera; the new target deserves the same two attempts a fresh
+        connection cycle would get. Plain int/float writes — safe to call
+        from the UI thread like the target_model_pattern rebind."""
+        self.__macos_recovery_attempts = 0
+        self.__last_macos_recovery = 0.0
+
     def __should_attempt_macos_recovery(self, err: "gp.GPhoto2Error") -> bool:
-        return (
-            sys.platform == "darwin"
-            and getattr(err, "code", None) == -53
-            and self.__macos_recovery_attempts < 2
-        )
+        if sys.platform != "darwin" or getattr(err, "code", None) != -53:
+            return False
+        if (self.__macos_recovery_attempts >= 2
+                and time.monotonic() - self.__last_macos_recovery
+                >= self.RECOVERY_COOLDOWN_SECONDS):
+            self.__logger.info(
+                "macOS USB recovery budget reset after %.0fs cooldown",
+                self.RECOVERY_COOLDOWN_SECONDS)
+            self.__macos_recovery_attempts = 0
+        return self.__macos_recovery_attempts < 2
 
     def __disconnect_camera(self, auto_reconnect=True):
         self.__set_state(CameraStates.Disconnecting())
@@ -723,6 +758,10 @@ class CameraWorker(QObject):
             self.__live_view_reject_logged = True
             return
         if not isinstance(self.__state, CameraStates.LIVE_VIEW_STARTABLE):
+            # Also covers the disconnect race: a live_view(True) queued
+            # before a ConnectionError arrives after __disconnect_camera has
+            # set self.camera = None and the state to Disconnected, which is
+            # not startable — so we return before dereferencing the camera.
             self.__logger.debug("Ignoring live-view start in state %s",
                                 self.__state.__class__.__name__)
             return

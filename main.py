@@ -212,8 +212,13 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.events.config_updated.connect(self.on_config_update)
         self.camera_worker.property_changed.connect(self.on_property_change)
         self.camera_worker.preview_image.connect(
+            # .copy() detaches from the PIL-owned bytes buffer — ImageQt
+            # wraps it without owning it, and for RGB32 frames
+            # QPixmap.fromImage takes a shallow share instead of converting,
+            # so the pixmap would dangle once the ImageQt temporary is
+            # collected (segfault on a later repaint after live view stops).
             lambda image: self.preview_viewer.show_image(
-                QPixmap.fromImage(ImageQt(image.image)), fit=True
+                QPixmap.fromImage(ImageQt(image.image).copy()), fit=True
             )
         )
         self.camera_worker.initialized.connect(lambda: self.camera_worker.commands.find_camera.emit())
@@ -653,6 +658,33 @@ class RTICaptureMainWindow(QMainWindow):
         dialog.setModal(True)
         if dialog.exec():
             for name, value in dialog.settings.items():
+                if name == "profile":
+                    new_profile = PROFILES[value]
+                    if new_profile is not self.profile:
+                        # Never yank the camera out from under an in-flight
+                        # capture. The setting is not persisted either, so
+                        # QSettings and runtime state stay consistent.
+                        if isinstance(self.camera_state,
+                                      (CameraStates.CaptureInProgress,
+                                       CameraStates.CaptureCancelling)):
+                            QMessageBox.information(
+                                self, self.tr("Capture in progress"),
+                                self.tr("The camera profile was not changed "
+                                        "because a capture is running. Change "
+                                        "it again once the capture has "
+                                        "finished."))
+                            continue
+                        self.profile = new_profile
+                        # In Waiting there is no connection to tear down and
+                        # the worker can't process a queued reconnect while
+                        # inside its find loop — the pending Found →
+                        # connect_camera(self.profile) picks up the new
+                        # profile by itself.
+                        if not isinstance(self.camera_state,
+                                          CameraStates.Waiting):
+                            self.reconnect_cammera()
+                    q_settings.setValue(name, value)
+                    continue
                 q_settings.setValue(name, value)
                 if name == "maxPixmapCache":
                     QPixmapCache.setCacheLimit(value * 1024)
@@ -665,9 +697,6 @@ class RTICaptureMainWindow(QMainWindow):
                     self.update_ui_bluetooth()
                 elif name == "enableSecondScreenMirror":
                     self.reset_mirror_view()
-                elif name == "profile":
-                    self.profile = PROFILES[value]
-                    self.reconnect_cammera()
 
     def open_advanced_capture_settings(self):
         def open_dialog(cfg: gp.CameraWidget):

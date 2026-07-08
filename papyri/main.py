@@ -1212,6 +1212,58 @@ class PapyriMainWindow(QMainWindow):
         thread.started.connect(worker.initialize)
         return worker, thread
 
+    def _hot_switch_profile(self, spectrum: str, new_profile: Profile) -> str | None:
+        """Rebind a camera slot to a new profile at runtime (settings change
+        without restart). Returns None on success, or a user-facing reason
+        string — having changed nothing — when switching is refused:
+        mid-capture (would tear the camera down around the in-flight
+        capture) or the profile is the other slot's (our two workers would
+        fight over one physical camera with USB claim errors).
+
+        The detection filter (model pattern / pinned port) lives as plain
+        worker attributes set at spawn time, so it must be rebound here;
+        everything downstream of "camera found" follows the profile object
+        emitted with the next connect_camera."""
+        if spectrum == SPECTRUM_VISIBLE:
+            worker, state_widget = self.visible_worker, self.visible_camera_state
+            other_profile, other_label = self.ir_profile, "IR"
+        else:
+            worker, state_widget = self.ir_worker, self.ir_camera_state
+            other_profile, other_label = self.profile, "visible"
+
+        if new_profile is other_profile:
+            return (f"This profile is already used by the {other_label} "
+                    "camera. Two slots cannot drive the same camera.")
+
+        state = self.session.camera_state(spectrum)
+        if isinstance(state, (CameraStates.CaptureInProgress,
+                              CameraStates.CaptureCancelling)):
+            return ("A capture is running on this camera. Change the "
+                    "profile again once the capture has finished.")
+
+        if spectrum == SPECTRUM_VISIBLE:
+            self.profile = new_profile
+        else:
+            self.ir_profile = new_profile
+        worker.target_model_pattern = new_profile.gphoto2_model_pattern()
+        worker.pinned_port = new_profile.gphoto2_port()
+        # The old target may have burned the USB recovery budget (e.g. a
+        # claim fight); the new target gets a fresh allowance.
+        worker.reset_usb_recovery_budget()
+        state_widget.set_profile(new_profile)
+
+        self.logger.info("Hot-switched %s profile to %r",
+                         spectrum, new_profile.name())
+        if isinstance(state, CameraStates.Waiting):
+            # The worker is inside its find loop and can't process a queued
+            # reconnect until a camera is found; it re-reads the filter each
+            # iteration, so the rebind alone takes effect. A queued reconnect
+            # would fire only after the next connect and cause a spurious
+            # disconnect cycle.
+            return None
+        worker.commands.reconnect_camera.emit()
+        return None
+
     @property
     def active_worker(self) -> CameraWorker:
         """The worker currently driving the UI (live view, capture, etc.).
@@ -1245,6 +1297,14 @@ class PapyriMainWindow(QMainWindow):
         live-view-active state)."""
         profile = self._active_profile()
         return bool(profile and profile.focus_magnify_property_name())
+
+    def _live_view_supported(self) -> bool:
+        """Whether the active camera can stream live view. Gates the pause
+        button (a no-live-view camera has no stream to pause). Sibling of
+        _autofocus_supported / _focus_magnify_supported; _sync_live_view
+        checks the per-spectrum profile directly in its own loop."""
+        profile = self._active_profile()
+        return bool(profile and profile.supports_live_view())
 
     # ---- capture-setting combos (ISO / aperture / shutter) -------------
 
@@ -1810,7 +1870,14 @@ class PapyriMainWindow(QMainWindow):
         angle = self._lv_rotation[spectrum]
         if angle:
             pil_image = pil_image.transpose(_ROTATE_TRANSPOSE[angle])
-        self.viewer.show_image(QPixmap.fromImage(ImageQt(pil_image)), fit=fit)
+        # .copy() detaches from the PIL-owned bytes buffer. ImageQt wraps it
+        # without owning it, and for RGB32 frames QPixmap.fromImage takes a
+        # shallow share instead of converting — once the ImageQt temporary is
+        # collected, the pixmap would point into freed memory and any later
+        # repaint segfaults (observed when the last live frame lingers after
+        # a disconnect stops live view).
+        frame = ImageQt(pil_image).copy()
+        self.viewer.show_image(QPixmap.fromImage(frame), fit=fit)
         # Each arriving live frame asserts "live" — handles transitions
         # away from preview/paused without needing extra plumbing.
         self.session.set_view_mode("live")
@@ -1847,7 +1914,12 @@ class PapyriMainWindow(QMainWindow):
 
         # ---- live view + autofocus + capture (bottom row)
         camera_ready = self._active_camera_ready()
-        self.pause_live_view_button.setEnabled(camera_ready)
+        # Gate on live-view support too: a no-live-view camera (the vusb
+        # virtual one) has no stream to pause, and toggling it would leave
+        # the button (pause intent) and badge (frame arrival) permanently
+        # out of sync — no frame ever comes to flip view_mode back to live.
+        self.pause_live_view_button.setEnabled(
+            camera_ready and self._live_view_supported())
         self.capture_button.setEnabled(camera_ready and object_loaded)
         # (Calibration shoots via this same Capture button — the
         # CalibrationTarget is the current object while the sub-mode is
@@ -2686,27 +2758,50 @@ class PapyriMainWindow(QMainWindow):
     # ---------------------------------------------------------- dialogs
 
     def open_settings(self):
-        # Snapshot irProfile BEFORE the dialog runs so we can detect a change
-        # and warn the user — IR worker spawn happens once at startup, so
-        # changing irProfile at runtime has no effect until restart.
+        # Snapshot irProfile BEFORE the dialog runs so we can detect what
+        # kind of change happened: profile→profile hot-switches at runtime,
+        # while enabling/disabling IR (None↔profile) still needs a restart —
+        # IR worker spawn/teardown happens only in _wire_camera.
         previous_ir_profile = self.q_settings.value("irProfile")
+        ir_hot_switched = False
 
         dialog = PapyriSettingsDialog(self.q_settings, PROFILES, self)
         if not dialog.exec():
             return
 
         for name, value in dialog.settings.items():
-            self.q_settings.setValue(name, value)
             if name == "profile":
+                # The "profile" setting is the VIS-camera profile — always
+                # target the VIS worker, never active_worker (that would
+                # wrongly switch IR if IR were the active spectrum). On a
+                # mid-capture guard refusal the setting is NOT persisted, so
+                # QSettings and runtime state stay consistent.
                 new_profile = PROFILES[value]
                 if new_profile is not self.profile:
-                    self.profile = new_profile
-                    # Always target the VIS worker — the "profile"
-                    # setting is the VIS-camera profile. Routing via
-                    # active_worker would wrongly reconnect IR if IR
-                    # were the active spectrum.
-                    self.visible_worker.commands.reconnect_camera.emit()
-            elif name == "workingDirectory":
+                    refusal = self._hot_switch_profile(SPECTRUM_VISIBLE,
+                                                       new_profile)
+                    if refusal is not None:
+                        QMessageBox.information(
+                            self, "Profile not changed", refusal)
+                        continue
+                self.q_settings.setValue(name, value)
+                continue
+            if name == "irProfile":
+                if (value and previous_ir_profile
+                        and value != previous_ir_profile
+                        and value in PROFILES
+                        and self.ir_worker is not None):
+                    refusal = self._hot_switch_profile(SPECTRUM_INFRARED,
+                                                       PROFILES[value])
+                    if refusal is not None:
+                        QMessageBox.information(
+                            self, "IR profile not changed", refusal)
+                        continue
+                    ir_hot_switched = True
+                self.q_settings.setValue(name, value)
+                continue
+            self.q_settings.setValue(name, value)
+            if name == "workingDirectory":
                 self._refresh_camera_dependent_ui()
                 self._activate_box(value)
                 # Calibration files live under <workingDirectory>/_calibration/
@@ -2740,11 +2835,12 @@ class PapyriMainWindow(QMainWindow):
                 if getattr(self, "_rotated_sample_nudge", None) is not None:
                     self._rotated_sample_nudge.refresh()
 
-        # F-PERS-1: irProfile change has no runtime effect — the IR worker
-        # is constructed once in _wire_camera at startup based on this
-        # setting. Warn the user so they know to restart.
+        # F-PERS-1 (narrowed): profile→profile changes hot-switch above; only
+        # enabling/disabling IR (None↔profile) — or a change while no IR
+        # worker exists — still requires a restart, because worker
+        # spawn/teardown happens only in _wire_camera at startup.
         new_ir_profile = self.q_settings.value("irProfile")
-        if new_ir_profile != previous_ir_profile:
+        if new_ir_profile != previous_ir_profile and not ir_hot_switched:
             QMessageBox.information(
                 self,
                 "Restart required",
