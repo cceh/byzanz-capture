@@ -39,8 +39,8 @@ from PyQt6.QtWidgets import (
 from byzanz_camera.helpers import set_state
 from papyri.capture_vocab import SIDES, SPECTRUM_INFRARED, SPECTRUM_VISIBLE
 from papyri.object_layout import (
-    captured_sides_for_spectrum, is_spectrum_complete, list_managed_objects,
-    newest_capture_mtime,
+    captured_sides_for_spectrum, is_spectrum_complete, is_stitching_object,
+    list_managed_objects, newest_capture_mtime,
 )
 from papyri._metadata import is_metadata_complete_for
 
@@ -53,6 +53,7 @@ class ObjectListEntry:
     vis_complete: bool              # per object_layout.is_spectrum_complete
     ir_complete: bool
     metadata_complete: bool
+    stitching: bool                 # oversized object captured as segments
     last_capture_ts: float | None   # newest capture mtime; None = no captures
 
     @property
@@ -93,11 +94,12 @@ def _spectrum_status(sides: int) -> str:
 
 def _tooltip_text(entry: ObjectListEntry) -> str:
     """Row tooltip — full name (rows elide long ones) + status detail."""
-    lines = [
-        entry.name,
+    lines = [entry.name]
+    if entry.stitching:
+        lines.append("🪡 Stitching object")
+    lines.append(
         f"VIS: {_spectrum_status(entry.vis_sides)}"
-        f"    IR: {_spectrum_status(entry.ir_sides)}",
-    ]
+        f"    IR: {_spectrum_status(entry.ir_sides)}")
     if entry.has_captures:
         lines.append("Metadata: complete" if entry.metadata_complete
                      else "Metadata: incomplete")
@@ -150,6 +152,11 @@ class _ObjectRowWidget(QWidget):
                            QSizePolicy.Policy.Preferred)
         top.addWidget(name, 1)
 
+        if entry.stitching:
+            stitch = QLabel("🪡")
+            stitch.setObjectName("sidebarRowStitch")
+            stitch.setToolTip("Stitching object (captured as segments)")
+            top.addWidget(stitch, 0)
         if entry.needs_metadata:
             warn = QLabel("⚠")
             warn.setObjectName("sidebarRowWarn")
@@ -408,6 +415,7 @@ class ObjectsSidebar(QFrame):
                 vis_complete=is_spectrum_complete(obj_dir, SPECTRUM_VISIBLE),
                 ir_complete=is_spectrum_complete(obj_dir, SPECTRUM_INFRARED),
                 metadata_complete=is_metadata_complete_for(working_dir, name),
+                stitching=is_stitching_object(obj_dir),
                 last_capture_ts=newest_capture_mtime(obj_dir),
             ))
         return entries

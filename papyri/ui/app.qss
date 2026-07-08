@@ -107,6 +107,9 @@
     font-size: 11pt;
     font-weight: 700;
 }
+#sidebarRowStitch {
+    font-size: 10pt;             /* 🪡 marks an oversized/stitching object */
+}
 /* Spectrum mini-pill — same recipe as #cameraSideBadge, one size down.
    Filled = spectrum complete (both sides captured); outlined ("partial")
    = only one side so far. The transparent border keeps both variants
@@ -210,6 +213,19 @@ QToolButton:disabled {
     font-size: 10pt;
     letter-spacing: 1px;
 }
+/* Stitch connectivity strip (above the filmstrip, stitch buckets only).
+   The message carries its own ✓ / △ / ⚠ glyph; the state tints it. */
+#stitchBar {
+    border-top: 1px solid $line_soft;
+}
+#stitchStatus {
+    font-size: 11pt;
+    color: $ink_2;
+}
+#stitchStatus[state="ok"]      { color: $cal_ok; }
+#stitchStatus[state="warn"]    { color: $cal_due; }
+#stitchStatus[state="error"]   { color: $status_error; }
+#stitchStatus[state="neutral"] { color: $ink_2; }
 /* NB: the bar's buttons (Calibrate / ← Back) use NATIVE QPushButton
    styling on purpose — setting any QSS property on a QPushButton makes
    Qt strip the macOS native chrome (same reason the zoom bar stays

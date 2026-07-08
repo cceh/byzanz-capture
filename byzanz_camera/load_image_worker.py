@@ -57,6 +57,31 @@ def is_raw(path: str) -> bool:
     return Path(path).suffix.lower() in RAW_EXTENSIONS
 
 
+# ---- embedded JPEG extraction --------------------------------------------
+
+def _embedded_jpeg_bytes(raw) -> Optional[bytes]:
+    """JPEG payload of an open rawpy handle's embedded preview, or None
+    when the RAW has no thumbnail or only a bitmap-format one."""
+    try:
+        thumb = raw.extract_thumb()
+    except rawpy.LibRawNoThumbnailError:
+        return None
+    if thumb.format != rawpy.ThumbFormat.JPEG:
+        return None
+    return thumb.data
+
+
+def read_embedded_jpeg(path: str) -> Optional[bytes]:
+    """Decodable JPEG bytes for a capture file, without demosaicing: the
+    file itself for JPEGs, the (typically full-res) embedded preview for
+    RAWs. None when a RAW carries no JPEG preview."""
+    if is_raw(path):
+        with rawpy.imread(path) as raw:
+            return _embedded_jpeg_bytes(raw)
+    with open(path, "rb") as f:
+        return f.read()
+
+
 # ---- sharpness ----------------------------------------------------------
 
 # Toggled from app startup based on the QSettings flag
@@ -124,15 +149,9 @@ def compute_sharpness(source: "str | Image.Image") -> Optional[float]:
         if isinstance(source, Image.Image):
             gray = np.asarray(source.convert("L"))
         else:
-            if is_raw(source):
-                with rawpy.imread(source) as raw:
-                    thumb = raw.extract_thumb()
-                if thumb.format != rawpy.ThumbFormat.JPEG:
-                    return None
-                data = thumb.data
-            else:
-                with open(source, "rb") as f:
-                    data = f.read()
+            data = read_embedded_jpeg(source)
+            if data is None:
+                return None
             img = cv2.imdecode(np.frombuffer(data, np.uint8),
                                cv2.IMREAD_REDUCED_COLOR_2)
             if img is None:
@@ -228,15 +247,9 @@ def _extract_jpeg_thumb(path: str, max_size: int) -> tuple[QImage, dict]:
 
 def _extract_raw_thumb(path: str, max_size: int) -> tuple[Optional[QImage], dict]:
     with rawpy.imread(path) as raw:
-        try:
-            thumb = raw.extract_thumb()
-        except rawpy.LibRawNoThumbnailError:
-            # No embedded preview — last-resort full demosaic + scale.
-            qimg = _raw_full_qimage(raw)
-            return _scale_to_fit(qimg, max_size), {}
-
-        if thumb.format == rawpy.ThumbFormat.JPEG:
-            pil = Image.open(BytesIO(thumb.data))
+        data = _embedded_jpeg_bytes(raw)
+        if data is not None:
+            pil = Image.open(BytesIO(data))
             exif = _get_exif_dict(pil)
             pil = ImageOps.exif_transpose(pil).convert("RGB")
             pil.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
@@ -246,6 +259,14 @@ def _extract_raw_thumb(path: str, max_size: int) -> tuple[Optional[QImage], dict
                 w * 3, QImage.Format.Format_RGB888,
             ).copy()
             return q_image, exif
+
+        # No JPEG preview — a thumbnail must still come out of here:
+        # bitmap-format thumb if present, else last-resort full demosaic.
+        try:
+            thumb = raw.extract_thumb()
+        except rawpy.LibRawNoThumbnailError:
+            qimg = _raw_full_qimage(raw)
+            return _scale_to_fit(qimg, max_size), {}
 
         if thumb.format == rawpy.ThumbFormat.BITMAP:
             arr = np.ascontiguousarray(thumb.data)
@@ -327,13 +348,10 @@ def _exif_from_raw_embedded_jpeg(raw) -> dict:
     """RAW EXIF lives in the embedded JPEG preview's metadata (LibRaw
     doesn't expose EXIF directly). Returns empty dict if no JPEG preview
     is embedded."""
-    try:
-        thumb = raw.extract_thumb()
-    except rawpy.LibRawNoThumbnailError:
+    data = _embedded_jpeg_bytes(raw)
+    if data is None:
         return {}
-    if thumb.format != rawpy.ThumbFormat.JPEG:
-        return {}
-    return _get_exif_dict(Image.open(BytesIO(thumb.data)))
+    return _get_exif_dict(Image.open(BytesIO(data)))
 
 
 # ---- worker -------------------------------------------------------------

@@ -10,7 +10,6 @@ the sidebar can derive its `??` vs `✓` badge from the same source of
 truth.
 """
 from __future__ import annotations
-import json
 import os
 from typing import TYPE_CHECKING
 
@@ -23,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from byzanz_camera.helpers import get_ui_path
 from papyri._metadata import DEFAULT_SCHEMA, FieldSchema
+from papyri.object_layout import read_meta, write_meta
 
 if TYPE_CHECKING:
     from papyri.main import Object
@@ -255,15 +255,14 @@ class MetadataPane(QFrame):
             return
         # Merge into existing JSON so keys NOT rendered as form fields — e.g.
         # the `capture_height_*` that MainWindow stamps on capture — survive.
-        data = self._read_meta()
+        data = read_meta(self._obj.meta_path)
         collected = self._collect_values()
         for schema in self._schema:
             if schema.name in collected:
                 data[schema.name] = collected[schema.name]
             else:
                 data.pop(schema.name, None)   # cleared field → drop the key
-        with open(self._obj.meta_path, "w") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        write_meta(self._obj.meta_path, data)
         self.metadata_changed.emit()
 
     def _collect_values(self) -> dict:
@@ -296,7 +295,7 @@ class MetadataPane(QFrame):
     def _populate_from_disk(self) -> None:
         self._loading = True
         try:
-            data = self._read_meta() if self._obj is not None else {}
+            data = read_meta(self._obj.meta_path) if self._obj is not None else {}
             for schema in self._schema:
                 w = self._widgets[schema.name]
                 if schema.type == "boolean":
@@ -311,13 +310,6 @@ class MetadataPane(QFrame):
                 self._write_widget(w, schema, str(raw))
         finally:
             self._loading = False
-
-    def _read_meta(self) -> dict:
-        try:
-            with open(self._obj.meta_path) as f:
-                return json.load(f) or {}
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
 
     @staticmethod
     def _write_widget(w: QWidget, schema: FieldSchema, value) -> None:

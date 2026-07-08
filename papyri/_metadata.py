@@ -6,11 +6,11 @@ The schema is hardcoded for now; a future change can make it loadable from
 `<working_dir>/metadata_schema.yaml` per project.
 """
 from __future__ import annotations
-import json
 import os
 from dataclasses import dataclass
 
-from papyri.object_layout import meta_path_for
+from papyri.capture_vocab import SPECTRUM_VISIBLE
+from papyri.object_layout import MetaKey, meta_path_for, read_meta
 
 
 # Camera-height presets. The capture-row "Height" control, the per-height
@@ -26,6 +26,16 @@ def parse_height_choices(raw: str | None) -> tuple[str, ...]:
     or all-blank."""
     items = [s.strip() for s in (raw or "").split(",") if s.strip()]
     return tuple(items) if items else DEFAULT_CAPTURE_HEIGHTS
+
+
+def current_height_for(q_settings, spectrum: str) -> str:
+    """Current rig height (str) for a camera: VIS = the sticky
+    `currentHeight` the user picks in the capture row, IR = the fixed
+    `irCaptureHeight` from Settings. Single source for everyone who
+    resolves a height per spectrum (capture stamping, Flatfield
+    calibration paths, due-tracking)."""
+    key = "currentHeight" if spectrum == SPECTRUM_VISIBLE else "irCaptureHeight"
+    return str(q_settings.value(key, "") or "")
 
 
 @dataclass(frozen=True)
@@ -102,13 +112,14 @@ DEFAULT_SCHEMA: tuple[FieldSchema, ...] = (
 )
 
 
-def _read_meta(meta_path: str) -> dict:
-    """Read `_meta.json` defensively. Returns empty dict on missing/malformed."""
-    try:
-        with open(meta_path) as f:
-            return json.load(f) or {}
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+# A metadata field sharing a name with an app-owned `_meta.json` key would
+# let the form's merge-write (which drops cleared fields) clobber app state.
+# Fail loudly at import rather than silently at runtime.
+_reserved_collisions = {f.name for f in DEFAULT_SCHEMA} & set(MetaKey)
+if _reserved_collisions:
+    raise ValueError(
+        "metadata schema fields collide with reserved _meta.json keys: "
+        f"{sorted(_reserved_collisions)}")
 
 
 def is_metadata_complete(
@@ -116,7 +127,7 @@ def is_metadata_complete(
     schema: tuple[FieldSchema, ...] = DEFAULT_SCHEMA,
 ) -> bool:
     """True iff every required field in `schema` has a non-empty value in `_meta.json`."""
-    data = _read_meta(meta_path)
+    data = read_meta(meta_path)
     for field in schema:
         if not field.required:
             continue

@@ -15,7 +15,6 @@ Run from the repo root via:
 or  python papyri/main.py
 """
 
-import json
 import logging
 import os
 import sys
@@ -81,11 +80,17 @@ from papyri.capture_vocab import (
 )
 from papyri.object_layout import (
     BUCKETS,
-    chosen_path_for,
+    CURRENT_LAYOUT_VERSION,
+    MarkerRole,
+    MetaKey,
+    bucket_key,
     dir_for_bucket,
     is_managed_object_dir,
     meta_path_for,
-    side_dir_for,
+    migrate_working_dir,
+    read_meta,
+    update_meta,
+    write_meta,
 )
 from papyri.camera_state_widget import CameraStateWidget
 from papyri.papyri_filmstrip import PapyriFilmstrip
@@ -107,8 +112,10 @@ from papyri.calibration_bar import CalibrationBar
 from papyri.calibration_layout import first_slot_for, label_for_slot
 from papyri.calibration_target import CalibrationTarget
 from papyri.capture_mode import CALIBRATION_MODE, get_mode
-from papyri._metadata import parse_height_choices
+from papyri._metadata import current_height_for, parse_height_choices
 from papyri.simple_target import SimpleTarget
+from papyri.stitch_bar import StitchBar
+from papyri.stitching import StitchController
 
 from send2trash import send2trash
 
@@ -147,14 +154,19 @@ _ROTATE_TRANSPOSE = {
 }
 
 
+# Distinguishes an absent marker key (→ role default) from a present-but-
+# null one (reference explicitly cleared). `None` is a real marker value,
+# so it can't double as "missing".
+_MISSING = object()
+
+
 class Object(QObject):
     """A single papyri capture object: its directory, four (side, spectrum)
     capture buckets, metadata. Implements the CaptureTarget contract
     (papyri/capture_target.py).
 
-    Layout:
-      <object>/_meta.json
-      <object>/<side>/_chosen_<spectrum>.txt   (optional; falls back to first)
+    Layout (full tree: papyri/object_layout.py):
+      <object>/_meta.json                          (object state incl. take markers)
       <object>/<side>/<spectrum>/<name>_<side_letter>_<spectrum_infix>_NNN.{jpg,arw}
 
     Public API is (side, spectrum)-parametric throughout: `captures(side, spectrum)`,
@@ -162,6 +174,9 @@ class Object(QObject):
     `delete(side, spectrum, stem)`, `next_template(side, spectrum)`,
     `count(side, spectrum)`. Sides are SIDE_A | SIDE_B; spectra are
     SPECTRUM_VISIBLE | SPECTRUM_INFRARED.
+
+    Take markers (chosen take, stitch reference) are persisted per bucket in
+    `_meta.json` under `markers` — one object-state file, no sidecar files.
 
     Single source of truth: `refresh()` re-reads disk for all four buckets
     and emits `state_changed` only when something actually changed.
@@ -185,6 +200,8 @@ class Object(QObject):
         # Per-bucket cached state, keyed by (side, spectrum).
         self._captures: dict[tuple[str, str], list[Capture]] = {b: [] for b in BUCKETS}
         self._chosen: dict[tuple[str, str], Capture | None] = {b: None for b in BUCKETS}
+        self._reference: dict[tuple[str, str], Capture | None] = {b: None for b in BUCKETS}
+        self._stitching = False
 
     # --- paths ----------------------------------------------------------
 
@@ -192,17 +209,9 @@ class Object(QObject):
     def meta_path(self) -> str:
         return meta_path_for(self.dir)
 
-    def side_dir(self, side: str) -> str:
-        """`<obj>/<side>/` — the parent of both spectrum dirs for that side."""
-        return side_dir_for(self.dir, side)
-
     def dir_for(self, side: str, spectrum: str) -> str:
         """`<obj>/<side>/<spectrum>/`."""
         return dir_for_bucket(self.dir, side, spectrum)
-
-    def chosen_path_for(self, side: str, spectrum: str) -> str:
-        """`<obj>/<side>/_chosen_<spectrum>.txt`."""
-        return chosen_path_for(self.dir, side, spectrum)
 
     # --- (side, spectrum)-parametric read-side -------------------------
 
@@ -210,10 +219,24 @@ class Object(QObject):
         return list(self._captures[(side, spectrum)])  # defensive copy
 
     def chosen(self, side: str, spectrum: str) -> Capture | None:
-        """The currently-chosen take for `(side, spectrum)`, or None.
-        Defaults to the first capture if `_chosen_<spectrum>.txt` is absent
-        or stale."""
+        """The currently-chosen take for `(side, spectrum)`, or None on an
+        empty bucket. Defaults to the latest capture when unmarked (see
+        `_resolve_chosen`)."""
         return self._chosen[(side, spectrum)]
+
+    def reference(self, side: str, spectrum: str) -> Capture | None:
+        """The stitch reference photo (ColorChecker + scale) of a bucket.
+        Defaults to the first capture when unmarked, is None on an empty
+        bucket, and is None when the user explicitly cleared it (see
+        `_resolve_reference`). Only meaningful for stitching objects;
+        resolved regardless (cheap)."""
+        return self._reference[(side, spectrum)]
+
+    def is_stitching(self) -> bool:
+        """Object-wide flag from `_meta.json`: this object is larger than
+        the field of view and is captured as overlapping segments. Set via
+        the capture-row Stitch toggle (`set_stitching`)."""
+        return self._stitching
 
     def count(self, side: str, spectrum: str) -> int:
         return len(self._captures[(side, spectrum)])
@@ -232,8 +255,9 @@ class Object(QObject):
         for side, spectrum in BUCKETS:
             os.makedirs(self.dir_for(side, spectrum), exist_ok=True)
         if not os.path.exists(self.meta_path):
-            with open(self.meta_path, "w") as f:
-                json.dump({}, f)
+            # Born at the current layout version so migration skips it.
+            write_meta(self.meta_path,
+                       {MetaKey.LAYOUT_VERSION: CURRENT_LAYOUT_VERSION})
 
     def mark_dir_loaded(self) -> None:
         """Set dir_loaded=True and run a fresh refresh so per-bucket
@@ -353,26 +377,40 @@ class Object(QObject):
             dest_path = os.path.join(dest_dir, new_stem + ext)
             os.replace(src_path, dest_path)
 
-        # If this stem was the chosen-take in the source bucket, drop the
-        # stale chosen file so the resolver falls back to the first capture.
-        chosen_path = self.chosen_path_for(src_side, src_spectrum)
-        if os.path.exists(chosen_path):
-            try:
-                with open(chosen_path) as f:
-                    if f.read().strip() == stem:
-                        os.remove(chosen_path)
-            except OSError:
-                pass
-
+        self._drop_stale_stem_markers(src_side, src_spectrum, stem)
         self.refresh()
 
     def set_chosen(self, side: str, spectrum: str, stem: str) -> None:
-        """Mark the capture with the given stem as chosen for `(side, spectrum)`.
-        Persists to `<obj>/<side>/_chosen_<spectrum>.txt`, then refresh."""
-        # The chosen file lives in the side dir, which must exist before write.
-        os.makedirs(self.side_dir(side), exist_ok=True)
-        with open(self.chosen_path_for(side, spectrum), "w") as f:
-            f.write(stem)
+        """Pin `stem` as the chosen (displayed) take for the bucket."""
+        self._set_marker(side, spectrum, MarkerRole.CHOSEN, stem)
+
+    def set_reference(self, side: str, spectrum: str, stem: str) -> None:
+        """Pin `stem` as the stitch reference photo for the bucket."""
+        self._set_marker(side, spectrum, MarkerRole.REFERENCE, stem)
+
+    def clear_reference(self, side: str, spectrum: str) -> None:
+        """Explicitly leave the bucket with NO reference photo — every
+        capture becomes a checked segment. Persisted as `reference: null`,
+        which overrides the auto-pick-first default (an absent key)."""
+        self._set_marker(side, spectrum, MarkerRole.REFERENCE, None)
+
+    def _set_marker(self, side: str, spectrum: str, role: MarkerRole,
+                    value: str | None) -> None:
+        """Write one per-bucket take marker into `_meta.json` under
+        `markers[<bucket>][<role>]`, then refresh. `value` is a stem, or
+        None (reference-cleared)."""
+        data = read_meta(self.meta_path)
+        bucket = data.setdefault(MetaKey.MARKERS, {}).setdefault(
+            bucket_key(side, spectrum), {})
+        bucket[role] = value
+        write_meta(self.meta_path, data)
+        self.refresh()
+
+    def set_stitching(self, enabled: bool) -> None:
+        """Flip the object-wide stitching flag in `_meta.json` — the Stitch
+        toggle's single state location — then refresh so dependents react
+        (the flag is part of the change signature)."""
+        update_meta(self.meta_path, {MetaKey.STITCHING: bool(enabled)})
         self.refresh()
 
     def delete(self, side: str, spectrum: str, stem: str) -> None:
@@ -385,19 +423,45 @@ class Object(QObject):
         if not paths:
             return
         send2trash(paths)
+        self._drop_stale_stem_markers(side, spectrum, stem)
         self.refresh()
 
-    def refresh(self):
-        """Re-read state from disk for all four buckets; emit `state_changed`
-        if anything changed across any bucket."""
-        new_captures = {b: self._scan_bucket(*b) for b in BUCKETS}
-        new_chosen = {b: self._resolve_chosen(*b, new_captures[b]) for b in BUCKETS}
+    def _drop_stale_stem_markers(self, side: str, spectrum: str, stem: str) -> None:
+        """When `stem` leaves a bucket (move/delete), drop any chosen/
+        reference marker pointing at it so the resolvers fall back to their
+        defaults instead of a dangling stem. Leaves `reference: null`
+        (cleared) untouched — that's an intent, not a dangling stem."""
+        data = read_meta(self.meta_path)
+        bucket = data.get(MetaKey.MARKERS, {}).get(bucket_key(side, spectrum), {})
+        removed = [role for role in MarkerRole if bucket.get(role) == stem]
+        for role in removed:
+            del bucket[role]
+        if removed:
+            write_meta(self.meta_path, data)
 
-        old_signature = self._signature(self._captures, self._chosen)
-        new_signature = self._signature(new_captures, new_chosen)
+    def refresh(self):
+        """Re-read state from disk for all four buckets (plus the take
+        markers + stitching flag, both from `_meta.json`); emit
+        `state_changed` if anything changed. Meta is read once here and
+        the resolvers work off it — no per-bucket file reads."""
+        meta = read_meta(self.meta_path)
+        markers = meta.get(MetaKey.MARKERS, {})
+        new_captures = {b: self._scan_bucket(*b) for b in BUCKETS}
+        new_chosen = {b: self._resolve_chosen(b, new_captures[b], markers)
+                      for b in BUCKETS}
+        new_reference = {b: self._resolve_reference(b, new_captures[b], markers)
+                         for b in BUCKETS}
+        new_stitching = meta.get(MetaKey.STITCHING) is True
+
+        old_signature = self._signature(
+            self._captures, self._chosen, self._reference, self._stitching)
+        new_signature = self._signature(
+            new_captures, new_chosen, new_reference, new_stitching)
 
         self._captures = new_captures
         self._chosen = new_chosen
+        self._reference = new_reference
+        self._stitching = new_stitching
 
         if old_signature != new_signature:
             self.state_changed.emit()
@@ -408,16 +472,20 @@ class Object(QObject):
     def _signature(
         captures: dict[tuple[str, str], list[Capture]],
         chosen: dict[tuple[str, str], Capture | None],
+        reference: dict[tuple[str, str], Capture | None],
+        stitching: bool,
     ) -> tuple:
         """A hashable summary across all buckets used to detect 'anything changed'."""
-        return tuple(
+        per_bucket = tuple(
             (
                 bucket,
                 tuple((c.stem, c.jpg_path, c.raw_path) for c in captures[bucket]),
                 chosen[bucket].stem if chosen[bucket] else None,
+                reference[bucket].stem if reference[bucket] else None,
             )
             for bucket in BUCKETS
         )
+        return (per_bucket, stitching)
 
     def _count_stems_on_disk(self, side: str, spectrum: str) -> int:
         """Count unique capture takes (one per stem) in `(side, spectrum)`."""
@@ -489,31 +557,41 @@ class Object(QObject):
         captures.sort(key=lambda c: c.index)
         return captures
 
+    @staticmethod
+    def _marker_stem(markers: dict, bucket: tuple[str, str], role: MarkerRole):
+        """Raw marker value for a bucket/role from the meta `markers` dict:
+        a stem, None (present-but-null), or _MISSING (key absent)."""
+        return markers.get(bucket_key(*bucket), {}).get(role, _MISSING)
+
     def _resolve_chosen(
-        self, side: str, spectrum: str, captures: list[Capture]
+        self, bucket: tuple[str, str], captures: list[Capture], markers: dict
     ) -> Capture | None:
-        """Read `_chosen_<spectrum>.txt` (a stem); fall back to the LATEST
-        capture if absent/stale. Latest-as-default mirrors the user's
-        likely intent: the newest take is presumably the keeper until
-        they decide otherwise (via right-click → mark chosen, which
-        persists to `_chosen_*.txt` and pins their choice across new
-        arrivals)."""
-        preferred = self._read_chosen_pref(side, spectrum)
-        if preferred:
+        """The chosen (displayed) take. A pinned stem wins; otherwise fall
+        back to the LATEST capture — the newest take is presumably the
+        keeper until the user marks another (which pins across new arrivals).
+        Chosen has no cleared state; a null/absent marker both mean latest."""
+        stem = self._marker_stem(markers, bucket, MarkerRole.CHOSEN)
+        if stem and stem is not _MISSING:
             for c in captures:
-                if c.stem == preferred:
+                if c.stem == stem:
                     return c
         return captures[-1] if captures else None
 
-    def _read_chosen_pref(self, side: str, spectrum: str) -> str | None:
-        path = self.chosen_path_for(side, spectrum)
-        if not os.path.exists(path):
-            return None
-        try:
-            with open(path) as f:
-                return f.read().strip() or None
-        except OSError:
-            return None
+    def _resolve_reference(
+        self, bucket: tuple[str, str], captures: list[Capture], markers: dict
+    ) -> Capture | None:
+        """The stitch reference photo. A pinned stem wins; an explicit null
+        (user cleared it) means none; an absent marker falls back to the
+        FIRST capture — the ColorChecker+scale shot is taken before the
+        segments, so it is auto-marked without persisting anything."""
+        stem = self._marker_stem(markers, bucket, MarkerRole.REFERENCE)
+        if stem is None:
+            return None                       # present-but-null: cleared
+        if stem is not _MISSING:
+            for c in captures:
+                if c.stem == stem:
+                    return c                  # pinned (or stale → fall through)
+        return captures[0] if captures else None
 
 
 class PapyriMainWindow(QMainWindow):
@@ -709,6 +787,13 @@ class PapyriMainWindow(QMainWindow):
         self.viewer.set_overlay_widget(self._no_object_overlay)
         self.filmstrip: PapyriFilmstrip = self.findChild(PapyriFilmstrip, "filmstrip")
 
+        # Stitch connectivity check + its status strip. Built here (before
+        # _wire_session's first filmstrip binding) so _refresh_stitch_ui can
+        # run from the first bind. The bar hides itself for non-stitch buckets.
+        self.stitch_bar: StitchBar = self.findChild(StitchBar, "stitchBar")
+        self.stitch = StitchController(self)
+        self.stitch.check_finished.connect(self._on_stitch_check_finished)
+
         self.calibration_bar: CalibrationBar = self.findChild(
             CalibrationBar, "calibrationBar")
 
@@ -750,6 +835,13 @@ class PapyriMainWindow(QMainWindow):
         self.height_select: QComboBox = self.findChild(QComboBox, "heightSelect")
         self._populate_height_select()
         self.height_select.currentTextChanged.connect(self._on_height_changed)
+        # Stitch toggle — a two-way binding to the current object's
+        # `stitching` flag in `_meta.json`, no state of its own. `clicked`
+        # (user interaction only, unlike `toggled`) writes the flag;
+        # _refresh_stitch_toggle reflects it on object switch.
+        self.stitch_toggle: QPushButton = self.findChild(
+            QPushButton, "stitchToggleButton")
+        self.stitch_toggle.clicked.connect(self._on_stitch_toggled)
         # Height-selector visibility is per-mode (papyri only) — set in
         # _apply_mode_state so a live switch updates it too.
         self._last_config: dict[str, object] = {}
@@ -847,9 +939,10 @@ class PapyriMainWindow(QMainWindow):
         # display (papyri). set_simple_mode is reversible.
         self.title_bar.set_simple_mode(
             simple, self.q_settings.value("simpleOutputDirectory", ""))
-        # Camera-height selector is papyri-only.
+        # Camera-height selector and Stitch toggle are papyri-only.
         self.height_label.setVisible(not simple)
         self.height_select.setVisible(not simple)
+        self.stitch_toggle.setVisible(not simple)
         # The mode-toggle menu action names the OTHER mode.
         self.toggle_mode_action.setText(self._mode_toggle_label(mode))
 
@@ -913,9 +1006,7 @@ class PapyriMainWindow(QMainWindow):
         # Objects sidebar. The working directory IS the open box (its folder
         # name is the box no.); the last box auto-reopens via this setting.
         self.objects_sidebar.set_recent_boxes(self._recent_boxes())
-        self.objects_sidebar.set_working_directory(
-            self.q_settings.value("workingDirectory", "")
-        )
+        self._activate_box(self.q_settings.value("workingDirectory", ""))
         self.objects_sidebar.object_selected.connect(self._on_sidebar_object_selected)
         self.objects_sidebar.new_object_requested.connect(self._on_sidebar_new_object)
         self.objects_sidebar.open_box_requested.connect(self._on_open_box)
@@ -1063,6 +1154,7 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
         s.current_object_changed.connect(self._refresh_no_object_lockout)
         s.current_object_changed.connect(self._refresh_capture_button_label)
+        s.current_object_changed.connect(self._refresh_stitch_toggle)
         self._refresh_metadata_pane_binding()
         self._refresh_title_bar_binding()
         self._refresh_objects_sidebar_active()
@@ -1072,6 +1164,7 @@ class PapyriMainWindow(QMainWindow):
         self._handle_current_object_subscription()
         self._handle_current_object_view_mode_reset()
         self._refresh_no_object_lockout()
+        self._refresh_stitch_toggle()
 
         # live_view_paused
         s.live_view_paused_changed.connect(self._refresh_live_view_button)
@@ -1227,17 +1320,27 @@ class PapyriMainWindow(QMainWindow):
         if self.calibration is not None:
             self.calibration.refresh()
 
-    def _calibration_height_for(self, spectrum: str) -> str:
-        """Current rig height (str) per camera for the CalibrationTarget:
-        VIS = the sticky `currentHeight`, IR = the fixed `irCaptureHeight`."""
-        key = "currentHeight" if spectrum == SPECTRUM_VISIBLE else "irCaptureHeight"
-        return str(self.q_settings.value(key, "") or "")
-
     def _refresh_height_select_enabled(self) -> None:
         """Height applies to VIS only (IR is a single fixed height) — disable
         the control when the IR camera is active."""
         self.height_select.setEnabled(
             self.session.active_spectrum == SPECTRUM_VISIBLE)
+
+    def _on_stitch_toggled(self, checked: bool) -> None:
+        """User clicked the Stitch toggle → write the flag to the current
+        object's `_meta.json`. `set_stitching` refreshes the object, so the
+        filmstrip and stitch check react via `state_changed`."""
+        obj = self.session.current_object
+        if isinstance(obj, Object):
+            obj.set_stitching(checked)
+
+    def _refresh_stitch_toggle(self) -> None:
+        """Reflect the current object's stitching flag; disabled without an
+        object. setChecked does not emit `clicked`, so no write-back loop."""
+        obj = self.session.current_object
+        is_obj = isinstance(obj, Object)
+        self.stitch_toggle.setEnabled(is_obj)
+        self.stitch_toggle.setChecked(is_obj and obj.is_stitching())
 
     def _stamp_capture_metadata(self, obj: "Object") -> None:
         """Merge derived metadata into the object's `_meta.json` on capture:
@@ -1246,18 +1349,17 @@ class PapyriMainWindow(QMainWindow):
         not a typed field). Merge (not overwrite) so metadata-pane fields
         survive; the pane likewise merges."""
         try:
-            with open(obj.meta_path) as f:
-                data = json.load(f) or {}
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            data = {}
-        data["capture_height_vis"] = str(self.q_settings.value("currentHeight", ""))
-        data["capture_height_ir"] = str(self.q_settings.value("irCaptureHeight", ""))
-        data["box_nr"] = os.path.basename(os.path.normpath(obj.working_dir))
-        try:
-            with open(obj.meta_path, "w") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            update_meta(obj.meta_path, {
+                MetaKey.HEIGHT_VIS: current_height_for(
+                    self.q_settings, SPECTRUM_VISIBLE),
+                MetaKey.HEIGHT_IR: current_height_for(
+                    self.q_settings, SPECTRUM_INFRARED),
+                MetaKey.BOX_NR: os.path.basename(os.path.normpath(obj.working_dir)),
+            })
         except OSError:
-            pass
+            # A failed stamp must not block the capture itself.
+            self.logger.warning(
+                "could not stamp %s", obj.meta_path, exc_info=True)
 
     # ---- active-bucket receivers ----------------------------------------
 
@@ -1398,6 +1500,60 @@ class PapyriMainWindow(QMainWindow):
             self.session.active_side,
             self.session.active_spectrum,
         )
+        self._refresh_stitch_ui()
+
+    # ---- stitch connectivity check --------------------------------------
+
+    def _active_stitch_bucket(self) -> tuple["Object", str, str] | None:
+        """The (object, side, spectrum) the stitch UI applies to, or None
+        when the active bucket is not a stitch bucket (no stitching object,
+        simple mode, or the calibration sub-mode)."""
+        obj = self.session.current_object
+        if (isinstance(obj, Object) and obj.is_stitching()
+                and not self._calibration_active):
+            return obj, self.session.active_side, self.session.active_spectrum
+        return None
+
+    def _refresh_stitch_ui(self, *, schedule_recheck: bool = False) -> None:
+        """Reconcile the stitch bar + filmstrip dots for the active bucket.
+        Shows a persisted report when it still matches the bucket's files,
+        otherwise runs a check (debounced on capture settle via
+        `schedule_recheck`, immediate on a bucket switch)."""
+        bucket = self._active_stitch_bucket()
+        if bucket is None:
+            self.stitch_bar.setVisible(False)
+            self.filmstrip.set_connectivity(None)
+            return
+        self.stitch_bar.setVisible(True)
+        report = self.stitch.fresh_report(*bucket)
+        if report is not None:
+            self._apply_stitch_report(report)
+            return
+        # Stale or never checked — dots go grey, bar spins, run a check.
+        self.stitch_bar.show_checking()
+        self.filmstrip.set_connectivity(None)
+        if schedule_recheck:
+            self.stitch.schedule_check(*bucket)
+        else:
+            self.stitch.run_check_now(*bucket)
+
+    def _apply_stitch_report(self, report) -> None:
+        self.stitch_bar.show_message(report.message, report.level)
+        self.filmstrip.set_connectivity(report.status_by_stem())
+
+    def _on_stitch_check_finished(
+        self, obj_dir: str, side: str, spectrum: str, report,
+    ) -> None:
+        """A check completed. Apply it only if its bucket is still the
+        active one — the user may have switched to a bucket whose fresh
+        report needed no check (so no generation bump guarded this)."""
+        bucket = self._active_stitch_bucket()
+        if bucket is None:
+            return
+        obj, active_side, active_spectrum = bucket
+        if (obj.dir == obj_dir and side == active_side
+                and spectrum == active_spectrum):
+            self._apply_stitch_report(report)
 
     def _on_filmstrip_image_decoded(self, path: str, pixmap) -> None:
         """Display the filmstrip's decoded image in the viewer. The decode
@@ -1912,9 +2068,7 @@ class PapyriMainWindow(QMainWindow):
         self.filmstrip.bind_object(None)
 
         # Rename capture files in every (side, spectrum) bucket whose basename
-        # starts with the old object name. Metadata file (_meta.json) and
-        # `_chosen_*.txt` stay put — they're not name-prefixed and travel
-        # with the parent dir.
+        # starts with the old object name. `_meta.json` travels with the dir.
         for side, spectrum in BUCKETS:
             bucket_dir = Path(dir_for_bucket(old_dir, side, spectrum))
             if not bucket_dir.is_dir():
@@ -1928,15 +2082,15 @@ class PapyriMainWindow(QMainWindow):
                     renamed = basename.replace(old_name, new_name, 1) + ext
                     os.rename(entry_path, bucket_dir / renamed)
 
-        # Update `_chosen_<spectrum>.txt` references too — they store stems
-        # that include the old object name (`<oldname>_a_vis_001`).
-        for side, spectrum in BUCKETS:
-            chosen_path = Path(chosen_path_for(old_dir, side, spectrum))
-            if not chosen_path.is_file():
-                continue
-            stem = chosen_path.read_text().strip()
-            if stem.startswith(old_name):
-                chosen_path.write_text(stem.replace(old_name, new_name, 1))
+        # Take markers in `_meta.json` store stems that include the old
+        # object name (`<oldname>_a_vis_001`) — reprefix them so they still
+        # point at the renamed captures (covers both chosen and reference).
+        meta = read_meta(meta_path_for(old_dir))
+        for bucket in meta.get(MetaKey.MARKERS, {}).values():
+            for role, stem in bucket.items():
+                if isinstance(stem, str) and stem.startswith(old_name):
+                    bucket[role] = stem.replace(old_name, new_name, 1)
+        write_meta(meta_path_for(old_dir), meta)
 
         os.rename(old_dir, new_dir)
         self.session.set_current_object(Object(self.session.current_object.working_dir, new_name))
@@ -1979,6 +2133,7 @@ class PapyriMainWindow(QMainWindow):
         self.session.set_current_object(obj)
 
     def close_object(self):
+        self.stitch.invalidate()
         self.session.set_current_object(None)
 
     def _open_simple_target(self, output_dir: str) -> None:
@@ -2200,6 +2355,16 @@ class PapyriMainWindow(QMainWindow):
         recents.insert(0, path)
         self.q_settings.setValue("recentBoxes", recents[:8])
 
+    def _activate_box(self, path: str) -> None:
+        """The single choke point for "this box is now the active box":
+        migrate its objects to the current on-disk layout, then point the
+        sidebar at it. Every path that opens / restores / changes the box
+        funnels here, so migration can never be skipped. An empty path
+        clears the sidebar (no box)."""
+        if path and os.path.isdir(path):
+            migrate_working_dir(path)
+        self.objects_sidebar.set_working_directory(path)
+
     def _open_box(self, path: str) -> None:
         """Make `path` the open box: persist it (auto-reopens next launch),
         record it in recents, and repoint the sidebar + calibration. Closes any
@@ -2210,7 +2375,7 @@ class PapyriMainWindow(QMainWindow):
         self.q_settings.setValue("workingDirectory", path)
         self._push_recent_box(path)
         self.objects_sidebar.set_recent_boxes(self._recent_boxes())
-        self.objects_sidebar.set_working_directory(path)
+        self._activate_box(path)
         # Decision C: calibration lives under the box (same external volume as
         # the captures), so it follows the box.
         if self.calibration is not None:
@@ -2249,7 +2414,7 @@ class PapyriMainWindow(QMainWindow):
         )
         self.close_object()
         self.q_settings.setValue("workingDirectory", "")
-        self.objects_sidebar.set_working_directory("")
+        self._activate_box("")
 
     def _on_object_state_changed(self):
         """Single sink for any change in the current object's derived state.
@@ -2259,6 +2424,12 @@ class PapyriMainWindow(QMainWindow):
         # The active object's `· → ?? → ✓` badge in the sidebar can flip
         # when captures land. Cheap re-scan; no FS watcher needed.
         self.objects_sidebar.refresh()
+        # The stitching flag is part of the object's signature, so a flag
+        # flip (toggle click or external meta edit) lands here too.
+        self._refresh_stitch_toggle()
+        # A new capture / reference change / toggle flip invalidates any
+        # prior report — re-check (debounced to coalesce the JPG+RAW pair).
+        self._refresh_stitch_ui(schedule_recheck=True)
 
     # ---------------------------------------------------------- capture
 
@@ -2357,7 +2528,9 @@ class PapyriMainWindow(QMainWindow):
         # watcher catches tethered captures; an unused run is pruned on exit.
         run_id = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         self._cal_target = CalibrationTarget(
-            wd, run_id, height_for=self._calibration_height_for)
+            wd, run_id,
+            height_for=lambda spectrum: current_height_for(
+                self.q_settings, spectrum))
         self._cal_target.ensure_dir()
         # Swap target+bucket so no receiver ever sees a mismatched pair:
         # clear the object first, then set the calibration bucket, then the
@@ -2484,7 +2657,7 @@ class PapyriMainWindow(QMainWindow):
                     self.visible_worker.commands.reconnect_camera.emit()
             elif name == "workingDirectory":
                 self._refresh_camera_dependent_ui()
-                self.objects_sidebar.set_working_directory(value)
+                self._activate_box(value)
                 # Calibration files live under <workingDirectory>/_calibration/
                 # — re-point the controller so the bar reflects the new root.
                 if self.calibration is not None:

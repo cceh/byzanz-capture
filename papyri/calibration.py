@@ -24,6 +24,7 @@ from datetime import datetime
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
+from papyri._metadata import current_height_for
 from papyri.calibration_layout import (
     CALIBRATION_DIRNAME, CALIBRATION_TARGETS, is_per_height, required_specs_for,
 )
@@ -134,18 +135,13 @@ class CalibrationController(QObject):
 
     # ---- internals -----------------------------------------------------
 
-    def _height_for(self, spectrum: str) -> str:
-        """Current rig height for a camera (VIS = the sticky `currentHeight`;
-        IR = the fixed `irCaptureHeight`). Mirrors what MainWindow gives the
-        CalibrationTarget, so due-tracking scans the same folder it writes."""
-        key = "currentHeight" if spectrum == SPECTRUM_VISIBLE else "irCaptureHeight"
-        return str(self._q.value(key, "") or "")
-
     def _subpath(self, spec, spectrum: str) -> str:
         """Folder under `<run>/<spectrum>/` for a target — a height subfolder
-        is appended for per-height targets (Flatfield)."""
+        is appended for per-height targets (Flatfield). Height comes from the
+        shared `current_height_for`, so due-tracking scans the same folder
+        the CalibrationTarget writes."""
         if is_per_height(spec.slot):
-            height = self._height_for(spectrum)
+            height = current_height_for(self._q, spectrum)
             if height:
                 return os.path.join(spec.folder, height)
         return spec.folder

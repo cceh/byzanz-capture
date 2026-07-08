@@ -2,11 +2,12 @@
 
 Thin papyri-specific wrapper. Knows how to:
   - bind to an Object + (side, spectrum) bucket
-  - read the chosen stem from obj.chosen(side, spectrum) and push it to
-    CaptureFilmstrip's set_chosen_stem
+  - drive the filmstrip's normal vs stitch mode from obj.is_stitching():
+    normal → ★ chosen overlay; stitch → ◎ reference overlay + connectivity
+    dots (dots are pushed from main.py when a check completes)
   - configure the move-to-other-side menu entry per current side
   - route CaptureFilmstrip's action signals to Object mutation methods
-  - keep the ★ overlay in sync with obj.state_changed
+  - keep the overlays in sync with obj.state_changed
   - accept Finder drag-and-drop of image files as if they had been
     captured via tethering — copies + renames using the same naming
     logic as the camera worker (see `Object.next_stem`).
@@ -64,6 +65,8 @@ class PapyriFilmstrip(CaptureFilmstrip):
         # to Object's per-bucket mutation API. Greppable named slots
         # rather than lambdas (rule #3 from session refactor).
         self.mark_chosen_requested.connect(self._on_mark_chosen_requested)
+        self.mark_reference_requested.connect(self._on_mark_reference_requested)
+        self.unmark_reference_requested.connect(self._on_unmark_reference_requested)
         self.move_requested.connect(self._on_move_requested)
         self.delete_requested.connect(self._on_delete_requested)
 
@@ -122,9 +125,14 @@ class PapyriFilmstrip(CaptureFilmstrip):
         self._side = side
         self._spectrum = spectrum
         self._bound_dir = target_dir
+        # Connectivity dots belong to the bucket we're leaving — clear them
+        # so they never linger on the new bucket. Fresh dots (if this is a
+        # stitch bucket) arrive from main.py once its check completes.
+        self.set_connectivity(None)
 
         if obj is None:
             self.close_directory()
+            self.set_stitch_mode(False)
             self.set_chosen_stem(None)
             return
 
@@ -173,13 +181,25 @@ class PapyriFilmstrip(CaptureFilmstrip):
             except TypeError:
                 pass
 
+    def _is_stitch_bucket(self) -> bool:
+        """This bucket shows stitch overlays: a bound papyri object flagged
+        for stitching. Simple mode never stitches."""
+        return (not self._simple and self._obj is not None
+                and self._obj.is_stitching())
+
     def _on_object_state_changed(self) -> None:
-        """Refresh chosen-stem when the bound object's state changes.
-        Simple mode has no chosen take — keep the ★ cleared."""
-        if self._simple:
-            self.set_chosen_stem(None)
+        """Re-drive the overlays when the bound object's state changes:
+        the mode (normal ★ vs stitch ◎) and the marker stem. Simple mode
+        has no markers. Connectivity dots are NOT touched here — they come
+        from the async check via main.py."""
+        if self._is_stitch_bucket():
+            self.set_stitch_mode(True)
+            reference = self._obj.reference(self._side, self._spectrum)
+            self.set_reference_stem(reference.stem if reference else None)
             return
-        chosen = self._obj.chosen(self._side, self._spectrum) if self._obj else None
+        self.set_stitch_mode(False)
+        chosen = (self._obj.chosen(self._side, self._spectrum)
+                  if self._obj and not self._simple else None)
         self.set_chosen_stem(chosen.stem if chosen else None)
 
     def _on_import_failed(self, dest) -> None:
@@ -192,6 +212,14 @@ class PapyriFilmstrip(CaptureFilmstrip):
     def _on_mark_chosen_requested(self, stem: str) -> None:
         if self._obj is not None:
             self._obj.set_chosen(self._side, self._spectrum, stem)
+
+    def _on_mark_reference_requested(self, stem: str) -> None:
+        if self._obj is not None:
+            self._obj.set_reference(self._side, self._spectrum, stem)
+
+    def _on_unmark_reference_requested(self) -> None:
+        if self._obj is not None:
+            self._obj.clear_reference(self._side, self._spectrum)
 
     def _on_move_requested(self, stem: str, dest_side: str) -> None:
         if self._obj is not None:

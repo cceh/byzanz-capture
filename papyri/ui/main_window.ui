@@ -494,6 +494,19 @@
                   </widget>
                  </item>
                  <item>
+                  <widget class="QPushButton" name="stitchToggleButton">
+                   <property name="text">
+                    <string>Stitch</string>
+                   </property>
+                   <property name="checkable">
+                    <bool>true</bool>
+                   </property>
+                   <property name="toolTip">
+                    <string>This object is larger than the frame and is captured as overlapping segments. Shows and sets the current object's stitching flag: the filmstrip switches to segment mode (reference photo + connectivity check) for all its sides and spectra.</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
                   <spacer name="captureRowSpacer">
                    <property name="orientation">
                     <enum>Qt::Horizontal</enum>
@@ -548,6 +561,9 @@
                   </widget>
                  </item>
                 </layout>
+               </item>
+               <item>
+                <widget class="StitchBar" name="stitchBar" native="true"/>
                </item>
                <item>
                 <widget class="PapyriFilmstrip" name="filmstrip" native="true"/>
@@ -632,6 +648,11 @@
     <signal>directory_loaded(QString)</signal>
     <signal>directory_closed(QString)</signal>
    </slots>
+  </customwidget>
+  <customwidget>
+   <class>StitchBar</class>
+   <extends>QWidget</extends>
+   <header>papyri.stitch_bar</header>
   </customwidget>
   <customwidget>
    <class>BucketSelector</class>
