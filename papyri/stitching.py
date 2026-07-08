@@ -37,12 +37,17 @@ import cv2
 import numpy as np
 from PIL import Image
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtGui import QImage
+from stitching import AffineStitcher
 from stitching.feature_detector import FeatureDetector
 from stitching.feature_matcher import FeatureMatcher
 from stitching.images import Images
+from stitching.stitching_error import StitchingError
 
 from byzanz_camera.load_image_worker import read_embedded_jpeg
-from papyri.object_layout import stitch_dir_for, stitch_report_path_for
+from papyri.object_layout import (
+    stitch_dir_for, stitch_preview_path_for, stitch_report_path_for,
+)
 
 _logger = logging.getLogger("stitching")
 
@@ -56,6 +61,13 @@ THIN_BAND_MAX = 1.3
 # Feature detection/matching resolution. Matching quality is determined
 # at this scale; the 60 MP native size never enters the check.
 CHECK_TARGET_MEGAPIX = 0.6
+
+# Preview composite: segments are decoded a little above the final size so
+# the affine warp downsamples (never upscales) into the panorama. A 2 MP
+# preview is plenty to eyeball the seams; the archival panorama is a
+# separate post-processing step from the RAWs.
+PREVIEW_TARGET_MEGAPIX = 3.0
+PREVIEW_FINAL_MEGAPIX = 2
 
 
 # ---- report ----------------------------------------------------------------
@@ -163,6 +175,35 @@ def _write_report(report: StitchReport, report_path: str) -> None:
     tmp = f"{report_path}.{id(report):x}.part"
     with open(tmp, "w") as f:
         json.dump(report.to_json(), f, indent=2, ensure_ascii=False)
+    os.replace(tmp, report_path)
+
+
+@dataclass(frozen=True)
+class PreviewResult:
+    """Outcome of a preview composite. `image` is a QImage (built off the
+    GUI thread; the main thread wraps it in a QPixmap) on success, None on
+    failure. `message` is the user-facing line for the status bar."""
+    ok: bool
+    message: str
+    n_segments: int
+    image: QImage | None = None
+    preview_path: str | None = None
+
+
+def _add_preview_to_report(report_path: str, preview_file: str,
+                           megapix: int, generated_at: str) -> None:
+    """Record the generated preview in the bucket's report.json (a check
+    rewrites the report and drops this block — a new preview then re-adds
+    it, so the block always describes the current preview.jpg)."""
+    report = load_report(report_path)
+    if report is None:
+        return
+    data = report.to_json()
+    data["preview"] = {"file": preview_file, "megapix": megapix,
+                       "generated_at": generated_at}
+    tmp = f"{report_path}.{id(data):x}.part"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
     os.replace(tmp, report_path)
 
 
@@ -290,10 +331,7 @@ def build_report(
 
 # ---- image loading ----------------------------------------------------------
 
-# JPEG-level fractional decode: pick the strongest reduction that still
-# lands at or above the target size. Chosen PER FILE from the JPEG header
-# (a fixed factor would under-resolve smaller previews, e.g. the IR
-# camera's 12 MP vs the VIS camera's 60 MP).
+# JPEG-level fractional decode factors (cv2 supports /8, /4, /2; /1 = full).
 _REDUCTIONS = (
     (8, cv2.IMREAD_REDUCED_COLOR_8),
     (4, cv2.IMREAD_REDUCED_COLOR_4),
@@ -301,22 +339,60 @@ _REDUCTIONS = (
 )
 
 
-def _decode_near_target(data: bytes, target_megapix: float) -> np.ndarray | None:
-    """Decode JPEG bytes near the target size, or None if undecodable.
-    Reads the JPEG header for the pixel count (cheap, no full decode) to
-    pick the reduction; a corrupt header falls through to a full decode,
-    which cv2 turns into None for truly broken data."""
-    flag = cv2.IMREAD_COLOR
+def _jpeg_pixels(data: bytes) -> int:
+    """Pixel count from a JPEG header (cheap, no full decode); 0 if the
+    header is unreadable."""
     try:
         with Image.open(BytesIO(data)) as im:
-            pixels = im.size[0] * im.size[1]
+            return im.size[0] * im.size[1]
     except Exception:
-        pixels = 0
+        return 0
+
+
+def _decode_segments(byte_list: list[bytes | None],
+                     target_megapix: float) -> list[np.ndarray | None]:
+    """Decode a set of segment JPEGs at ONE shared reduction factor (chosen
+    from the LARGEST segment so nothing upscales), so every segment enters
+    the stitcher at the SAME scale. Aligned to `byte_list`; None where a
+    segment is missing/undecodable.
+
+    Why one factor and not per-file: cv2's reductions are discrete (/2, /4,
+    /8). Segments of near-equal size can straddle a threshold — one lands at
+    /4, its neighbour at /2, i.e. twice the resolution. The affine matcher
+    then absorbs that size difference as a per-segment SCALE and renders some
+    segments tiny in the composite. Same factor for all keeps mm/pixel
+    consistent → the registration is pure translation → a clean panorama."""
+    max_pixels = max((_jpeg_pixels(d) for d in byte_list if d), default=0)
+    flag = cv2.IMREAD_COLOR
     for factor, reduced_flag in _REDUCTIONS:
-        if pixels and pixels / factor ** 2 >= target_megapix * 1e6:
+        if max_pixels and max_pixels / factor ** 2 >= target_megapix * 1e6:
             flag = reduced_flag
             break
-    return cv2.imdecode(np.frombuffer(data, np.uint8), flag)
+    return [cv2.imdecode(np.frombuffer(d, np.uint8), flag) if d else None
+            for d in byte_list]
+
+
+def _bgr_to_qimage(bgr: np.ndarray) -> QImage:
+    """OpenCV BGR array → QImage. `.copy()` detaches the QImage from the
+    numpy buffer so it survives after the array is freed (safe to build off
+    the GUI thread; QImage, unlike QPixmap, is not thread-affine)."""
+    rgb = np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+    h, w, _ = rgb.shape
+    return QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
+
+
+def _write_jpeg_atomic(bgr: np.ndarray, path: str) -> None:
+    """Write a BGR array as JPEG via a unique temp + rename, so a bucket
+    watcher never sees a half-written `_stitch/preview.jpg`. Encoded in
+    memory (imencode, not imwrite) so the format comes from `.jpg`, not the
+    temp file's `.part` extension."""
+    ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    if not ok:
+        raise OSError(f"JPEG encode failed for {path}")
+    tmp = f"{path}.{id(bgr):x}.part"
+    with open(tmp, "wb") as f:
+        f.write(buf.tobytes())
+    os.replace(tmp, path)
 
 
 # ---- bucket snapshot ---------------------------------------------------------
@@ -419,15 +495,13 @@ class _CheckRunner(QRunnable):
             return self._simple_report(
                 snap, "too_few", "At least 2 segments are needed for stitching.")
 
-        arrays = []
-        for stem, path in snap.segments:
-            data = read_embedded_jpeg(path)
-            img = _decode_near_target(data, CHECK_TARGET_MEGAPIX) if data else None
+        byte_list = [read_embedded_jpeg(path) for _, path in snap.segments]
+        arrays = _decode_segments(byte_list, CHECK_TARGET_MEGAPIX)
+        for (stem, _), img in zip(snap.segments, arrays):
             if img is None:
                 return self._simple_report(
                     snap, "unreadable",
                     f"✗ {stem}: no readable JPEG preview — cannot check this file.")
-            arrays.append(img)
 
         # The library's MEDIUM resize brings every image to the same
         # working scale, matching what a real stitch would see.
@@ -450,6 +524,82 @@ class _CheckRunner(QRunnable):
         )
 
 
+# ---- preview runner ----------------------------------------------------------
+
+class _PreviewSignals(QObject):
+    finished = pyqtSignal(object)   # PreviewResult
+
+
+class _PreviewRunner(QRunnable):
+    """Composites the bucket's segments into a preview panorama off the GUI
+    thread (AffineStitcher — translational rig, flat object), writes
+    `_stitch/preview.jpg`, records it in report.json, and emits the panorama
+    as a QImage. Only started for a green set (the button is disabled
+    otherwise), so `< 2 segments` shouldn't occur — guarded anyway."""
+
+    def __init__(self, snapshot: _BucketSnapshot):
+        super().__init__()
+        self._snap = snapshot
+        self.signals = _PreviewSignals()
+
+    def run(self) -> None:
+        cv2.ocl.setUseOpenCL(False)   # locale-fragile OpenCL kernel; see _CheckRunner
+        snap = self._snap
+        n = len(snap.segments)
+        try:
+            result = self._preview(snap, n)
+        except StitchingError as e:
+            result = PreviewResult(
+                ok=False, n_segments=n,
+                message=("✗ Stitch preview failed (camera estimation). The "
+                         "segment set is still complete — stitching can be "
+                         "done in post-processing."))
+            _logger.warning("stitch preview failed for %s/%s/%s: %r",
+                            snap.obj_dir, snap.side, snap.spectrum, e)
+        except Exception as e:
+            result = PreviewResult(
+                ok=False, n_segments=n, message=f"✗ Stitch preview failed: {e}")
+            _logger.warning("stitch preview error for %s/%s/%s: %r",
+                            snap.obj_dir, snap.side, snap.spectrum, e,
+                            exc_info=True)
+        self.signals.finished.emit(result)
+
+    def _preview(self, snap: _BucketSnapshot, n: int) -> PreviewResult:
+        if n < 2:
+            return PreviewResult(
+                ok=False, n_segments=n,
+                message="At least 2 segments are needed for stitching.")
+        byte_list = [read_embedded_jpeg(path) for _, path in snap.segments]
+        arrays = _decode_segments(byte_list, PREVIEW_TARGET_MEGAPIX)
+        for (stem, _), img in zip(snap.segments, arrays):
+            if img is None:
+                return PreviewResult(
+                    ok=False, n_segments=n,
+                    message=f"✗ {stem}: no readable JPEG preview.")
+
+        # crop=False: no largest-interior-rectangle crop (keeps the whole
+        # composite AND avoids pulling in the numba-heavy cropper dependency).
+        pano = AffineStitcher(
+            final_megapix=PREVIEW_FINAL_MEGAPIX, crop=False).stitch(arrays)
+        # The uncovered canvas (where no segment maps) comes out pure black.
+        # Recolour it white so the preview reads as papyrus on the white
+        # light table, not framed in black.
+        pano[(pano == 0).all(axis=2)] = 255
+
+        os.makedirs(snap.stitch_dir, exist_ok=True)
+        preview_path = stitch_preview_path_for(
+            snap.obj_dir, snap.side, snap.spectrum)
+        _write_jpeg_atomic(pano, preview_path)
+        _add_preview_to_report(
+            snap.report_path, os.path.basename(preview_path),
+            PREVIEW_FINAL_MEGAPIX, datetime.now().isoformat(timespec="seconds"))
+
+        return PreviewResult(
+            ok=True, n_segments=n,
+            message=f"✓ Stitched preview of {n} segments.",
+            image=_bgr_to_qimage(pano), preview_path=preview_path)
+
+
 # ---- controller ---------------------------------------------------------------
 
 class StitchController(QObject):
@@ -465,6 +615,10 @@ class StitchController(QObject):
     # obj_dir, side, spectrum, StitchReport — emitted only for current-gen
     # checks; the receiver still confirms the bucket is the active one.
     check_finished = pyqtSignal(str, str, str, object)
+
+    # obj_dir, side, spectrum, PreviewResult — same current-gen + active-bucket
+    # discipline as check_finished.
+    preview_finished = pyqtSignal(str, str, str, object)
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -487,6 +641,18 @@ class StitchController(QObject):
         self._debounce.stop()
         self._scheduled = None
         self._start(obj, side, spectrum)
+
+    def run_preview(self, obj, side: str, spectrum: str) -> None:
+        """Composite the bucket's segments into a preview (user clicked the
+        button on a green set). Bumps the generation, so any in-flight check
+        for this bucket is superseded — check and preview never both land."""
+        snap = _snapshot_bucket(obj, side, spectrum)
+        self._gen += 1
+        gen = self._gen
+        runner = _PreviewRunner(snap)
+        runner.signals.finished.connect(
+            lambda result, g=gen, s=snap: self._on_preview_finished(g, s, result))
+        QThreadPool.globalInstance().start(runner)
 
     def fresh_report(self, obj, side: str, spectrum: str) -> StitchReport | None:
         """The persisted report, if it still matches the bucket's current
@@ -527,3 +693,10 @@ class StitchController(QObject):
         if gen != self._gen:
             return  # superseded (newer check or invalidate) — drop
         self.check_finished.emit(snap.obj_dir, snap.side, snap.spectrum, report)
+
+    def _on_preview_finished(self, gen: int, snap: _BucketSnapshot,
+                             result: PreviewResult) -> None:
+        if gen != self._gen:
+            return  # superseded (object switched / new capture) — drop
+        self.preview_finished.emit(
+            snap.obj_dir, snap.side, snap.spectrum, result)

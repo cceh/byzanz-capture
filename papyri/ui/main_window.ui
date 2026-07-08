@@ -496,7 +496,7 @@
                  <item>
                   <widget class="QPushButton" name="stitchToggleButton">
                    <property name="text">
-                    <string>Stitch</string>
+                    <string>🪡 Stitch</string>
                    </property>
                    <property name="checkable">
                     <bool>true</bool>

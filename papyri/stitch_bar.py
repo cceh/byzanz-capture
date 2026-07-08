@@ -6,21 +6,29 @@ eye already is — above the thumbnails whose dots it explains. The message
 carries its own ✓ / △ / ⚠ / ✗ glyph; the `state` QSS property tints it
 ok / warn / error / neutral.
 
+A "Stitch preview" button sits at the right, enabled only when the set is
+green (its enabled state is a direct function of the verdict beside it).
+
 View only: MainWindow owns the StitchController and drives this via
-`show_checking` (while a check runs) and `show_message` (its result).
-The preview button arrives in phase S2.
+`show_checking` / `show_message` / `show_previewing` / `set_preview_enabled`,
+and reacts to `preview_requested`.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+)
 
-from byzanz_camera.helpers import set_state
+from byzanz_camera.helpers import get_ui_path, set_state, set_themed_icon
 from byzanz_camera.spinner import Spinner
 
 
 class StitchBar(QFrame):
-    """Connectivity-verdict strip for stitch buckets."""
+    """Connectivity-verdict strip + preview trigger for stitch buckets."""
+
+    # User clicked "Stitch preview" (only possible while enabled = green).
+    preview_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -30,6 +38,11 @@ class StitchBar(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(4, 2, 4, 4)
         row.setSpacing(8)
+
+        # Needle identity marker (matches the Stitch toggle + sidebar badge).
+        marker = QLabel("🪡")
+        marker.setObjectName("stitchBarMarker")
+        row.addWidget(marker, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._spinner = Spinner(self)
         self._spinner.setFixedSize(14, 14)
@@ -45,17 +58,43 @@ class StitchBar(QFrame):
         set_state(self._status, "state", "neutral")
         row.addWidget(self._status, 1, Qt.AlignmentFlag.AlignVCenter)
 
+        # Native styling on purpose (QSS on a QPushButton strips macOS
+        # chrome — same reason the calibration bar's buttons stay native).
+        self._preview_btn = QPushButton("Stitch preview")
+        set_themed_icon(self._preview_btn.setIcon, get_ui_path("ui/image.svg"))
+        self._preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._preview_btn.setToolTip(
+            "Stitch the segments into a preview to check coverage")
+        self._preview_btn.setEnabled(False)
+        self._preview_btn.clicked.connect(self.preview_requested)
+        row.addWidget(self._preview_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
     def show_checking(self) -> None:
-        """A check is running — spinner + neutral 'checking' line."""
+        """A check is running — spinner + neutral line; preview not offered
+        until the set is known to be green."""
         self._spinner.show()
         self._spinner.startAnimation()
         set_state(self._status, "state", "neutral")
         self._status.setText("Checking segment overlap…")
+        self._preview_btn.setEnabled(False)
 
     def show_message(self, text: str, level: str) -> None:
         """A check finished — its verdict message, tinted by `level`
-        (ok / warn / error / neutral)."""
+        (ok / warn / error / neutral). The caller sets preview-enabled
+        from the verdict via `set_preview_enabled`."""
         self._spinner.stopAnimation()
         self._spinner.hide()
         set_state(self._status, "state", level)
         self._status.setText(text)
+
+    def show_previewing(self) -> None:
+        """The composite is running — spinner + neutral line, button off."""
+        self._spinner.show()
+        self._spinner.startAnimation()
+        set_state(self._status, "state", "neutral")
+        self._status.setText("Stitching preview…")
+        self._preview_btn.setEnabled(False)
+
+    def set_preview_enabled(self, enabled: bool) -> None:
+        """Enable the preview button (green set) or grey it out."""
+        self._preview_btn.setEnabled(enabled)

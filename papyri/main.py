@@ -793,6 +793,8 @@ class PapyriMainWindow(QMainWindow):
         self.stitch_bar: StitchBar = self.findChild(StitchBar, "stitchBar")
         self.stitch = StitchController(self)
         self.stitch.check_finished.connect(self._on_stitch_check_finished)
+        self.stitch.preview_finished.connect(self._on_stitch_preview_finished)
+        self.stitch_bar.preview_requested.connect(self._on_stitch_preview_requested)
 
         self.calibration_bar: CalibrationBar = self.findChild(
             CalibrationBar, "calibrationBar")
@@ -1539,6 +1541,7 @@ class PapyriMainWindow(QMainWindow):
 
     def _apply_stitch_report(self, report) -> None:
         self.stitch_bar.show_message(report.message, report.level)
+        self.stitch_bar.set_preview_enabled(report.is_green())
         self.filmstrip.set_connectivity(report.status_by_stem())
 
     def _on_stitch_check_finished(
@@ -1555,10 +1558,56 @@ class PapyriMainWindow(QMainWindow):
                 and spectrum == active_spectrum):
             self._apply_stitch_report(report)
 
+    def _on_stitch_preview_requested(self) -> None:
+        """User clicked "Stitch preview" (only enabled on a green set) —
+        composite the active bucket's segments in the background. Pause live
+        view now (like selecting a thumbnail does), so no segment streams
+        into the viewer during or after the composite."""
+        bucket = self._active_stitch_bucket()
+        if bucket is None:
+            return
+        self.session.set_live_view_paused(True)
+        self.stitch_bar.show_previewing()
+        self.stitch.run_preview(*bucket)
+
+    def _on_stitch_preview_finished(
+        self, obj_dir: str, side: str, spectrum: str, result,
+    ) -> None:
+        """The composite finished. Show the panorama in the viewer (still
+        the active bucket only); restore the verdict bar afterwards. On
+        failure, surface the message and keep the button live for a retry."""
+        bucket = self._active_stitch_bucket()
+        if bucket is None:
+            return
+        obj, active_side, active_spectrum = bucket
+        if not (obj.dir == obj_dir and side == active_side
+                and spectrum == active_spectrum):
+            return
+        if result.ok:
+            # Live view was paused at request time. Show the composite
+            # exactly like a selected capture (same choke point), then stamp
+            # the stitch-specific pill label.
+            self._show_still_image(
+                result.preview_path, QPixmap.fromImage(result.image))
+            self.session.set_view_mode(
+                "preview", f"STITCH PREVIEW · {result.n_segments} segments")
+            # Restore the verdict line + re-enable the button (fresh report).
+            self._refresh_stitch_ui()
+        else:
+            self.stitch_bar.show_message(result.message, "error")
+            self.stitch_bar.set_preview_enabled(True)
+
     def _on_filmstrip_image_decoded(self, path: str, pixmap) -> None:
-        """Display the filmstrip's decoded image in the viewer. The decode
-        already honours the file's EXIF orientation, so no rotation here.
-        We keep the path so the rotate button can target this file."""
+        """Display the filmstrip's decoded image in the viewer."""
+        self._show_still_image(path, pixmap)
+
+    def _show_still_image(self, path: str, pixmap) -> None:
+        """THE single way to show a decoded image as the current still in the
+        viewer — used by filmstrip selection and the stitch preview. Tracks
+        the path (rotate button target), refreshes the rotation indicator.
+        The decode already honours EXIF orientation, so no rotation here;
+        `show_image` (no fit) lets setPhoto auto-fit on a size change and
+        preserve zoom otherwise — exactly the capture-browsing behaviour."""
         self._shown_image_path = path
         self.viewer.show_image(pixmap)
         self._refresh_rotation_indicator()
