@@ -42,12 +42,12 @@ from pathlib import Path
 from PIL import Image
 from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import (
-    QObject, QSettings, QSize, QThread, QThreadPool, pyqtSignal,
+    QObject, QSettings, QSize, Qt, QThread, QThreadPool, pyqtSignal,
 )
 from PyQt6.QtGui import QAction, QCloseEvent, QIcon, QPixmap, QPixmapCache
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QInputDialog, QLabel, QMainWindow,
-    QMenu, QMessageBox, QPushButton, QSplitter, QToolButton,
+    QMenu, QMessageBox, QPushButton, QSplitter, QToolButton, QWidget,
 )
 from PyQt6.uic import loadUi
 
@@ -112,7 +112,11 @@ from papyri.calibration_bar import CalibrationBar
 from papyri.calibration_layout import first_slot_for, label_for_slot
 from papyri.calibration_target import CalibrationTarget
 from papyri.capture_mode import CALIBRATION_MODE, get_mode
-from papyri._metadata import current_height_for, parse_height_choices
+from papyri._metadata import (
+    current_height_for,
+    height_choices_for,
+    set_current_height,
+)
 from papyri.simple_target import SimpleTarget
 from papyri.stitch_bar import StitchBar
 from papyri.stitching import StitchController
@@ -832,11 +836,20 @@ class PapyriMainWindow(QMainWindow):
 
         # Current VIS rig height — a sticky setting shared by object capture
         # (stamped per object) and per-height Flatfield calibration. Presets
-        # come from Settings (captureHeightChoices). Hidden in simple mode.
-        self.height_label: QLabel = self.findChild(QLabel, "heightLabel")
+        # come from Settings (captureHeightChoices). Lives in a prominent top-
+        # bar cluster (rig height = a rig-wide state, not a per-shot setting)
+        # alongside a read-only chip showing the open object's captured height.
+        # The whole cluster is hidden in simple mode.
+        self.rig_height_cluster: QWidget = self.findChild(QWidget, "rigHeightCluster")
+        # A container QFrame only paints its QSS background/border with this
+        # attribute set (same as the filmstrip / no-object overlay).
+        self.rig_height_cluster.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.height_select: QComboBox = self.findChild(QComboBox, "heightSelect")
         self._populate_height_select()
-        self.height_select.currentTextChanged.connect(self._on_height_changed)
+        # `textActivated` fires ONLY on a user gesture (picking an item), never
+        # on programmatic changes. That's the single seam that lets the combo
+        # follow the open object (repopulate) without ever counting as an edit.
+        self.height_select.textActivated.connect(self._on_height_changed)
         # Stitch toggle — a two-way binding to the current object's
         # `stitching` flag in `_meta.json`, no state of its own. `clicked`
         # (user interaction only, unlike `toggled`) writes the flag;
@@ -941,9 +954,8 @@ class PapyriMainWindow(QMainWindow):
         # display (papyri). set_simple_mode is reversible.
         self.title_bar.set_simple_mode(
             simple, self.q_settings.value("simpleOutputDirectory", ""))
-        # Camera-height selector and Stitch toggle are papyri-only.
-        self.height_label.setVisible(not simple)
-        self.height_select.setVisible(not simple)
+        # Rig-height cluster and Stitch toggle are papyri-only.
+        self.rig_height_cluster.setVisible(not simple)
         self.stitch_toggle.setVisible(not simple)
         # The mode-toggle menu action names the OTHER mode.
         self.toggle_mode_action.setText(self._mode_toggle_label(mode))
@@ -1136,13 +1148,16 @@ class PapyriMainWindow(QMainWindow):
         # controls (autofocus button etc.) against the now-active camera.
         s.active_bucket_changed.connect(self._populate_capture_setting_combos)
         s.active_bucket_changed.connect(self._refresh_camera_dependent_ui)
-        s.active_bucket_changed.connect(self._refresh_height_select_enabled)
+        # Spectrum switch → repopulate the height combo from the now-active
+        # camera's choices (VIS preset list vs IR's single fixed value).
+        s.active_bucket_changed.connect(self._populate_height_select)
+        # While calibrating, the "for height X" banner follows the active camera.
+        s.active_bucket_changed.connect(self._refresh_calibration_banner)
         s.active_bucket_changed.connect(self._on_active_bucket_changed_live_view)
         self._refresh_workflow_stepper_active()
         self._refresh_capture_button_label()
         self._refresh_camera_state_emphasis()
         self._refresh_filmstrip_binding()
-        self._refresh_height_select_enabled()
 
         # current_object
         s.current_object_changed.connect(self._refresh_metadata_pane_binding)
@@ -1156,7 +1171,12 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
         s.current_object_changed.connect(self._refresh_no_object_lockout)
         s.current_object_changed.connect(self._refresh_capture_button_label)
+        # Enable "Calibrate ▸" only with an object open (calibration is for its
+        # height).
+        s.current_object_changed.connect(self._refresh_calibration_bar)
         s.current_object_changed.connect(self._refresh_stitch_toggle)
+        # Object switch → the combo follows the now-open object's height.
+        s.current_object_changed.connect(self._populate_height_select)
         self._refresh_metadata_pane_binding()
         self._refresh_title_bar_binding()
         self._refresh_objects_sidebar_active()
@@ -1167,6 +1187,7 @@ class PapyriMainWindow(QMainWindow):
         self._handle_current_object_view_mode_reset()
         self._refresh_no_object_lockout()
         self._refresh_stitch_toggle()
+        self._populate_height_select()
 
         # live_view_paused
         s.live_view_paused_changed.connect(self._refresh_live_view_button)
@@ -1351,42 +1372,109 @@ class PapyriMainWindow(QMainWindow):
         for combo in self._capture_setting_combos:
             combo.setEnabled(live and combo.is_settable())
 
-    # ---- capture-row height (sticky VIS rig height) --------------------
+    # ---- capture height (per-object, capture-row cluster) --------------
+
+    def _object_height_seed(self, spectrum: str) -> str:
+        """The height a not-yet-captured object shows / inherits: the last
+        height set by the user (persisted). New objects inherit it; capture
+        stamps it as the object's own `capture_height_vis`."""
+        return current_height_for(self.q_settings, spectrum)
 
     def _populate_height_select(self) -> None:
-        """(Re)fill the height combo from the configured presets and select
-        the persisted current height. Called at startup and when the presets
-        change in Settings."""
-        choices = parse_height_choices(self.q_settings.value("captureHeightChoices", ""))
-        current = str(self.q_settings.value("currentHeight", choices[0]))
+        """(Re)fill the height combo from the ACTIVE camera's choices and
+        select the OPEN OBJECT's height. Height is a per-object value: VIS
+        objects carry their own `capture_height_vis`; an object with none yet
+        (uncaptured) shows the inherited seed. IR is a single fixed value — a
+        one-element list can't be changed, so editability falls out of the
+        count (no per-camera branch). Called at startup, on spectrum switch,
+        on object switch, and when presets change in Settings."""
+        spectrum = self.session.active_spectrum
+        choices = height_choices_for(self.q_settings, spectrum)
+        if self._calibration_active:
+            # Calibration is FOR the stashed object's height and can't be
+            # changed here — show it locked, mirroring the "for height X" banner.
+            current = self._object_height(self._object_before_calibration, spectrum)
+            enabled = False
+        else:
+            current = self._current_object_height(spectrum)
+            # A single choice is not adjustable — fixed height, no special case.
+            enabled = len(choices) > 1
         self.height_select.blockSignals(True)
         self.height_select.clear()
         self.height_select.addItems(choices)
         idx = self.height_select.findText(current)
         self.height_select.setCurrentIndex(idx if idx >= 0 else 0)
         self.height_select.blockSignals(False)
-        # Persist the resolved value (a current height no longer in the preset
-        # list falls back to the first).
-        self.q_settings.setValue("currentHeight", self.height_select.currentText())
+        self.height_select.setEnabled(enabled)
+
+    def _object_height(self, obj, spectrum: str) -> str:
+        """Height of a specific object in `spectrum`: its stamped
+        `capture_height_vis` if it has one, else the inherited seed. IR always
+        resolves to its fixed value (objects don't carry a per-object IR
+        height)."""
+        if spectrum == SPECTRUM_VISIBLE and isinstance(obj, Object):
+            stored = read_meta(obj.meta_path).get(MetaKey.HEIGHT_VIS)
+            if stored is not None:
+                return str(stored)
+        return self._object_height_seed(spectrum)
+
+    def _current_object_height(self, spectrum: str) -> str:
+        """`_object_height` for the currently open object."""
+        return self._object_height(self.session.current_object, spectrum)
 
     def _on_height_changed(self, text: str) -> None:
-        """Sticky current height changed → persist it. Object captures stamp
-        it; the Flatfield calibration tags by it. While calibrating, the
-        active Flatfield folder is per height, so rebind the filmstrip to the
-        new height's shots and re-evaluate due-status."""
-        if text:
-            self.q_settings.setValue("currentHeight", text)
+        """User picked a height (via `textActivated` — a deliberate edit, not a
+        programmatic combo sync). Height belongs to the OPEN OBJECT and spans
+        all its VIS captures (both sides). Changing it on an already-captured
+        object re-labels those shots, so confirm first. Either way the value
+        becomes the seed new objects inherit."""
+        if not text:
+            return
+        spectrum = self.session.active_spectrum
+        obj = self.session.current_object
+        # No object (or a non-papyri target): the pick is just the seed.
+        if not isinstance(obj, Object):
+            set_current_height(self.q_settings, spectrum, text)
+            self._refresh_after_height_change()
+            return
+        old = self._current_object_height(spectrum)
+        if text == old:
+            return
+        captured = obj.count(SIDE_A, spectrum) + obj.count(SIDE_B, spectrum) > 0
+        if captured and not self._confirm_height_change(obj, old, text):
+            self.height_select.blockSignals(True)      # user kept the old height
+            self.height_select.setCurrentText(old)
+            self.height_select.blockSignals(False)
+            return
+        update_meta(obj.meta_path, {MetaKey.HEIGHT_VIS: text})
+        set_current_height(self.q_settings, spectrum, text)   # seed follows the last edit
+        self._refresh_after_height_change()
+
+    def _confirm_height_change(self, obj: "Object", old: str, new: str) -> bool:
+        """Ask before re-labelling an already-captured object's height. Returns
+        True to proceed, False to keep the old height."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Change object height?")
+        box.setText(
+            f"The height of {obj.name} will be changed for all VIS images "
+            f"(Side A and B) from {old} cm to {new} cm.\n\n"
+            f"The images themselves will remain unchanged — only the "
+            f"documented height will be updated."
+        )
+        box.addButton(f"Keep {old} cm", QMessageBox.ButtonRole.RejectRole)
+        change = box.addButton(f"Change to {new} cm", QMessageBox.ButtonRole.AcceptRole)
+        box.exec()
+        return box.clickedButton() is change
+
+    def _refresh_after_height_change(self) -> None:
+        """A height edit changes which Flatfield set is in play. While
+        calibrating, the active folder is per height, so rebind the filmstrip
+        to the new height's shots and re-evaluate due-status."""
         if self._calibration_active and self._cal_target is not None:
             self._cal_target.refresh()
             self._refresh_filmstrip_binding()
         if self.calibration is not None:
             self.calibration.refresh()
-
-    def _refresh_height_select_enabled(self) -> None:
-        """Height applies to VIS only (IR is a single fixed height) — disable
-        the control when the IR camera is active."""
-        self.height_select.setEnabled(
-            self.session.active_spectrum == SPECTRUM_VISIBLE)
 
     def _on_stitch_toggled(self, checked: bool) -> None:
         """User clicked the Stitch toggle → write the flag to the current
@@ -1406,14 +1494,17 @@ class PapyriMainWindow(QMainWindow):
 
     def _stamp_capture_metadata(self, obj: "Object") -> None:
         """Merge derived metadata into the object's `_meta.json` on capture:
-        the rig heights it was shot at, and the box number (= the basename of
+        the heights it was shot at, and the box number (= the basename of
         the box/working directory the object lives in — box no. is the folder,
         not a typed field). Merge (not overwrite) so metadata-pane fields
-        survive; the pane likewise merges."""
+        survive; the pane likewise merges. The VIS height is the object's own:
+        set from the inherited seed on the first VIS capture, then FROZEN —
+        later captures keep it, so only an explicit (confirmed) edit changes it."""
+        meta = read_meta(obj.meta_path)
         try:
             update_meta(obj.meta_path, {
-                MetaKey.HEIGHT_VIS: current_height_for(
-                    self.q_settings, SPECTRUM_VISIBLE),
+                MetaKey.HEIGHT_VIS: meta.get(MetaKey.HEIGHT_VIS)
+                    or current_height_for(self.q_settings, SPECTRUM_VISIBLE),
                 MetaKey.HEIGHT_IR: current_height_for(
                     self.q_settings, SPECTRUM_INFRARED),
                 MetaKey.BOX_NR: os.path.basename(os.path.normpath(obj.working_dir)),
@@ -2616,6 +2707,10 @@ class PapyriMainWindow(QMainWindow):
             spectra.append(SPECTRUM_INFRARED)
         level, text = self.calibration.summary(spectra)
         self.calibration_bar.set_idle(text, level)
+        # Calibration is for the open object's height, so it's only offered
+        # with an object open.
+        self.calibration_bar.set_can_enter(
+            isinstance(self.session.current_object, Object))
 
     # ---- calibration sub-mode enter / exit ----------------------------
 
@@ -2628,6 +2723,10 @@ class PapyriMainWindow(QMainWindow):
             return
         wd = self.q_settings.value("workingDirectory", "")
         if not wd:
+            return
+        # Calibration is always FOR an object's height (shown big, not editable
+        # in this sub-mode). No object → nothing to calibrate for.
+        if not isinstance(self.session.current_object, Object):
             return
         # Pick a valid opening bucket: a target slot for the active camera,
         # falling back to VIS if the active camera has none configured.
@@ -2650,10 +2749,15 @@ class PapyriMainWindow(QMainWindow):
         # setup change just starts fresh. ensure_dir so the filmstrip's
         # watcher catches tethered captures; an unused run is pruned on exit.
         run_id = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        # The height this run calibrates for: the object's own VIS height (IR
+        # stays the fixed global). Captured once at enter — fixed for the run.
+        cal_vis_height = self._object_height(
+            self._object_before_calibration, SPECTRUM_VISIBLE)
         self._cal_target = CalibrationTarget(
             wd, run_id,
-            height_for=lambda spectrum: current_height_for(
-                self.q_settings, spectrum))
+            height_for=lambda spectrum: cal_vis_height
+                if spectrum == SPECTRUM_VISIBLE
+                else current_height_for(self.q_settings, spectrum))
         self._cal_target.ensure_dir()
         # Swap target+bucket so no receiver ever sees a mismatched pair:
         # clear the object first, then set the calibration bucket, then the
@@ -2664,7 +2768,25 @@ class PapyriMainWindow(QMainWindow):
         self.session.set_current_object(self._cal_target)
         self._refresh_workflow_stepper_active()
         self.calibration_bar.set_active(self._back_label())
+        self._refresh_calibration_banner()
         self._refresh_capture_button_label()
+
+    def _calibration_height_text(self) -> str:
+        """The prominent "for height X" caption: the height the current
+        calibration run is filed under, for the active camera."""
+        spectrum = self.session.active_spectrum
+        if spectrum == SPECTRUM_VISIBLE:
+            height = self._object_height(
+                self._object_before_calibration, SPECTRUM_VISIBLE)
+        else:
+            height = current_height_for(self.q_settings, SPECTRUM_INFRARED)
+        return f"for height {height} cm"
+
+    def _refresh_calibration_banner(self) -> None:
+        """Keep the "for height X" caption in step with the active camera
+        while calibrating (VIS uses the object's height, IR its fixed value)."""
+        if self._calibration_active:
+            self.calibration_bar.set_active_height(self._calibration_height_text())
 
     def _exit_calibration(self) -> None:
         """Leave the calibration sub-mode: restore the object + bucket that
@@ -2834,7 +2956,9 @@ class PapyriMainWindow(QMainWindow):
                 if self.calibration is not None:
                     self.calibration.refresh()
                     self._refresh_calibration_bar()
-            elif name == "captureHeightChoices":
+            elif name in ("captureHeightChoices", "irCaptureHeight"):
+                # VIS presets or the fixed IR height changed → rebuild the
+                # combo for whichever camera is active.
                 self._populate_height_select()
             elif name.startswith("rotatedSampleNudge/"):  # rotated-sample nudge
                 if getattr(self, "_rotated_sample_nudge", None) is not None:

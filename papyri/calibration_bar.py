@@ -66,6 +66,13 @@ class CalibrationBar(QFrame):
 
         self._stack.addWidget(self._idle_page)
 
+    def set_can_enter(self, enabled: bool) -> None:
+        """Enable/disable the Calibrate button. Calibration is always for a
+        specific object's height, so it's only offered with an object open."""
+        self._enter_btn.setEnabled(enabled)
+        self._enter_btn.setToolTip(
+            "" if enabled else "Open an object first — calibration is for its height.")
+
     # ---- active page ---------------------------------------------------
 
     def _build_active_page(self) -> None:
@@ -74,9 +81,15 @@ class CalibrationBar(QFrame):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
 
-        self._mode_label = QLabel("CALIBRATION")
+        self._mode_label = QLabel("CALIBRATING")
         self._mode_label.setObjectName("calibrationModeLabel")
         row.addWidget(self._mode_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # The height this run calibrates for — comes from the open object, is
+        # fixed for the whole run, and reads prominently so it can't be missed.
+        self._cal_height = QLabel("")
+        self._cal_height.setObjectName("calibrationHeight")
+        row.addWidget(self._cal_height, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addStretch(1)
 
         self._back_btn = QPushButton("← Back")
@@ -99,3 +112,7 @@ class CalibrationBar(QFrame):
         (e.g. "← Back to P.Köln_123")."""
         self._back_btn.setText(back_label)
         self._stack.setCurrentWidget(self._active_page)
+
+    def set_active_height(self, text: str) -> None:
+        """Set the prominent "for height X" caption on the active page."""
+        self._cal_height.setText(text)

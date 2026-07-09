@@ -28,14 +28,35 @@ def parse_height_choices(raw: str | None) -> tuple[str, ...]:
     return tuple(items) if items else DEFAULT_CAPTURE_HEIGHTS
 
 
+def _height_key(spectrum: str) -> str:
+    """QSettings key holding a camera's current rig height: VIS = the
+    sticky `currentHeight` the user picks, IR = the fixed `irCaptureHeight`."""
+    return "currentHeight" if spectrum == SPECTRUM_VISIBLE else "irCaptureHeight"
+
+
 def current_height_for(q_settings, spectrum: str) -> str:
-    """Current rig height (str) for a camera: VIS = the sticky
-    `currentHeight` the user picks in the capture row, IR = the fixed
-    `irCaptureHeight` from Settings. Single source for everyone who
-    resolves a height per spectrum (capture stamping, Flatfield
+    """Current rig height (str) for a camera. Single source for everyone
+    who resolves a height per spectrum (capture stamping, Flatfield
     calibration paths, due-tracking)."""
-    key = "currentHeight" if spectrum == SPECTRUM_VISIBLE else "irCaptureHeight"
-    return str(q_settings.value(key, "") or "")
+    return str(q_settings.value(_height_key(spectrum), "") or "")
+
+
+def set_current_height(q_settings, spectrum: str, value: str) -> None:
+    """Persist a camera's current rig height (mirror of `current_height_for`)."""
+    q_settings.setValue(_height_key(spectrum), value)
+
+
+def height_choices_for(q_settings, spectrum: str) -> tuple[str, ...]:
+    """Selectable rig heights for a camera: VIS = the configurable
+    `captureHeightChoices` preset list; IR = the single fixed
+    `irCaptureHeight`. A one-element result means the height is not
+    adjustable — the control is simply fixed at that value, so nothing
+    needs a per-camera 'is this editable' branch (see the height control
+    in MainWindow: `setEnabled(len(choices) > 1)`)."""
+    if spectrum == SPECTRUM_VISIBLE:
+        return parse_height_choices(q_settings.value("captureHeightChoices", ""))
+    ir = str(q_settings.value("irCaptureHeight", "") or "").strip()
+    return (ir,) if ir else ()
 
 
 @dataclass(frozen=True)

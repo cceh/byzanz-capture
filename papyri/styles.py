@@ -62,6 +62,12 @@ COLORS: dict[str, str] = {
     # Accent / CTA.
     "accent":          "#1c4a48",
     "accent_hover":    "#2c5f5c",
+    # Accent tints — soft fill + hairline + readable text for low-emphasis
+    # accent surfaces (rig-height status cluster). Teal reads distinct from
+    # the VIS-blue / IR-orange spectrum hues.
+    "accent_soft":     "#cfe6e3",
+    "accent_line":     "#8fbdb8",
+    "accent_text":     "#1c4a48",
     # View-state pill borders.
     "live_dot":        "#06b6d4",
     "paused_icon":     "#fbbf24",
@@ -95,6 +101,11 @@ _DARK_OVERRIDES: dict[str, str] = {
     "vis_text_dark":   "#bfdbfe",
     "ir_soft":         "#5c2f15",
     "ir_text_dark":    "#fdba74",
+    # Accent tints flip to deep teal fill / lighter hairline + text so the
+    # rig-height cluster keeps contrast on the dark top bar.
+    "accent_soft":     "#22403d",
+    "accent_line":     "#3d6b67",
+    "accent_text":     "#8fc4bf",
 }
 
 

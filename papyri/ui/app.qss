@@ -206,12 +206,24 @@ QToolButton:disabled {
     color: $ink_2;
     font-size: 11pt;
 }
-/* Active-state "CALIBRATION" tag. */
+/* Active-state "CALIBRATING" tag. */
 #calibrationModeLabel {
     color: $ink_2;
     font-weight: 700;
     font-size: 10pt;
     letter-spacing: 1px;
+}
+/* Prominent "for height X cm" — the one height this run is filed under.
+   Accent-tinted pill (matches the capture-row height cluster) so it can't
+   be missed while shooting flatfields. */
+#calibrationHeight {
+    color: $accent_text;
+    background: $accent_soft;
+    border: 1px solid $accent_line;
+    border-radius: 6px;
+    padding: 2px 10px;
+    font-weight: 700;
+    font-size: 11pt;
 }
 /* Stitch connectivity strip (above the filmstrip, stitch buckets only).
    The message carries its own ✓ / △ / ⚠ glyph; the state tints it. */
@@ -325,6 +337,24 @@ QFrame#cameraStateWidget[emphasized="true"][spectrum="IR"] {
 }
 #cameraSideBadge[spectrum="IR"] {
     background: $ir;
+}
+
+
+/* ===== Capture-height cluster (capture row) ====================== */
+
+/* The per-object capture height, anchored by the Capture button where it's
+   read at the moment of shooting. Tinted card so it reads as one distinct
+   unit — an object-level setting, set apart from the per-shot combos. */
+QFrame#rigHeightCluster {
+    background: $accent_soft;
+    border-radius: 8px;
+    border: 1px solid $accent_line;
+}
+#heightLabel {
+    color: $accent_text;
+    font-weight: 700;
+    font-size: 8pt;
+    letter-spacing: 1px;
 }
 
 
