@@ -2694,13 +2694,18 @@ class PapyriMainWindow(QMainWindow):
         name = getattr(obj, "name", None) if obj is not None else None
         return f"← Back to {name}" if name else "← Back to objects"
 
-    def _note_calibration_capture_settled(self) -> None:
-        """A capture finished — re-scan `_calibration/` so per-camera due
-        is current (matters for the idle chip once we leave calibration).
-        Harmless for normal object captures (the re-scan finds nothing new)."""
+    def _note_calibration_capture_settled(self, rescan: bool = True) -> None:
+        """A capture settled — optionally re-scan `_calibration/` so per-camera
+        due is current (matters for the idle chip once we leave calibration).
+        Harmless for normal object captures (the re-scan finds nothing new).
+
+        `rescan=False` is passed on the CaptureError path: a failed capture
+        wrote no file, so there is nothing new on disk to pick up — skip the
+        scan and just repaint the bar."""
         if self.calibration is None:
             return
-        self.calibration.refresh()
+        if rescan:
+            self.calibration.refresh()
         self._refresh_calibration_bar()      # no-op while the sub-mode is active
 
     # ---------------------------------------------------------- mode toggle

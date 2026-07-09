@@ -642,6 +642,14 @@ class CameraWorker(QObject):
         self.__set_state(CameraStates.CaptureCancelling())
 
     def empty_event_queue(self, timeout=100):
+        # A disconnect (USB drop mid-capture, or a queued teardown) can null
+        # self.camera between the capture starting and this drain running —
+        # bail cleanly instead of crashing on None.wait_for_event. This is an
+        # AttributeError, not a GPhoto2Error, so __handle_camera_error would
+        # not catch it anyway.
+        if self.camera is None:
+            self.__logger.warning("empty_event_queue: camera gone, skipping event drain")
+            return
         event_type, data = self.camera.wait_for_event(timeout)
 
         while event_type != gp.GP_EVENT_TIMEOUT:
@@ -652,6 +660,11 @@ class CameraWorker(QObject):
             # their own INFO lines in their handlers below.
             self.__logger.debug("Event: %s, data: %s" % (EVENT_DESCRIPTIONS.get(event_type, "Unknown"), data))
             QApplication.processEvents()
+            # processEvents can dispatch a queued disconnect that nulls the
+            # camera mid-drain — stop before the next gphoto2 call touches None.
+            if self.camera is None:
+                self.__logger.warning("empty_event_queue: camera disconnected mid-drain, stopping")
+                break
 
             if event_type == gp.GP_EVENT_FILE_ADDED:
                 cam_file_path = os.path.join(data.folder, data.name)
@@ -982,7 +995,12 @@ class CameraWorker(QObject):
             self.__logger.info("2 Set config '%s' to %s." % (name, str(value)))
             config_widget.set_value(value)
         except gp.GPhoto2Error:
-            self.__logger.error("Config '%s' not supported by camera." % name)
+            # A profile may push a config key a given body doesn't expose (e.g.
+            # Sony bodies without 'afwithshutter'). __try_set_config is the
+            # best-effort setter by design, so this is an expected, harmless
+            # no-op — DEBUG, not ERROR, so it doesn't flood the log on every
+            # capture and inflate the error count during forensics.
+            self.__logger.debug("Config '%s' not supported by camera, skipping." % name)
 
     def __get_config_diff(self, old_config: gp.CameraWidget, new_config: gp.CameraWidget) -> list[tuple[str, str, str]]:
         """
