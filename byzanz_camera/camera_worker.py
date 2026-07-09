@@ -47,6 +47,39 @@ from .orientation import write_orientation
 _GPHOTO2_GLOBAL_LOCK = threading.Lock()
 
 
+class _CameraGone:
+    """Sentinel value for `self.camera` while disconnected.
+
+    Any gphoto2 method call on it logs a warning and raises `GPhoto2Error`, so
+    the worker's single error choke point (`@__handle_camera_error`) turns a
+    use-after-disconnect into a clean ConnectionError + reconnect — instead of
+    an `AttributeError: 'NoneType' object has no attribute ...` escaping to the
+    global excepthook (the "an unexpected error occurred" dialog). This is why
+    we do NOT need a `self.camera is None` guard at each of the ~17 call sites:
+    the dead camera routes itself into the existing handled path, loudly
+    (logged) rather than silently.
+
+    Falsy on purpose, so `while self.camera:` / `if self.camera:` keep reading
+    as "no camera" without special-casing the sentinel.
+    """
+    __slots__ = ()
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __getattr__(self, name):
+        def _raise(*args, **kwargs):
+            logging.getLogger("CameraWorker").warning(
+                "camera.%s() called while disconnected — raising for reconnect", name)
+            raise gp.GPhoto2Error(gp.GP_ERROR_IO)
+        return _raise
+
+
+# Single shared instance — identity doesn't matter (it's stateless), but one
+# object avoids churning allocations on every disconnect.
+_CAMERA_GONE = _CameraGone()
+
+
 EVENT_DESCRIPTIONS = {
     gp.GP_EVENT_UNKNOWN: "Unknown",
     gp.GP_EVENT_CAPTURE_COMPLETE: "Capture Complete",
@@ -274,7 +307,7 @@ class CameraWorker(QObject):
         self.commands = CameraCommands()
         self.events = CameraEvents()
 
-        self.camera: gp.Camera = None
+        self.camera: gp.Camera = _CAMERA_GONE
         self.camera_name: str = None
 
         # Multi-camera identification (set by the orchestrator before
@@ -581,14 +614,14 @@ class CameraWorker(QObject):
         with _GPHOTO2_GLOBAL_LOCK:
             try:
                 self.camera.exit()
-            except gp.GPhoto2Error:
-                pass
-            except AttributeError:  # Camera already gone
+            except gp.GPhoto2Error:  # real camera errored, or already the sentinel
                 pass
             # Drop the only Python ref so SWIG destructor runs synchronously
             # inside this lock — when it tries the port mutex, no other
             # worker can be inside libgphoto2 (they'd be waiting for us).
-            self.camera = None
+            # From here on any stray call routes through the _CameraGone
+            # sentinel → GPhoto2Error → clean reconnect, never a None crash.
+            self.camera = _CAMERA_GONE
 
         self.__set_state(CameraStates.Disconnected(camera_name=self.camera_name, auto_reconnect=auto_reconnect))
         self.camera_name = None
@@ -642,12 +675,13 @@ class CameraWorker(QObject):
         self.__set_state(CameraStates.CaptureCancelling())
 
     def empty_event_queue(self, timeout=100):
-        # A disconnect (USB drop mid-capture, or a queued teardown) can null
-        # self.camera between the capture starting and this drain running —
-        # bail cleanly instead of crashing on None.wait_for_event. This is an
-        # AttributeError, not a GPhoto2Error, so __handle_camera_error would
-        # not catch it anyway.
-        if self.camera is None:
+        # A disconnect (USB drop mid-capture, or a queued teardown) can drop
+        # self.camera to the _CameraGone sentinel between the capture starting
+        # and this drain running. Return quietly rather than letting the
+        # sentinel raise — a mid-drain disconnect is benign (and may be a
+        # deliberate one, auto_reconnect=False, which must NOT trigger a
+        # reconnect). The sentinel stays the backstop for every other call site.
+        if not self.camera:
             self.__logger.warning("empty_event_queue: camera gone, skipping event drain")
             return
         event_type, data = self.camera.wait_for_event(timeout)
@@ -660,9 +694,10 @@ class CameraWorker(QObject):
             # their own INFO lines in their handlers below.
             self.__logger.debug("Event: %s, data: %s" % (EVENT_DESCRIPTIONS.get(event_type, "Unknown"), data))
             QApplication.processEvents()
-            # processEvents can dispatch a queued disconnect that nulls the
-            # camera mid-drain — stop before the next gphoto2 call touches None.
-            if self.camera is None:
+            # processEvents can dispatch a queued disconnect that swaps in the
+            # _CameraGone sentinel mid-drain — stop quietly before the next
+            # gphoto2 call would raise (see the entry guard above for why).
+            if not self.camera:
                 self.__logger.warning("empty_event_queue: camera disconnected mid-drain, stopping")
                 break
 
