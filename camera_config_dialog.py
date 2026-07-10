@@ -18,6 +18,7 @@ import logging
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # "object oriented" version of camera-config-gui.py
+import json
 import sys
 from datetime import datetime
 
@@ -32,6 +33,74 @@ from byzanz_camera.camera_worker import CameraWorker
 from byzanz_camera.gphoto2_safe import widget_text_value
 
 _logger = logging.getLogger("CameraConfigDialog")
+
+
+# Value-carrying widget types. char*-valued ones must be read via the
+# NULL-safe helper (see gphoto2_safe); int/float ones can't NULL-segfault.
+_CHAR_TYPES = (gp.GP_WIDGET_TEXT, gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU)
+_TYPE_NAMES = {
+    gp.GP_WIDGET_TEXT: "text", gp.GP_WIDGET_RANGE: "range",
+    gp.GP_WIDGET_TOGGLE: "toggle", gp.GP_WIDGET_RADIO: "radio",
+    gp.GP_WIDGET_MENU: "menu", gp.GP_WIDGET_DATE: "date",
+}
+
+
+def leaf_settings(camera_config) -> dict[str, dict]:
+    """Flatten the config tree into `path -> entry` for export/diff.
+
+    Entry: {"label", "type", "value", "readonly", "widget"} — `widget` is
+    the live CameraWidget (stripped before JSON export). Sections recurse,
+    BUTTON widgets (actions, no value) are skipped. Reads are NULL-safe."""
+    out: dict[str, dict] = {}
+
+    def walk(node, path=""):
+        for child in node.get_children():
+            p = f"{path}/{child.get_name()}"
+            child_type = child.get_type()
+            if child_type in (gp.GP_WIDGET_WINDOW, gp.GP_WIDGET_SECTION):
+                walk(child, p)
+                continue
+            if child_type not in _TYPE_NAMES:
+                continue    # BUTTON etc. — no value to snapshot
+            if child_type in _CHAR_TYPES:
+                value = widget_text_value(child)
+            else:
+                value = child.get_value()
+            out[p] = {
+                "label": child.get_label(), "type": _TYPE_NAMES[child_type],
+                "value": value, "readonly": bool(child.get_readonly()),
+                "widget": child,
+            }
+
+    walk(camera_config)
+    return out
+
+
+def diff_settings(exported: dict[str, dict], current: dict[str, dict]
+                  ) -> tuple[list[str], list[tuple[str, dict]]]:
+    """Compare an exported settings dict against the current snapshot.
+
+    Returns `(lines, changed)`: human-readable diff lines, and the
+    changed entries as `(path, current_entry)` with the file's value in
+    `current_entry["file_value"]` — the applicable subset (present on
+    both sides, value differs)."""
+    lines: list[str] = []
+    changed: list[tuple[str, dict]] = []
+    for path in sorted(exported.keys() | current.keys()):
+        if path not in current:
+            lines.append(f"GONE    {path} [{exported[path].get('label', '')}]"
+                         f" (in file, not on camera)")
+        elif path not in exported:
+            entry = current[path]
+            lines.append(f"NEW     {path} [{entry['label']}]"
+                         f" = {entry['value']!r} (on camera, not in file)")
+        elif exported[path].get("value") != current[path]["value"]:
+            entry = dict(current[path], file_value=exported[path].get("value"))
+            lines.append(f"CHANGED {path} [{entry['label']}]: "
+                         f"file {entry['file_value']!r}"
+                         f" -> camera {entry['value']!r}")
+            changed.append((path, entry))
+    return lines, changed
 
 
 def _trace_widget(child) -> None:
@@ -81,6 +150,15 @@ class CameraConfigDialog(QtWidgets.QDialog):
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
+        # Settings export / import-diff (e.g. to identify which PTP property
+        # a camera-menu setting maps to: export, change the setting offline,
+        # reconnect, import → the diff names it).
+        export_button = self.button_box.addButton(
+            "Export…", QDialogButtonBox.ButtonRole.ActionRole)
+        export_button.clicked.connect(self.export_settings)
+        import_button = self.button_box.addButton(
+            "Import / Diff…", QDialogButtonBox.ButtonRole.ActionRole)
+        import_button.clicked.connect(self.import_settings)
         self.layout().addWidget(self.button_box, 2, 2)
 
         parent_width = self.parent().frameGeometry().width()
@@ -177,6 +255,109 @@ class CameraConfigDialog(QtWidgets.QDialog):
         self.camera_worker.commands.set_config.emit(self.camera_config)
         self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
         self.__logger.info("Camera config changed")
+
+    # ---- settings export / import-diff -----------------------------------
+
+    def export_settings(self):
+        """Dump every value-carrying config entry to a JSON file."""
+        default_name = "camera-settings-{}-{}.json".format(
+            self.camera_config.get_label().replace(" ", "_"),
+            datetime.now().strftime("%Y%m%d-%H%M%S"))
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export camera settings", default_name, "JSON (*.json)")
+        if not path:
+            return
+        snapshot = leaf_settings(self.camera_config)
+        data = {
+            "camera": self.camera_config.get_label(),
+            "exported_at": datetime.now().isoformat(timespec="seconds"),
+            "settings": {p: {k: v for k, v in entry.items() if k != "widget"}
+                         for p, entry in snapshot.items()},
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        self.__logger.info("exported %d settings to %s", len(snapshot), path)
+        QtWidgets.QMessageBox.information(
+            self, "Export", f"Exported {len(snapshot)} settings to\n{path}")
+
+    def import_settings(self):
+        """Load an exported settings file and DIFF it against the camera's
+        current values (printed to the console + shown in a dialog). If any
+        differ, offers to apply the file's values back to the camera —
+        readonly entries are diffed but never applied."""
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Import camera settings (diff)", "", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                exported = json.load(f)["settings"]
+        except (OSError, json.JSONDecodeError, KeyError) as e:
+            QtWidgets.QMessageBox.warning(
+                self, "Import", f"Could not read settings file:\n{e}")
+            return
+        current = leaf_settings(self.camera_config)
+        lines, changed = diff_settings(exported, current)
+
+        header = (f"diff {path} (file) vs. camera — "
+                  f"{len(lines)} difference(s)")
+        print(header, flush=True)
+        for line in lines:
+            print("  " + line, flush=True)
+        self.__logger.info("%s\n%s", header, "\n".join(lines))
+        if not lines:
+            QtWidgets.QMessageBox.information(
+                self, "Import / Diff", "No differences — the camera matches "
+                "the exported settings.")
+            return
+        self._show_diff_dialog(header, lines, changed)
+
+    def _show_diff_dialog(self, header: str, lines: list[str],
+                          changed: list[tuple[str, dict]]) -> None:
+        applicable = [(p, e) for p, e in changed if not e["readonly"]]
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Settings diff")
+        dialog.setMinimumSize(700, 400)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addWidget(QtWidgets.QLabel(header))
+        text = QtWidgets.QPlainTextEdit("\n".join(lines))
+        text.setReadOnly(True)
+        text.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.NoWrap)
+        layout.addWidget(text)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        if applicable:
+            apply_button = buttons.addButton(
+                f"Apply {len(applicable)} file value(s) to camera",
+                QDialogButtonBox.ButtonRole.ActionRole)
+            apply_button.clicked.connect(
+                lambda: (self._apply_file_values(applicable), dialog.accept()))
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def _apply_file_values(self, applicable: list[tuple[str, dict]]) -> None:
+        """Write the file's values onto the in-memory config tree, then push
+        the whole tree to the camera via the existing choke point."""
+        applied = 0
+        for path, entry in applicable:
+            value = entry["file_value"]
+            if value is None:
+                continue    # a NULL the camera exposed at export time
+            widget = entry["widget"]
+            try:
+                if entry["type"] == "range":
+                    widget.set_value(float(value))
+                elif entry["type"] in ("toggle", "date"):
+                    widget.set_value(int(value))
+                else:
+                    widget.set_value(str(value))
+                applied += 1
+            except gp.GPhoto2Error as e:
+                self.__logger.warning("could not set %s = %r: %s",
+                                      path, value, e)
+        if applied:
+            self.config_changed()
+        self.__logger.info("applied %d imported setting(s)", applied)
 
     def accept(self):
         super().accept()
