@@ -88,6 +88,17 @@ PREVIEW_STITCH_ATTEMPTS = 6
 # realistic segment set is well under this; `warp_rois` predicts the canvas
 # from geometry alone, so we reject the degenerate draw BEFORE allocating.
 PREVIEW_MAX_CANVAS_MEGAPIX = 150
+# Physical-plausibility guard on the estimated cameras. The repro stand is
+# translational: between segments the fragment SLIDES (relative rotation =
+# accidental nudge, a few degrees at most) at a FIXED camera height (equal
+# scale). Repetitive papyrus/fiber texture lets RANSAC occasionally find a
+# consistent-but-WRONG solution that satisfies neither — observed on a real
+# 9-segment set: bad draws had 14–47° rotation spread and 1.9–2.9× scale
+# spread (a visually scattered, shrunken composite), while good draws of the
+# same set stayed ≤ 3.4° and ≤ 1.06×. Such draws pass the canvas cap (their
+# canvas is small!), so they need their own rejection.
+PREVIEW_MAX_ANGLE_SPREAD_DEG = 10.0
+PREVIEW_MAX_SCALE_SPREAD = 1.25
 
 
 # ---- report ----------------------------------------------------------------
@@ -430,16 +441,44 @@ def _bgr_to_qimage(bgr: np.ndarray) -> QImage:
 
 
 class _GuardedAffineStitcher(AffineStitcher):
-    """AffineStitcher that refuses to allocate a degenerate panorama. A
-    marginal overlap can hand the affine estimator a bad transform whose
-    warped canvas is billions of pixels — the process is OOM-killed before
-    any exception is raised. `warp_rois` computes that bounding box from the
-    cameras' geometry alone (no image allocation), so we predict the FINAL
-    canvas right after scale estimation — before either the low- or full-res
-    warp allocates anything — and raise a StitchingError the retry loop
-    treats as a failed draw. See PREVIEW_MAX_CANVAS_MEGAPIX."""
+    """AffineStitcher that rejects implausible camera estimates BEFORE the
+    warp allocates or composites anything, raising a StitchingError the
+    retry loop treats as a failed draw. Two guards, intercepted right after
+    camera estimation (`warp_low_resolution` is the first consumer of the
+    cameras):
+
+    1. Canvas cap — a degenerate transform doesn't merely fail, it warps a
+       segment onto a canvas of billions of pixels and the process is
+       OOM-killed before any exception surfaces. `warp_rois` computes the
+       bounding box from geometry alone (no allocation).
+    2. Rig physics — rotation/scale spread across the cameras beyond what a
+       sliding fragment under a fixed camera can produce means RANSAC found
+       a consistent-but-wrong solution (small canvas, scattered composite);
+       see PREVIEW_MAX_ANGLE_SPREAD_DEG / PREVIEW_MAX_SCALE_SPREAD."""
 
     def warp_low_resolution(self, imgs, cameras):
+        # Each affine camera's 2×3 transform lives in R's top rows:
+        # [[s·cosθ, s·sinθ, tx], [−s·sinθ, s·cosθ, ty]].
+        angles, scales = [], []
+        for camera in cameras:
+            r = np.asarray(camera.R)
+            scales.append(float(np.hypot(r[0, 0], r[0, 1])))
+            angles.append(float(np.degrees(np.arctan2(r[0, 1], r[0, 0]))))
+        # Spread relative to the first camera, wrapped to (−180, 180].
+        rel = [(a - angles[0] + 180.0) % 360.0 - 180.0 for a in angles]
+        angle_spread = max(rel) - min(rel)
+        scale_spread = max(scales) / min(scales) if min(scales) > 0 else float("inf")
+        if angle_spread > PREVIEW_MAX_ANGLE_SPREAD_DEG:
+            raise StitchingError(
+                f"camera estimate rotates segments {angle_spread:.0f}° apart "
+                f"(cap {PREVIEW_MAX_ANGLE_SPREAD_DEG:.0f}°) — implausible for "
+                "a sliding fragment, rejecting this draw")
+        if scale_spread > PREVIEW_MAX_SCALE_SPREAD:
+            raise StitchingError(
+                f"camera estimate scales segments {scale_spread:.2f}× apart "
+                f"(cap {PREVIEW_MAX_SCALE_SPREAD}×) — implausible for a fixed "
+                "camera height, rejecting this draw")
+
         sizes = self.images.get_scaled_img_sizes(Images.Resolution.FINAL)
         aspect = self.images.get_ratio(
             Images.Resolution.MEDIUM, Images.Resolution.FINAL)
