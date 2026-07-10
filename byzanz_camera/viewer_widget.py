@@ -24,8 +24,10 @@ from .zoom_control_bar import ZoomControlBar  # type: ignore  # used in attach_z
 
 # ---- view-state pill (corner indicator) ---------------------------------
 
-class _ViewStatePill(QWidget):
-    """Custom-painted pill badge for the viewer mode indicator.
+class PillBadge(QWidget):
+    """Custom-painted pill badge — the viewer mode indicator, and reusable
+    by host apps for their own corner overlays (see `add_corner_overlay`;
+    e.g. papyri's overlap-coach readout).
 
     QSS-styled QLabel proved unreliable across Qt6/macOS — `border-radius`
     + transparent rgba background combinations either render inconsistently
@@ -153,7 +155,10 @@ class ViewerWidget(QWidget):
         # rect, not over the scrollbars).
         self._view_state: str = "empty"
         self._view_state_label: str = ""
-        self._pill = _ViewStatePill(self.photo_viewer)
+        self._pill = PillBadge(self.photo_viewer)
+
+        # Host-supplied corner overlays (see add_corner_overlay).
+        self._corner_overlays: list[tuple[QWidget, str]] = []
 
         # Busy spinner — same reasoning as the pill: child of the scroll
         # area, positioned relative to the viewport rect.
@@ -262,6 +267,18 @@ class ViewerWidget(QWidget):
         self.show_image(None)
         self.set_view_state("empty")
 
+    def add_corner_overlay(self, widget: QWidget, corner: str = "top-left") -> None:
+        """Pin a host-supplied widget to a corner of the viewport (e.g.
+        papyri's overlap-coach pill). Mechanism only — content and
+        show/hide stay with the host. `corner` ∈ {top-left, top-right,
+        bottom-left, bottom-right}; top-right is where the built-in
+        view-state pill lives. Repositioned on viewport resize and on the
+        widget's own resize/show (so a setText → adjustSize re-pins it)."""
+        widget.setParent(self.photo_viewer)
+        widget.installEventFilter(self)
+        self._corner_overlays.append((widget, corner))
+        self._reposition_corner_overlays()
+
     def set_mirror_graphics_view(self, view) -> None:
         """Route the same scene to a second QGraphicsView (e.g. an external
         screen mirror for dome alignment). Thin pass-through to the
@@ -326,9 +343,24 @@ class ViewerWidget(QWidget):
         self._spinner.setGeometry(x, y, size, size)
         self._spinner.raise_()
 
+    def _reposition_corner_overlays(self) -> None:
+        vp_rect = self.photo_viewer.viewport().geometry()
+        inset = self._PILL_INSET
+        for widget, corner in self._corner_overlays:
+            x = (vp_rect.left() + inset if corner.endswith("left")
+                 else max(0, vp_rect.right() - widget.width() - inset))
+            y = (vp_rect.top() + inset if corner.startswith("top")
+                 else max(0, vp_rect.bottom() - widget.height() - inset))
+            widget.move(x, y)
+            widget.raise_()
+
     def eventFilter(self, obj, event):
         if (obj is self.photo_viewer.viewport()
                 and event.type() == QEvent.Type.Resize):
             self._reposition_pill()
             self._reposition_spinner()
+            self._reposition_corner_overlays()
+        elif (any(obj is w for w, _ in self._corner_overlays)
+                and event.type() in (QEvent.Type.Resize, QEvent.Type.Show)):
+            self._reposition_corner_overlays()
         return super().eventFilter(obj, event)

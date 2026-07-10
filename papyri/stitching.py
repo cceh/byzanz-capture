@@ -244,6 +244,46 @@ def _add_preview_to_report(report_path: str, preview_file: str,
     os.replace(tmp, report_path)
 
 
+# ---- shared matching primitives ---------------------------------------------
+# The canonical ORB-detect / affine-pair-match pair — shared between the
+# connectivity check below and the overlap coach (`papyri/overlap_coach.py`).
+# Do NOT re-instantiate detector/matcher pipelines at call sites.
+
+def detect_features(img: np.ndarray):
+    """ORB features of one image at its given scale (the check decodes
+    near CHECK_TARGET_MEGAPIX; match quality is determined at that scale)."""
+    return FeatureDetector().detect_features(img)
+
+
+def match_pair(feat_a, feat_b) -> tuple[float, np.ndarray | None]:
+    """Affine-match two feature sets → `(confidence, H)` where `H` is the
+    3×3 affine mapping a-coordinates into b-coordinates (None when no
+    transform could be estimated). Confidence is on the same scale as the
+    check's matrix, so `CONFIDENCE_THRESHOLD` / `UNCERTAIN_THRESHOLD`
+    apply unchanged."""
+    matches = FeatureMatcher(matcher_type="affine").match_features(
+        [feat_a, feat_b])
+    confidence = float(FeatureMatcher.get_confidence_matrix(matches)[0][1])
+    h = matches[1].H    # pairwise index (0 → 1)
+    if h is None:
+        return confidence, None
+    h = np.asarray(h, dtype=np.float64)
+    if h.shape == (2, 3):   # cv2 may return the affine without the [0,0,1] row
+        h = np.vstack([h, (0.0, 0.0, 1.0)])
+    return confidence, h
+
+
+def load_segment_image(path: str,
+                       target_megapix: float = CHECK_TARGET_MEGAPIX,
+                       ) -> np.ndarray | None:
+    """Decode ONE capture's embedded JPEG near the check's working scale —
+    the overlap coach's anchor load. None when unreadable."""
+    data = read_embedded_jpeg(path)
+    if data is None:
+        return None
+    return _decode_segments([data], target_megapix)[0]
+
+
 # ---- graph evaluation (pure functions) -------------------------------------
 
 def _connected_components(count: int, edges: set[tuple[int, int]]) -> list[list[int]]:
@@ -549,7 +589,7 @@ class _BucketSnapshot:
     report_path: str
 
 
-def _snapshot_bucket(obj, side: str, spectrum: str) -> _BucketSnapshot:
+def snapshot_bucket(obj, side: str, spectrum: str) -> _BucketSnapshot:
     """Segments = the bucket's captures minus the reference photo.
     Prefers the JPG of a pair (no rawpy parse needed), falls back to RAW."""
     reference = obj.reference(side, spectrum)
@@ -644,10 +684,11 @@ class _CheckRunner(QRunnable):
         # The library's MEDIUM resize brings every image to the same
         # working scale, matching what a real stitch would see.
         medium = list(Images.of(arrays).resize(Images.Resolution.MEDIUM))
-        detector = FeatureDetector()
-        features = [detector.detect_features(img) for img in medium]
+        features = [detect_features(img) for img in medium]
         # Affine matcher: the repro stand moves translationally over a
-        # flat object — the affine model's exact domain.
+        # flat object — the affine model's exact domain. One all-pairs
+        # match_features call, NOT n²/2 `match_pair` calls: it yields the
+        # full confidence matrix in one go with identical numbers.
         matches = FeatureMatcher(matcher_type="affine").match_features(features)
         confidence = tuple(
             tuple(float(v) for v in row)
@@ -787,7 +828,7 @@ class StitchController(QObject):
         """Composite the bucket's segments into a preview (user clicked the
         button on a green set). Bumps the generation, so any in-flight check
         for this bucket is superseded — check and preview never both land."""
-        snap = _snapshot_bucket(obj, side, spectrum)
+        snap = snapshot_bucket(obj, side, spectrum)
         self._gen += 1
         gen = self._gen
         runner = _PreviewRunner(snap)
@@ -798,7 +839,7 @@ class StitchController(QObject):
     def fresh_report(self, obj, side: str, spectrum: str) -> StitchReport | None:
         """The persisted report, if it still matches the bucket's current
         segment files and reference. None → caller should run a check."""
-        snap = _snapshot_bucket(obj, side, spectrum)
+        snap = snapshot_bucket(obj, side, spectrum)
         report = load_report(snap.report_path)
         if (report is not None
                 and report.source_files == snap.source_files
@@ -821,7 +862,7 @@ class StitchController(QObject):
             self._start(obj, side, spectrum)
 
     def _start(self, obj, side: str, spectrum: str) -> None:
-        snap = _snapshot_bucket(obj, side, spectrum)
+        snap = snapshot_bucket(obj, side, spectrum)
         self._gen += 1
         gen = self._gen
         runner = _CheckRunner(snap)

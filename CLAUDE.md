@@ -69,3 +69,30 @@ The LP file for RTI processing is generated from `cceh-dome-template.lp`.
 - **Adding a camera**: subclass `Profile`, implement every abstract method (the property-name getters return strings matching gphoto2 config keys for that camera), then register the instance in `PROFILES` in `main.py`.
 - **Capture format vs file count**: `CaptureImagesRequest` derives `expect_files` (1 for JPEG, 2 for JPEG+RAW) — keep this in sync if adding new formats.
 - **No formal test suite.** Validate camera changes against real hardware or a gphoto2 dummy camera; BLE features must degrade gracefully when hardware is absent.
+
+## Single-source rules ("choke points")
+
+For each concern below there is **one** canonical home. Route through it; do
+**not** re-implement the concern at a call site. This list exists because an
+agent editing one call site can't see the others — so before adding a
+cross-cutting behavior to a handler, **grep for sibling handlers of the same
+event/sink; if there is more than one, funnel them through a single entry**
+(that's how `_activate_box` came to be). Background:
+`docs/missing-abstractions-agent-workflows.md`.
+
+| Concern | Canonical home | Do NOT |
+|---|---|---|
+| Make a box active (migrate + show) | `PapyriMainWindow._activate_box` | call `objects_sidebar.set_working_directory` directly |
+| Read/write an object's `_meta.json` | `object_layout.read_meta` / `write_meta` / `update_meta` | open/`json.dump` the file inline |
+| Reserved `_meta.json` top-level keys | `object_layout.MetaKey` (StrEnum) | write the key as a bare string literal |
+| Per-bucket take markers (chosen / reference) | `Object.set_chosen` / `set_reference` / `clear_reference`; roles are `MarkerRole` | store markers in sidecar files |
+| On-disk layout migration | `object_layout.migrate_object` / `migrate_working_dir`, versioned by `layout_version` | change on-disk format without a version bump + migration step |
+| Embedded-JPEG bytes from a RAW/JPEG | `load_image_worker.read_embedded_jpeg` | inline `rawpy.extract_thumb` |
+| Capture file naming | `Object.next_stem` / `next_template` | build stem strings by hand |
+| gphoto2 operations | `CameraWorker` command signals (see Conventions) | call gphoto2 from the UI thread |
+| ORB detect + affine pair match (+ thresholds) | `stitching.detect_features` / `match_pair` / `CONFIDENCE_THRESHOLD` | re-instantiate detector/matcher pipelines or invent a second confidence bar |
+| Segment set of a bucket (reference excluded) | `stitching.snapshot_bucket` | re-list captures and filter the reference inline |
+| Overlays pinned over the photo viewer | `ViewerWidget.add_corner_overlay` (widget: `PillBadge`) | parent widgets into the viewer/viewport by hand |
+
+**When you discover or introduce a new choke point, add a row here** — that's
+the durable prevention (see the doc above).

@@ -62,7 +62,7 @@ from byzanz_camera.orientation import read_orientation, write_orientation
 from byzanz_camera.helpers import (
     get_app_icon, get_ui_path, set_state, set_themed_icon, set_themed_pixmap,
 )
-from byzanz_camera.viewer_widget import ViewerWidget
+from byzanz_camera.viewer_widget import PillBadge, ViewerWidget
 from byzanz_camera.zoom_control_bar import ZoomControlBar
 from byzanz_camera.config_combo import ConfigComboBox
 from papyri.capture_model import Capture, _CopyRunner
@@ -118,8 +118,9 @@ from papyri._metadata import (
     set_current_height,
 )
 from papyri.simple_target import SimpleTarget
+from papyri.overlap_coach import OverlapCoach
 from papyri.stitch_bar import StitchBar
-from papyri.stitching import StitchController
+from papyri.stitching import StitchController, snapshot_bucket
 
 from send2trash import send2trash
 
@@ -162,6 +163,20 @@ _ROTATE_TRANSPOSE = {
 # null one (reference explicitly cleared). `None` is a real marker value,
 # so it can't double as "missing".
 _MISSING = object()
+
+
+# Overlap-coach pill border per reading state (see overlap_coach.CoachReading).
+# Colors match the calibration/status palette in styles.COLORS; kept literal
+# here because the pill is self-painted, not QSS-themed (same reasoning as
+# ViewerWidget's view-state pill colors).
+_COACH_PILL_COLORS = {
+    "green": "#16a34a",         # = cal_ok
+    "yellow": "#f59e0b",        # = cal_due
+    "red_low": "#dc2626",       # = status_error
+    "red_nomatch": "#dc2626",
+    "uncertain": "#94a3b8",     # slate — the check's gray zone
+    "dim": None,
+}
 
 
 class Object(QObject):
@@ -799,6 +814,15 @@ class PapyriMainWindow(QMainWindow):
         self.stitch.check_finished.connect(self._on_stitch_check_finished)
         self.stitch.preview_finished.connect(self._on_stitch_preview_finished)
         self.stitch_bar.preview_requested.connect(self._on_stitch_preview_requested)
+
+        # Overlap coach (S4) — live segment-spacing feedback while a stitch
+        # bucket streams live view. Anchor follows the bucket's newest
+        # segment (set in _refresh_stitch_ui); frames come from the
+        # _on_preview_image funnel; the pill sits over the live view.
+        self.overlap_coach = OverlapCoach(self)
+        self.overlap_coach.reading_changed.connect(self._on_coach_reading)
+        self._coach_pill = PillBadge()
+        self.viewer.add_corner_overlay(self._coach_pill, "top-left")
 
         self.calibration_bar: CalibrationBar = self.findChild(
             CalibrationBar, "calibrationBar")
@@ -1673,6 +1697,7 @@ class PapyriMainWindow(QMainWindow):
         otherwise runs a check (debounced on capture settle via
         `schedule_recheck`, immediate on a bucket switch)."""
         bucket = self._active_stitch_bucket()
+        self._refresh_coach_anchor(bucket)
         if bucket is None:
             self.stitch_bar.setVisible(False)
             self.filmstrip.set_connectivity(None)
@@ -1689,6 +1714,35 @@ class PapyriMainWindow(QMainWindow):
             self.stitch.schedule_check(*bucket)
         else:
             self.stitch.run_check_now(*bucket)
+
+    def _refresh_coach_anchor(self, bucket) -> None:
+        """Point the overlap coach at the active bucket's newest segment
+        (reference excluded — `snapshot_bucket` owns that rule), or
+        disengage it when there is no stitch bucket / no segment yet.
+        Rides along every `_refresh_stitch_ui`, so the anchor follows
+        captures, deletes, and bucket switches for free."""
+        anchor = None
+        if bucket is not None:
+            snap = snapshot_bucket(*bucket)
+            if snap.segments:
+                anchor = snap.segments[-1]
+        if anchor is None:
+            self.overlap_coach.set_anchor(None, None)
+            self._coach_pill.hide()
+        else:
+            self.overlap_coach.set_anchor(*anchor)
+
+    def _on_coach_reading(self, reading) -> None:
+        """A coach sample arrived. Only meaningful over a streaming live
+        view of a stitch bucket — anywhere else the pill hides (a stale
+        overlap reading over a paused frame would mislead)."""
+        if (self.session.view_mode != "live"
+                or self._active_stitch_bucket() is None):
+            self._coach_pill.hide()
+            return
+        self._coach_pill.setText(f"⟷ {reading.text}")
+        self._coach_pill.set_border_color(_COACH_PILL_COLORS[reading.state])
+        self._coach_pill.show()
 
     def _apply_stitch_report(self, report) -> None:
         self.stitch_bar.show_message(report.message, report.level)
@@ -1941,6 +1995,11 @@ class PapyriMainWindow(QMainWindow):
         # whatever's displayed (preview thumbnail, last-paused frame).
         if self.session.live_view_paused:
             return
+        # Overlap coach: feed every live frame (it samples + gates
+        # internally, and no-ops unless a stitch-bucket anchor is set).
+        # Pre-rotation frame on purpose — rotation is display-only and the
+        # affine match is rotation-agnostic.
+        self.overlap_coach.push(image.image)
         # One sharpness compute feeds both the readout and the focus tone.
         if self._live_sharpness_enabled or self.focus_audio.is_active():
             sharp = compute_sharpness(image.image)
@@ -2487,6 +2546,10 @@ class PapyriMainWindow(QMainWindow):
         self.viewer.set_view_state(
             self.session.view_mode, self.session.view_mode_label
         )
+        # The coach pill only makes sense over a streaming live view — a
+        # stale overlap reading over a paused frame / preview would mislead.
+        if self.session.view_mode != "live":
+            self._coach_pill.hide()
 
     # ---- objects sidebar handlers ----
 
