@@ -118,7 +118,7 @@ from papyri._metadata import (
     set_current_height,
 )
 from papyri.simple_target import SimpleTarget
-from papyri.overlap_coach import OverlapCoach
+from papyri.overlap_coach import STATE_COLORS, OverlapCoach
 from papyri.stitch_bar import StitchBar
 from papyri.stitching import StitchController, snapshot_bucket
 
@@ -165,18 +165,6 @@ _ROTATE_TRANSPOSE = {
 _MISSING = object()
 
 
-# Overlap-coach pill border per reading state (see overlap_coach.CoachReading).
-# Colors match the calibration/status palette in styles.COLORS; kept literal
-# here because the pill is self-painted, not QSS-themed (same reasoning as
-# ViewerWidget's view-state pill colors).
-_COACH_PILL_COLORS = {
-    "green": "#16a34a",         # = cal_ok
-    "yellow": "#f59e0b",        # = cal_due
-    "red_low": "#dc2626",       # = status_error
-    "red_nomatch": "#dc2626",
-    "uncertain": "#94a3b8",     # slate — the check's gray zone
-    "dim": None,
-}
 
 
 class Object(QObject):
@@ -823,6 +811,16 @@ class PapyriMainWindow(QMainWindow):
         self.overlap_coach.reading_changed.connect(self._on_coach_reading)
         self._coach_pill = PillBadge()
         self.viewer.add_corner_overlay(self._coach_pill, "top-left")
+        # Live-frame filter chain — THE extension point for drawing onto
+        # live-view frames (see add_live_frame_filter). The coach's ghost
+        # overlay is its first consumer; the toggle lives in the stitch bar
+        # and is persisted.
+        self._live_frame_filters: list = []
+        self.add_live_frame_filter(self.overlap_coach.blend_ghost)
+        ghost_on = self.q_settings.value("coachGhostOverlay", False, type=bool)
+        self.overlap_coach.set_ghost_enabled(ghost_on)
+        self.stitch_bar.set_ghost_checked(ghost_on)
+        self.stitch_bar.ghost_toggled.connect(self._on_ghost_toggled)
 
         self.calibration_bar: CalibrationBar = self.findChild(
             CalibrationBar, "calibrationBar")
@@ -1732,6 +1730,22 @@ class PapyriMainWindow(QMainWindow):
         else:
             self.overlap_coach.set_anchor(*anchor)
 
+    def add_live_frame_filter(self, frame_filter) -> None:
+        """Register a live-frame filter: `(spectrum, PIL.Image) -> PIL.Image`.
+
+        THE single way to draw/blend onto live-view frames. Filters run in
+        the `_on_preview_image` funnel — after the active-spectrum and
+        pause gates, BEFORE the display rotation (so a filter needn't know
+        about per-camera rotation) — in registration order, GUI thread.
+        Filters must be cheap (they run per frame, ~20 Hz) and return the
+        frame unchanged when they have nothing to draw."""
+        self._live_frame_filters.append(frame_filter)
+
+    def _on_ghost_toggled(self, checked: bool) -> None:
+        """Stitch bar's Ghost button → coach + persisted setting."""
+        self.q_settings.setValue("coachGhostOverlay", checked)
+        self.overlap_coach.set_ghost_enabled(checked)
+
     def _on_coach_reading(self, reading) -> None:
         """A coach sample arrived. Only meaningful over a streaming live
         view of a stitch bucket — anywhere else the pill hides (a stale
@@ -1741,7 +1755,7 @@ class PapyriMainWindow(QMainWindow):
             self._coach_pill.hide()
             return
         self._coach_pill.setText(f"⟷ {reading.text}")
-        self._coach_pill.set_border_color(_COACH_PILL_COLORS[reading.state])
+        self._coach_pill.set_border_color(STATE_COLORS[reading.state])
         self._coach_pill.show()
 
     def _apply_stitch_report(self, report) -> None:
@@ -2013,10 +2027,15 @@ class PapyriMainWindow(QMainWindow):
         # frames preserve whatever transform the user set via scroll-wheel
         # zoom; otherwise every ~50ms a fresh fitInView would clobber it.
         fit = self.session.view_mode != "live"
+        pil_image = image.image
+        # Live-frame filters (see add_live_frame_filter) — e.g. the coach's
+        # ghost overlay. Pre-rotation on purpose: filters work in camera
+        # coordinates, the display rotation below applies to their output.
+        for frame_filter in self._live_frame_filters:
+            pil_image = frame_filter(spectrum, pil_image)
         # Client-side live-view rotation (display only — captures are
         # untouched). The angle is per-camera and persisted; see _lv_rotation.
         # Rotate the PIL frame, not the QPixmap: the latter shears the image.
-        pil_image = image.image
         angle = self._lv_rotation[spectrum]
         if angle:
             pil_image = pil_image.transpose(_ROTATE_TRANSPOSE[angle])

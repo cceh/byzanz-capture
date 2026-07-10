@@ -30,6 +30,10 @@ class StitchBar(QFrame):
     # User clicked "Stitch preview" (only possible while enabled = green).
     preview_requested = pyqtSignal()
 
+    # User toggled the ghost overlay (translucent previous segment over the
+    # live view — see the overlap coach). MainWindow persists + applies it.
+    ghost_toggled = pyqtSignal(bool)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("stitchBar")
@@ -58,8 +62,20 @@ class StitchBar(QFrame):
         set_state(self._status, "state", "neutral")
         row.addWidget(self._status, 1, Qt.AlignmentFlag.AlignVCenter)
 
-        # Native styling on purpose (QSS on a QPushButton strips macOS
-        # chrome — same reason the calibration bar's buttons stay native).
+        # Ghost overlay toggle — checkable, next to the verdict it
+        # visualizes. Native styling on purpose (QSS on a QPushButton
+        # strips macOS chrome — same reason the calibration bar's buttons
+        # stay native).
+        self._ghost_btn = QPushButton("Ghost")
+        self._ghost_btn.setCheckable(True)
+        set_themed_icon(self._ghost_btn.setIcon, get_ui_path("ui/ghost.svg"))
+        self._ghost_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ghost_btn.setToolTip(
+            "Overlay the last segment translucently on the live view —\n"
+            "green = spacing is right, shoot")
+        self._ghost_btn.toggled.connect(self.ghost_toggled)
+        row.addWidget(self._ghost_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
         self._preview_btn = QPushButton("Stitch preview")
         set_themed_icon(self._preview_btn.setIcon, get_ui_path("ui/image.svg"))
         self._preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -98,3 +114,9 @@ class StitchBar(QFrame):
     def set_preview_enabled(self, enabled: bool) -> None:
         """Enable the preview button (green set) or grey it out."""
         self._preview_btn.setEnabled(enabled)
+
+    def set_ghost_checked(self, checked: bool) -> None:
+        """Reflect the persisted ghost-overlay state without re-emitting."""
+        self._ghost_btn.blockSignals(True)
+        self._ghost_btn.setChecked(checked)
+        self._ghost_btn.blockSignals(False)

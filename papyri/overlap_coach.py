@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import cv2
 import numpy as np
@@ -54,6 +54,69 @@ SAMPLE_INTERVAL_S = 0.6
 # is logged with its sharpness value.
 SHARPNESS_MIN = 5.0
 
+# Canonical reading-state → color map — the ONE place pill border and ghost
+# tint derive from (see docs/papyri-overlap-coach-concept.md). Colors match
+# the calibration/status palette in styles.COLORS; kept literal because both
+# consumers paint outside QSS.
+STATE_COLORS = {
+    "green": "#16a34a",         # = cal_ok
+    "yellow": "#f59e0b",        # = cal_due
+    "red_low": "#dc2626",       # = status_error
+    "red_nomatch": "#dc2626",
+    "uncertain": "#94a3b8",     # slate — the check's gray zone
+    "dim": None,
+}
+
+# Ghost overlay (gold standard, see concept doc): the last segment warped
+# into the live frame, tinted + translucent. Green when the spacing is
+# right (same signal as the pill), cyan otherwise — cyan occurs nowhere on
+# papyrus/light table, so the overlay can't be mistaken for the object.
+GHOST_OPACITY = 0.35
+GHOST_TINT_FALLBACK = "#06b6d4"     # cyan (= the viewer's live-dot color)
+# With the ghost on, sample faster — it can only be re-placed per sample,
+# and a fresher ghost tracks the sliding fragment more closely. Matching
+# is 30–100 ms, so 0.35 s still keeps well under half duty.
+GHOST_SAMPLE_INTERVAL_S = 0.35
+# A stale ghost misleads more than no ghost: hide it when no fresh
+# placement arrived for this long (live-view hiccup, failed matches).
+GHOST_MAX_AGE_S = 2.0
+
+
+def _hex_to_rgb(color: str) -> tuple[int, int, int]:
+    return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+
+
+@dataclass(frozen=True)
+class _GhostOverlay:
+    """One placed ghost, precomputed for cheap per-frame blending:
+    `out = frame * inv_alpha + premultiplied`. Built per SAMPLE (warp +
+    tint), consumed per FRAME (one multiply-add)."""
+    premultiplied: object   # float32 H×W×3 — tinted ghost × alpha
+    inv_alpha: object       # float32 H×W×1 — 1 − alpha
+    size: tuple[int, int]   # (w, h) of the frame it was placed for
+
+
+def _make_ghost(anchor_gray: np.ndarray, h: np.ndarray,
+                frame_shape: tuple[int, ...], state: str) -> _GhostOverlay:
+    """Warp the anchor into the live frame's coordinates (`h` maps
+    frame→anchor, so the ghost uses its inverse) and colorize it: green
+    when the spacing is right (the pill's own green), cyan otherwise."""
+    fh, fw = frame_shape[:2]
+    m = np.linalg.inv(h)[:2]
+    warped = cv2.warpAffine(anchor_gray, m, (fw, fh),
+                            flags=cv2.INTER_LINEAR,
+                            borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    mask = cv2.warpAffine(np.ones_like(anchor_gray, dtype=np.float32),
+                          m, (fw, fh), flags=cv2.INTER_LINEAR,
+                          borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
+    tint = _hex_to_rgb(STATE_COLORS["green"] if state == "green"
+                       else GHOST_TINT_FALLBACK)
+    colorized = (warped[..., None].astype(np.float32) / 255.0
+                 * np.asarray(tint, dtype=np.float32))
+    alpha = (mask * GHOST_OPACITY)[..., None]
+    return _GhostOverlay(premultiplied=colorized * alpha,
+                         inv_alpha=1.0 - alpha, size=(fw, fh))
+
 
 @dataclass(frozen=True)
 class CoachReading:
@@ -68,6 +131,8 @@ class CoachReading:
     scale: float | None = None
     sharpness: float | None = None
     anchor_stem: str | None = None
+    ghost: _GhostOverlay | None = None    # only when the ghost overlay is on
+                                          # and the reading has a usable H
 
     @property
     def text(self) -> str:
@@ -123,7 +188,8 @@ def evaluate(confidence: float, h: np.ndarray | None,
 
 class _RunnerSignals(QObject):
     """QRunnable can't host signals — QObject sidecar (see stitching.py)."""
-    anchor_ready = pyqtSignal(int, str, object, object)  # gen, stem, feats, shape
+    # gen, stem, feats, gray image (None on failure)
+    anchor_ready = pyqtSignal(int, str, object, object)
     reading = pyqtSignal(int, object)                    # gen, CoachReading | None
 
 
@@ -149,8 +215,11 @@ class _AnchorRunner(QRunnable):
                                                 None, None)
                 return
             feats = detect_features(img)
+            # Grayscale copy kept for the ghost overlay (colorized per
+            # reading state at warp time; ~0.6 MP, negligible memory).
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             self._signals.anchor_ready.emit(self._gen, self._stem,
-                                            feats, img.shape)
+                                            feats, gray)
         except Exception:
             _logger.exception("coach anchor %s failed", self._stem)
             self._signals.anchor_ready.emit(self._gen, self._stem, None, None)
@@ -159,14 +228,17 @@ class _AnchorRunner(QRunnable):
 class _FrameRunner(QRunnable):
     """Matches one live frame against the cached anchor features. Emits a
     CoachReading (or None on an internal error — the pill just keeps its
-    last state; the error is logged)."""
+    last state; the error is logged). With `make_ghost`, a usable match
+    additionally carries the warped ghost overlay."""
 
     def __init__(self, gen: int, frame: Image.Image, anchor_feats,
-                 anchor_shape, anchor_stem: str, signals: _RunnerSignals):
+                 anchor_gray, anchor_stem: str, make_ghost: bool,
+                 signals: _RunnerSignals):
         super().__init__()
         self._gen, self._frame = gen, frame
-        self._anchor_feats, self._anchor_shape = anchor_feats, anchor_shape
+        self._anchor_feats, self._anchor_gray = anchor_feats, anchor_gray
         self._anchor_stem = anchor_stem
+        self._make_ghost = make_ghost
         self._signals = signals
 
     def run(self) -> None:
@@ -182,8 +254,11 @@ class _FrameRunner(QRunnable):
                     cv2.COLOR_RGB2BGR)
                 confidence, h = match_pair(
                     detect_features(bgr), self._anchor_feats)
-                reading = evaluate(confidence, h, self._anchor_shape,
+                reading = evaluate(confidence, h, self._anchor_gray.shape,
                                    bgr.shape, sharpness, self._anchor_stem)
+                if self._make_ghost and h is not None and reading.overlap_pct is not None:
+                    reading = replace(reading, ghost=_make_ghost(
+                        self._anchor_gray, h, bgr.shape, reading.state))
             self._signals.reading.emit(self._gen, reading)
         except Exception:
             _logger.exception("coach frame match failed")
@@ -204,9 +279,12 @@ class OverlapCoach(QObject):
         self._gen = 0
         self._anchor_stem: str | None = None
         self._anchor_feats = None
-        self._anchor_shape = None
+        self._anchor_gray = None
         self._busy = False
         self._last_sample = 0.0
+        self._ghost_enabled = False
+        self._ghost: _GhostOverlay | None = None
+        self._ghost_placed_at = 0.0
         self._signals = _RunnerSignals()
         self._signals.anchor_ready.connect(self._on_anchor_ready)
         self._signals.reading.connect(self._on_reading)
@@ -220,12 +298,37 @@ class OverlapCoach(QObject):
             return
         self._gen += 1
         self._anchor_stem = stem
-        self._anchor_feats = self._anchor_shape = None
+        self._anchor_feats = self._anchor_gray = None
+        self._ghost = None
         if stem is None or path is None:
             return
         _logger.info("coach anchor → %s", stem)
         QThreadPool.globalInstance().start(
             _AnchorRunner(self._gen, stem, path, self._signals))
+
+    def set_ghost_enabled(self, enabled: bool) -> None:
+        """Toggle the translucent previous-segment overlay (stitch bar's
+        "Ghost" button). Also raises the sample rate while on — the ghost
+        is only as fresh as the latest sample."""
+        self._ghost_enabled = enabled
+        if not enabled:
+            self._ghost = None
+
+    def blend_ghost(self, spectrum: str, frame: Image.Image) -> Image.Image:
+        """Live-frame filter (registered via MainWindow's
+        `add_live_frame_filter`): blend the cached ghost onto a live frame.
+        Returns the frame untouched when the ghost is off, unplaced, stale
+        (GHOST_MAX_AGE_S), or was placed for a different frame size."""
+        ghost = self._ghost
+        if ghost is None or not self._ghost_enabled:
+            return frame
+        if time.monotonic() - self._ghost_placed_at > GHOST_MAX_AGE_S:
+            return frame
+        if frame.size != ghost.size:
+            return frame
+        arr = np.asarray(frame.convert("RGB"), dtype=np.float32)
+        out = arr * ghost.inv_alpha + ghost.premultiplied
+        return Image.fromarray(out.astype(np.uint8))
 
     def push(self, frame: Image.Image) -> None:
         """Feed one live frame (GUI thread, every frame — the
@@ -234,7 +337,9 @@ class OverlapCoach(QObject):
         if self._anchor_feats is None or self._busy:
             return
         now = time.monotonic()
-        if now - self._last_sample < SAMPLE_INTERVAL_S:
+        interval = (GHOST_SAMPLE_INTERVAL_S if self._ghost_enabled
+                    else SAMPLE_INTERVAL_S)
+        if now - self._last_sample < interval:
             return
         self._last_sample = now
         # The camera worker hands over a LAZY PIL JPEG (pixels not decoded
@@ -249,21 +354,28 @@ class OverlapCoach(QObject):
         self._busy = True
         QThreadPool.globalInstance().start(
             _FrameRunner(self._gen, frame, self._anchor_feats,
-                         self._anchor_shape, self._anchor_stem,
-                         self._signals))
+                         self._anchor_gray, self._anchor_stem,
+                         self._ghost_enabled, self._signals))
 
     # ---- internals -------------------------------------------------------
 
-    def _on_anchor_ready(self, gen: int, stem: str, feats, shape) -> None:
+    def _on_anchor_ready(self, gen: int, stem: str, feats, gray) -> None:
         if gen != self._gen:
             return  # anchor changed while detecting — drop
         self._anchor_feats = feats
-        self._anchor_shape = shape
+        self._anchor_gray = gray
 
     def _on_reading(self, gen: int, reading) -> None:
         self._busy = False
         if gen != self._gen or reading is None:
             return
+        # Ghost cache: a usable placement replaces it; a no-transform
+        # reading (nomatch/dim) clears it — a stale ghost would mislead.
+        if reading.ghost is not None:
+            self._ghost = reading.ghost
+            self._ghost_placed_at = time.monotonic()
+        elif reading.state in ("red_nomatch", "dim"):
+            self._ghost = None
         _logger.info(
             "coach %s overlap=%s conf=%s scale=%s sharp=%s anchor=%s",
             reading.state,

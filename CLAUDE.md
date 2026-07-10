@@ -93,6 +93,8 @@ event/sink; if there is more than one, funnel them through a single entry**
 | ORB detect + affine pair match (+ thresholds) | `stitching.detect_features` / `match_pair` / `CONFIDENCE_THRESHOLD` | re-instantiate detector/matcher pipelines or invent a second confidence bar |
 | Segment set of a bucket (reference excluded) | `stitching.snapshot_bucket` | re-list captures and filter the reference inline |
 | Overlays pinned over the photo viewer | `ViewerWidget.add_corner_overlay` (widget: `PillBadge`) | parent widgets into the viewer/viewport by hand |
+| Draw/blend onto live-view frames | `PapyriMainWindow.add_live_frame_filter` (pre-rotation, per-frame) | composite inline in `_on_preview_image` or in the viewer |
+| Coach state → color (pill border, ghost tint) | `overlap_coach.STATE_COLORS` | hardcode a second state palette |
 
 **When you discover or introduce a new choke point, add a row here** — that's
 the durable prevention (see the doc above).
