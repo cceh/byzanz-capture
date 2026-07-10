@@ -99,6 +99,23 @@ PREVIEW_MAX_CANVAS_MEGAPIX = 150
 # canvas is small!), so they need their own rejection.
 PREVIEW_MAX_ANGLE_SPREAD_DEG = 10.0
 PREVIEW_MAX_SCALE_SPREAD = 1.25
+# Registration + compositing quality, from the 2026-07 parameter study on a
+# real 9-segment set (docs/papyri-stitching-concept.md, "Winning stitcher
+# settings"). Order matters conceptually: registration first (features +
+# working resolution — REMOVES misalignment), seams/blending second (HIDES
+# the remainder, appropriate for this QA preview; the archival composite in
+# post uses the accuracy variant instead). gc_color must never be adopted
+# without the registration settings — with poor registration graph-cut seams
+# cut straight through content. Costs ~2 s vs ~0.6 s per preview.
+PREVIEW_QUALITY_SETTINGS = {
+    "nfeatures": 5000,             # default 500 is far too few → gross offsets
+    "medium_megapix": 3.0,         # registration accuracy (default 0.6)
+    "compensator": "gain_blocks",  # AffineStitcher default is NO exposure
+                                   # compensation → brightness steps at seams
+    "finder": "gc_color",          # graph-cut seams route around content;
+                                   # default dp_color cuts through strokes
+    "blend_strength": 15,          # hides remaining hairline misregistration
+}
 
 
 # ---- report ----------------------------------------------------------------
@@ -549,7 +566,8 @@ def _stitch_preview(arrays: list[np.ndarray]) -> tuple[np.ndarray, int]:
         try:
             stitcher = _GuardedAffineStitcher(
                 final_megapix=PREVIEW_FINAL_MEGAPIX, crop=False,
-                confidence_threshold=UNCERTAIN_THRESHOLD)
+                confidence_threshold=UNCERTAIN_THRESHOLD,
+                **PREVIEW_QUALITY_SETTINGS)
             pano = stitcher.stitch(arrays)
             # The subsetter may drop a segment too marginal to place; report
             # how many actually made it into the canvas, not how many we fed in.
