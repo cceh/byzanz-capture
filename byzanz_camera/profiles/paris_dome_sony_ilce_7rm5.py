@@ -63,6 +63,15 @@ class ParisDomeSonyIlce7RM5(Profile):
             "500e": "4",                     # Exposure Program Mode: manual
             "whitebalance": "Daylight",
             "d1a7": "2",                     # Enable release w/o card
+            # Lens distortion compensation: 1=Off, 2=Auto. MUST be Auto —
+            # the FE 90mm Macro has ~0.76% pincushion (≈43px at the 60MP
+            # corner) that otherwise lands uncorrected in the embedded
+            # JPEG previews the stitching check/preview work from. The
+            # menu item is locked while PC Remote holds priority, so the
+            # profile is the reliable owner of this setting. Identified
+            # via config-dialog export/diff, 2026-07 — see
+            # docs/papyri-stitching-concept.md ("Lens distortion, measured").
+            "d1a4": "2",
             # Decouple AF from the shutter: capture (trigger_capture) must
             # NEVER refocus. Focusing happens only on demand via the app's
             # autofocus button (the separate `autofocus` action below — S1

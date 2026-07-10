@@ -60,6 +60,12 @@ class MoritzA7MIII(Profile):
             # AF trigger. Workflow: AF button -> focus & hold -> capture only
             # releases the shutter.
             "afwithshutter": "Off",
+            # Lens distortion compensation: 1=Off, 2=Auto (Sony vendor PTP
+            # property, same code as on the A7R V — unknown keys are logged
+            # and skipped by __try_set_config, so this is safe if this body
+            # names it differently). Keeps the embedded JPEG previews that
+            # the stitching check/preview read geometrically corrected.
+            "d1a4": "2",
         }
 
     def start_autofocus_settings(self):
