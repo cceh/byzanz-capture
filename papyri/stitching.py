@@ -52,11 +52,18 @@ from papyri.object_layout import (
 
 _logger = logging.getLogger("stitching")
 
-# A pair of segments counts as overlapping above this pairwise match
-# confidence — OpenCV's conventional "same panorama" bar (confidence is
-# roughly num_inliers / (8 + 0.3 * num_matches)).
+# A pair of segments counts as CONFIDENTLY overlapping above this pairwise
+# match confidence — OpenCV's conventional "same panorama" bar (confidence is
+# roughly num_inliers / (8 + 0.3 * num_matches)). Tuned for papyrus, where
+# overlapping segments score ~2–2.5 and non-overlapping ones ~0.3.
 CONFIDENCE_THRESHOLD = 1.0
-# Edges between threshold and this get a "thin overlap" hint: connected,
+# Below the green bar but above this is the "uncertain" gray zone: the
+# segments probably overlap but the texture is too low to say confidently
+# (e.g. a smooth surface, or a papyrus overlap through a blank/damaged
+# region). Chosen above papyrus's non-overlap floor (~0.3) so a real gap
+# still reads as isolated, not uncertain — the safe direction.
+UNCERTAIN_THRESHOLD = 0.5
+# Green edges between the bar and this get a "thin overlap" hint: connected,
 # but with little margin — worth an extra in-between shot.
 THIN_BAND_MAX = 1.3
 # Feature detection/matching resolution. Matching quality is determined
@@ -69,6 +76,18 @@ CHECK_TARGET_MEGAPIX = 0.6
 # separate post-processing step from the RAWs.
 PREVIEW_TARGET_MEGAPIX = 3.0
 PREVIEW_FINAL_MEGAPIX = 2
+# A marginal (uncertain) overlap makes the RANSAC-based match + camera
+# estimation non-deterministic — the same segments can miss on one draw and
+# composite on the next. A few retries turn a ~50/50 draw into a reliable
+# preview; each miss fails fast at the subsetter, so retries are cheap.
+PREVIEW_STITCH_ATTEMPTS = 6
+# Safety cap on the composited canvas. A degenerate affine estimate (from a
+# marginal overlap) does not merely fail — it warps a segment onto a canvas of
+# BILLIONS of pixels (observed: 155858550×34559848 → ~60 GB) and the process is
+# OOM-killed before any error surfaces. A legitimate preview of the largest
+# realistic segment set is well under this; `warp_rois` predicts the canvas
+# from geometry alone, so we reject the degenerate draw BEFORE allocating.
+PREVIEW_MAX_CANVAS_MEGAPIX = 150
 
 
 # ---- report ----------------------------------------------------------------
@@ -83,7 +102,7 @@ class StitchReport:
     signature: a report is only trusted while it matches the bucket's
     current disk state."""
 
-    verdict: str            # ok | thin | split | isolated | too_few | unreadable | error
+    verdict: str            # ok | thin | uncertain | split | isolated | too_few | unreadable | error
     message: str            # user-facing line, names files where possible
     stems: tuple[str, ...]
     reference_stem: str | None
@@ -95,16 +114,22 @@ class StitchReport:
     bridge_only: bool = False
 
     def is_green(self) -> bool:
-        """The set is complete enough to stitch (thin overlap is a hint,
-        not a blocker)."""
+        """The set is CONFIDENTLY complete (thin overlap is a hint, not a
+        blocker). Gates completeness — `uncertain` deliberately does NOT
+        count, so an unverified low-texture set stays incomplete."""
         return self.verdict in GREEN_VERDICTS
+
+    def allows_preview(self) -> bool:
+        """Whether the preview button is offered: green OR uncertain — for
+        uncertain the whole point is to let the user verify visually."""
+        return self.verdict in GREEN_VERDICTS or self.verdict == "uncertain"
 
     @property
     def level(self) -> str:
         """Severity for the status bar QSS: ok / warn / error / neutral."""
         if self.verdict in ("split", "isolated", "unreadable", "error"):
             return "error"
-        if self.verdict == "thin" or self.bridge_only:
+        if self.verdict in ("thin", "uncertain") or self.bridge_only:
             return "warn"
         if self.verdict == "ok":
             return "ok"
@@ -278,48 +303,70 @@ def build_report(
     checked_at: str,
 ) -> StitchReport:
     """Evaluate a pairwise confidence matrix into verdict + message.
-    Pure function — the unit-testable core of the check."""
+    Pure function — the unit-testable core of the check.
+
+    Two connectivity levels: GREEN edges (confidently overlap, > 1.0) and
+    GRAY edges (probably overlap, > 0.5). Connectivity for gap detection
+    uses the gray graph (a low-texture but real overlap still connects); a
+    set that only holds together via a gray-only seam is `uncertain` (verify
+    via preview), not `split`/`isolated`."""
     count = len(stems)
-    edges = {
-        (a, b)
-        for a in range(count) for b in range(a + 1, count)
-        if confidence[a][b] > CONFIDENCE_THRESHOLD
-    }
-    components_idx = _connected_components(count, edges)
-    components = tuple(tuple(stems[i] for i in c) for c in components_idx)
+
+    def edges_above(threshold: float) -> set[tuple[int, int]]:
+        return {(a, b) for a in range(count) for b in range(a + 1, count)
+                if confidence[a][b] > threshold}
+
+    green_edges = edges_above(CONFIDENCE_THRESHOLD)     # > 1.0
+    gray_edges = edges_above(UNCERTAIN_THRESHOLD)       # > 0.5 (superset)
+    gray_comps_idx = _connected_components(count, gray_edges)
+    green_comps_idx = _connected_components(count, green_edges)
+    # Dots reflect gray-level connectivity — a gray-connected segment still
+    # "connects" to the set (its seam is just low-confidence).
+    components = tuple(tuple(stems[i] for i in c) for c in gray_comps_idx)
     thin_pairs = tuple(
         (stems[a], stems[b], round(confidence[a][b], 2))
-        for a, b in sorted(edges)
+        for a, b in sorted(green_edges)
         if confidence[a][b] < THIN_BAND_MAX
     )
-    bridge_only = _is_bridge_only(count, edges)
+    bridge_only = _is_bridge_only(count, green_edges)
 
-    if len(components_idx) == 1:
+    if len(gray_comps_idx) > 1:
+        # Doesn't hold together even at the gray level → a real gap.
+        if (len(gray_comps_idx) == 2
+                and min(len(c) for c in gray_comps_idx) == 1):
+            verdict = "isolated"
+            loner = min(components, key=len)[0]
+            message = (f"⚠ {loner} does not overlap any other segment. Either"
+                       " it does not belong to this object, or a shot between"
+                       " it and the rest is missing.")
+        else:
+            verdict = "split"
+            groups = " and ".join(_format_group(c) for c in components)
+            message = (f"⚠ Segments {groups} connect within themselves but not"
+                       " to each other — a shot in between is probably missing.")
+    elif len(green_comps_idx) == 1:
+        # Confidently connected end to end.
         verdict = "thin" if thin_pairs else "ok"
-        message = f"✓ All {count} segments connect."
-        if verdict == "ok":
-            message = f"✓ All {count} segments connect without gaps."
+        message = (f"✓ All {count} segments connect without gaps."
+                   if verdict == "ok" else f"✓ All {count} segments connect.")
         for a, b, _conf in thin_pairs:
             message += (f" △ Overlap between {_idx(a)} and {_idx(b)} is thin"
                         " — take an extra in-between shot if in doubt.")
         if bridge_only:
-            bridging = sorted((a, b) for a, b in edges if b - a > 1)
-            a, b = bridging[0]
+            a, b = sorted((a, b) for a, b in green_edges if b - a > 1)[0]
             message += (f" △ Segments only connect through non-adjacent"
                         f" shots ({_idx(stems[a])} ↔ {_idx(stems[b])})"
                         " — check the preview.")
-    elif (len(components_idx) == 2
-            and min(len(c) for c in components_idx) == 1):
-        verdict = "isolated"
-        loner = min(components, key=len)[0]
-        message = (f"⚠ {loner} does not overlap any other segment. Either"
-                   " it does not belong to this object, or a shot between"
-                   " it and the rest is missing.")
     else:
-        verdict = "split"
-        groups = " and ".join(_format_group(c) for c in components)
-        message = (f"⚠ Segments {groups} connect within themselves but not"
-                   " to each other — a shot in between is probably missing.")
+        # Holds together, but only through gray-only seam(s) — probably
+        # overlaps, too little texture to be sure. Name the weakest seam.
+        gcomp_of = {i: k for k, comp in enumerate(green_comps_idx) for i in comp}
+        bridges = [(a, b) for (a, b) in gray_edges
+                   if (a, b) not in green_edges and gcomp_of[a] != gcomp_of[b]]
+        a, b = min(bridges, key=lambda e: confidence[e[0]][e[1]])
+        verdict = "uncertain"
+        message = (f"△ Overlap between {_idx(stems[a])} and {_idx(stems[b])} is"
+                   " uncertain (low texture) — check the preview to confirm.")
 
     return StitchReport(
         verdict=verdict, message=message, stems=stems,
@@ -380,6 +427,57 @@ def _bgr_to_qimage(bgr: np.ndarray) -> QImage:
     rgb = np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
     h, w, _ = rgb.shape
     return QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
+
+
+class _GuardedAffineStitcher(AffineStitcher):
+    """AffineStitcher that refuses to allocate a degenerate panorama. A
+    marginal overlap can hand the affine estimator a bad transform whose
+    warped canvas is billions of pixels — the process is OOM-killed before
+    any exception is raised. `warp_rois` computes that bounding box from the
+    cameras' geometry alone (no image allocation), so we predict the FINAL
+    canvas right after scale estimation — before either the low- or full-res
+    warp allocates anything — and raise a StitchingError the retry loop
+    treats as a failed draw. See PREVIEW_MAX_CANVAS_MEGAPIX."""
+
+    def warp_low_resolution(self, imgs, cameras):
+        sizes = self.images.get_scaled_img_sizes(Images.Resolution.FINAL)
+        aspect = self.images.get_ratio(
+            Images.Resolution.MEDIUM, Images.Resolution.FINAL)
+        corners, roi_sizes = self.warper.warp_rois(sizes, cameras, aspect)
+        _, _, w, h = cv2.detail.resultRoi(corners, roi_sizes)
+        if w * h > PREVIEW_MAX_CANVAS_MEGAPIX * 1_000_000:
+            raise StitchingError(
+                f"panorama canvas {w}×{h} px exceeds the "
+                f"{PREVIEW_MAX_CANVAS_MEGAPIX} MP cap — the affine estimate is "
+                "degenerate (marginal overlap)")
+        return super().warp_low_resolution(imgs, cameras)
+
+
+def _stitch_preview(arrays: list[np.ndarray]) -> tuple[np.ndarray, int]:
+    """Affine-composite the segments, returning `(pano, n_composited)` where
+    `n_composited` may be fewer than `len(arrays)` if the subsetter dropped a
+    too-marginal segment. Retries on a failed draw: a marginal
+    overlap makes RANSAC non-deterministic, so a single set of segments can
+    fail one attempt and succeed the next (see PREVIEW_STITCH_ATTEMPTS). Three
+    failure modes surface here: `StitchingError` when the camera *estimator*
+    gives up, a raw `cv2.error` assertion when the bundle *adjuster* is handed
+    too few inliers, and — most importantly — a degenerate transform whose
+    canvas would blow past `_GuardedAffineStitcher`'s size cap. All three are
+    transient and retried. Raises the last error only if every attempt fails
+    (genuinely un-compositable)."""
+    last: Exception | None = None
+    for _ in range(PREVIEW_STITCH_ATTEMPTS):
+        try:
+            stitcher = _GuardedAffineStitcher(
+                final_megapix=PREVIEW_FINAL_MEGAPIX, crop=False,
+                confidence_threshold=UNCERTAIN_THRESHOLD)
+            pano = stitcher.stitch(arrays)
+            # The subsetter may drop a segment too marginal to place; report
+            # how many actually made it into the canvas, not how many we fed in.
+            return pano, len(stitcher.images.names)
+        except (StitchingError, cv2.error) as e:
+            last = e
+    raise last
 
 
 def _write_jpeg_atomic(bgr: np.ndarray, path: str) -> None:
@@ -549,12 +647,12 @@ class _PreviewRunner(QRunnable):
         n = len(snap.segments)
         try:
             result = self._preview(snap, n)
-        except StitchingError as e:
+        except (StitchingError, cv2.error) as e:
             result = PreviewResult(
                 ok=False, n_segments=n,
-                message=("✗ Stitch preview failed (camera estimation). The "
-                         "segment set is still complete — stitching can be "
-                         "done in post-processing."))
+                message=("✗ Preview couldn't be stitched — the overlap is too "
+                         "marginal to composite reliably. The segments are "
+                         "saved; stitching can be done in post-processing."))
             _logger.warning("stitch preview failed for %s/%s/%s: %r",
                             snap.obj_dir, snap.side, snap.spectrum, e)
         except Exception as e:
@@ -578,10 +676,7 @@ class _PreviewRunner(QRunnable):
                     ok=False, n_segments=n,
                     message=f"✗ {stem}: no readable JPEG preview.")
 
-        # crop=False: no largest-interior-rectangle crop (keeps the whole
-        # composite AND avoids pulling in the numba-heavy cropper dependency).
-        pano = AffineStitcher(
-            final_megapix=PREVIEW_FINAL_MEGAPIX, crop=False).stitch(arrays)
+        pano, n_used = _stitch_preview(arrays)
         # The uncovered canvas (where no segment maps) comes out pure black.
         # Recolour it white so the preview reads as papyrus on the white
         # light table, not framed in black.
@@ -595,9 +690,15 @@ class _PreviewRunner(QRunnable):
             snap.report_path, os.path.basename(preview_path),
             PREVIEW_FINAL_MEGAPIX, datetime.now().isoformat(timespec="seconds"))
 
+        dropped = n - n_used
+        message = (f"✓ Stitched preview of {n_used} segments."
+                   if dropped == 0 else
+                   f"△ Stitched {n_used} of {n} segments — "
+                   f"{'one' if dropped == 1 else str(dropped)} too marginal to "
+                   f"place, left out.")
         return PreviewResult(
             ok=True, n_segments=n,
-            message=f"✓ Stitched preview of {n} segments.",
+            message=message,
             image=_bgr_to_qimage(pano), preview_path=preview_path)
 
 

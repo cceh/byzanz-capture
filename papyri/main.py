@@ -1692,7 +1692,7 @@ class PapyriMainWindow(QMainWindow):
 
     def _apply_stitch_report(self, report) -> None:
         self.stitch_bar.show_message(report.message, report.level)
-        self.stitch_bar.set_preview_enabled(report.is_green())
+        self.stitch_bar.set_preview_enabled(report.allows_preview())
         self.filmstrip.set_connectivity(report.status_by_stem())
 
     def _on_stitch_check_finished(
