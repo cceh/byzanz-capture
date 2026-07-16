@@ -486,6 +486,24 @@ class FilmstripWidget(QWidget):
             return None
         return item.file_name
 
+    def num_files(self) -> int:
+        """Number of items in the strip (files, plus any transient
+        drop-import placeholders)."""
+        return self.image_file_list.count()
+
+    def files(self) -> list[str]:
+        """Paths of all items in the strip, in display order."""
+        return [self.image_file_list.item(row).path
+                for row in range(self.image_file_list.count())]
+
+    def last_index(self) -> int:
+        """Capture index (trailing number) of the last item, or 0 if the
+        strip is empty. The RTI app uses this to persist the preview count."""
+        count = self.image_file_list.count()
+        if count > 0:
+            return self.image_file_list.item(count - 1).index
+        return 0
+
     def show_current(self) -> Optional[str]:
         """Re-display the currently-selected thumb in the viewer.
         Emits image_decoded (cache hit) or image_decode_started +
