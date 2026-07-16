@@ -328,6 +328,12 @@ class CameraWorker(QObject):
 
         self.filesCounter = 0
         self.captureComplete = False
+        # Per-capture count of GP_EVENT_CAPTURE_COMPLETE events. A counter,
+        # not a flag: with manual triggering the camera can fire faster than
+        # the event drain runs, so several completes arrive in one drain —
+        # a boolean collapses them and loses shots (frozen progress, capture
+        # never finishing). The burst path still uses the boolean.
+        self.captures_completed = 0
 
         # Live-view health, reset on every connect (__connect_camera).
         self.__preview_failures = 0        # consecutive capture_preview() errors
@@ -741,13 +747,18 @@ class CameraWorker(QObject):
 
                     current_capture_req = self.__state.capture_request
                     current_capture_req.signal.file_received.emit(file_target_path)
-                    # Per-file num_captured tracking is only meaningful for the
-                    # burst path (where we don't have per-shot CAPTURE_COMPLETE).
-                    # The non-burst path updates num_captured per-shot in the
-                    # outer loop, so skip the inner update there.
-                    if self.profile.use_burst() and self.filesCounter % current_capture_req.expect_files == 0:
+                    # File-based progress for BOTH paths. Files are the only
+                    # signal that arrives reliably on every camera: the Sony
+                    # A7III with manual triggering emits few/no per-shot
+                    # CAPTURE_COMPLETE events, so complete-based progress
+                    # freezes while files keep streaming in. The app sets the
+                    # capture format explicitly, so expect_files is an accurate
+                    # files→shots conversion. Guarded to never move backwards
+                    # (complete-based counting may be ahead).
+                    if self.filesCounter % current_capture_req.expect_files == 0:
                         num_captured = int(self.filesCounter / current_capture_req.expect_files)
-                        self.__set_state(CameraStates.CaptureInProgress(self.__state.capture_request, num_captured))
+                        if num_captured > self.__state.num_captured:
+                            self.__set_state(CameraStates.CaptureInProgress(self.__state.capture_request, num_captured))
 
 
                     remaining = current_capture_req.num_images * current_capture_req.expect_files - self.filesCounter
@@ -765,6 +776,7 @@ class CameraWorker(QObject):
             elif event_type == gp.GP_EVENT_CAPTURE_COMPLETE:
                 self.__logger.info("Capture complete event")
                 self.captureComplete = True
+                self.captures_completed += 1
 
             elif event_type == gp.GP_EVENT_UNKNOWN:
                 #match = re.search(r'PTP Property (\w+) changed, "(\w+)" to "(-?\d+[,\.]\d+)"', data)
@@ -906,6 +918,7 @@ class CameraWorker(QObject):
             self.filesCounter = 0
             self.captured_file_paths.clear()
             self.captureComplete = False
+            self.captures_completed = 0
 
             self.__set_state(CameraStates.CaptureInProgress(capture_request=capture_req, num_captured=0))
 
@@ -952,17 +965,29 @@ class CameraWorker(QObject):
 
                 num_captured = int(self.filesCounter / capture_req.expect_files)
             else:
-                # ---- NON-BURST PATH (per-shot CAPTURE_COMPLETE) ----
+                # ---- NON-BURST PATH ----
+                # A shot counts as done when EITHER a CAPTURE_COMPLETE event
+                # arrived (captures_completed) OR its files landed
+                # (filesCounter / expect_files). Neither signal alone is
+                # reliable: the Sony A7III emits few/no per-shot completes
+                # under manual triggering (progress froze, the loop never
+                # terminated), while completes can also arrive before a slow
+                # camera's files are drained. Progress display per file is
+                # handled inside empty_event_queue; this loop drives shot
+                # accounting and termination.
+                def _shots_done() -> int:
+                    return max(self.captures_completed,
+                               self.filesCounter // capture_req.expect_files)
+
                 shot_idx = 0
                 while shot_idx < capture_req.num_images and not self.shouldCancel and not self.thread().isInterruptionRequested():
-                    self.captureComplete = False
                     if not capture_req.manual_trigger:
                         self.camera.trigger_capture()
 
-                    # Wait for CAPTURE_COMPLETE; FILE_ADDED events are saved
-                    # by empty_event_queue's handler and tracked in
-                    # self.captured_file_paths.
-                    while not self.captureComplete and not self.shouldCancel and not self.thread().isInterruptionRequested():
+                    # Wait until at least one more shot is accounted for;
+                    # FILE_ADDED events are saved by empty_event_queue's
+                    # handler and tracked in self.captured_file_paths.
+                    while _shots_done() <= shot_idx and not self.shouldCancel and not self.thread().isInterruptionRequested():
                         self.empty_event_queue(timeout=100)
                         QApplication.processEvents()
 
@@ -971,7 +996,7 @@ class CameraWorker(QObject):
                     self.empty_event_queue(timeout=300)
                     QApplication.processEvents()
 
-                    shot_idx += 1
+                    shot_idx = min(_shots_done(), capture_req.num_images)
                     self.__set_state(CameraStates.CaptureInProgress(
                         capture_request=capture_req, num_captured=shot_idx
                     ))
