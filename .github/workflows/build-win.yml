@@ -7,78 +7,46 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# The build environment (pacman packages + pip deps) and the build itself are
+# defined once in scripts/vm-win-setup.sh and build_win.sh, so CI and the local
+# Windows/VM build stay in lockstep. This workflow is a thin wrapper that just
+# runs those phases; do NOT re-list packages or pip installs here.
 jobs:
   build:
     runs-on: windows-latest
     defaults:
       run:
         shell: msys2 {0}
-    env:
-      VENV_PATH: .venv
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Cache MSYS2 packages
-      id: cache-msys2
       uses: actions/cache@v4
       with:
         path: C:/msys64/var/cache/pacman/pkg
-        key: msys2-${{ hashFiles('.github/workflows/build-win.yml') }}-${{ runner.os }}
+        key: msys2-${{ hashFiles('scripts/vm-win-setup.sh') }}-${{ runner.os }}
         restore-keys: |
-          msys2-${{ hashFiles('.github/workflows/build-win.yml') }}-
+          msys2-${{ hashFiles('scripts/vm-win-setup.sh') }}-
           msys2-
 
-    - name: Install z7
-      uses: milliewalky/setup-7-zip@v2
-        
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
-        update: false # true
-        install: >-
-          mingw-w64-x86_64-python
-          mingw-w64-x86_64-python-pip
-          mingw-w64-x86_64-gcc
-          make
-          mingw-w64-x86_64-libgphoto2
-          mingw-w64-x86_64-qt6-base
-          mingw-w64-x86_64-pkg-config
-          mingw-w64-x86_64-python-pip
-          mingw-w64-x86_64-python-pyqt6
-          mingw-w64-x86_64-python-pillow
-          wget
-          mingw-w64-x86_64-jq
+        update: false
 
-    - name: Cache Python packages
-      id: cache-pip
-      uses: actions/cache@v4
-      with:
-        path: .venv
-        key: pip-${{ hashFiles('requirements.txt', '.github/workflows/build-win.yml') }}-${{ runner.os }}
-        restore-keys: |
-          pip-${{ hashFiles('requirements.txt', '.github/workflows/build-win.yml') }}-
-          pip-
-          
+    - name: Install dependencies (pacman)
+      run: ./scripts/vm-win-setup.sh deps
+
     - name: Set up Python environment
-      run: |
-        python -m venv --system-site-packages $VENV_PATH
-        source $VENV_PATH/bin/activate
-        python -m pip install --upgrade pip
-        pip install gphoto2 --user --no-binary :all:
-        pip install pyinstaller
-        python -m pip install -r requirements.txt
+      run: ./scripts/vm-win-setup.sh venv
 
     - name: Build
-      run: |
-        source $VENV_PATH/bin/activate
-        chmod +x build_win.sh
-        ./build_win.sh
-      
+      run: ./scripts/vm-win-setup.sh build
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: build-artifacts
-        path: |
-          dist
+        name: byzanz-capture-windows
+        path: dist/byzanz-capture
