@@ -917,7 +917,10 @@ class RTICaptureMainWindow(QMainWindow):
             filename_template = self.session.name.replace(" ", "_") + "_test_" + str(
                 self.session.preview_count + 1) + "${extension}"
             file_path_template = os.path.join(self.session.preview_dir, filename_template)
-            capture_req = CaptureImagesRequest(file_path_template, num_images=1, image_quality=CaptureImagesRequest.CaptureFormat.JPEG)
+            capture_req = CaptureImagesRequest(file_path_template, num_images=1,
+                                               image_quality=QSettings().value(
+                                                   "previewCaptureFormat",
+                                                   CaptureImagesRequest.CaptureFormat.JPEG))
 
         # Capture RTI Series
         else:
@@ -940,7 +943,9 @@ class RTICaptureMainWindow(QMainWindow):
             file_path_template = os.path.join(self.session.images_dir, filename_template)
             capture_req = CaptureImagesRequest(file_path_template, num_images=self.profile.num_captures(), manual_trigger=self.profile.manual_trigger(),
                                                max_burst=int(QSettings().value("maxBurstNumber")),
-                                               image_quality=CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW)
+                                               image_quality=QSettings().value(
+                                                   "rtiCaptureFormat",
+                                                   CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW))
             self.capture_progress_bar.setMaximum(self.profile.num_captures())
             self.capture_progress_bar.setValue(0)
 
@@ -1014,6 +1019,12 @@ if __name__ == "__main__":
 
     if "maxBurstNumber" not in settings.allKeys():
         settings.setValue("maxBurstNumber", 60)
+
+    if "previewCaptureFormat" not in settings.allKeys():
+        settings.setValue("previewCaptureFormat", CaptureImagesRequest.CaptureFormat.JPEG)
+
+    if "rtiCaptureFormat" not in settings.allKeys():
+        settings.setValue("rtiCaptureFormat", CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW)
 
     if "enableBluetooth" not in settings.allKeys():
         settings.setValue("enableBluetooth", True)

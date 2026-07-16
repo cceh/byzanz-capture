@@ -5,6 +5,7 @@ from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox, QCheckBox, QComboBox
 from PyQt6.uic import loadUi
 
+from byzanz_camera.camera_worker import CaptureImagesRequest
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.profiles.base import Profile
 
@@ -56,6 +57,23 @@ class SettingsDialog(QDialog):
         self.max_burst_number_input.textChanged.connect(
             lambda text: self.set("maxBurstNumber", int(text))
         )
+
+        capture_format_options = (
+            (self.tr("JPEG + RAW"), CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW),
+            (self.tr("Nur JPEG"), CaptureImagesRequest.CaptureFormat.JPEG),
+            (self.tr("Nur RAW"), CaptureImagesRequest.CaptureFormat.RAW),
+        )
+        for combo_name, settings_key in (("previewFormatSelect", "previewCaptureFormat"),
+                                         ("captureFormatSelect", "rtiCaptureFormat")):
+            combo: QComboBox = self.findChild(QComboBox, combo_name)
+            for label, value in capture_format_options:
+                combo.addItem(label, value)
+            index = combo.findData(q_settings.value(settings_key))
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            combo.currentIndexChanged.connect(
+                lambda i, c=combo, key=settings_key: self.set(key, c.itemData(i))
+            )
 
         self.enable_bluetooth_checkbox: QCheckBox = self.findChild(QCheckBox, "enableBluetoothCheckbox")
         self.enable_bluetooth_checkbox.setChecked(q_settings.value("enableBluetooth", type=bool))
