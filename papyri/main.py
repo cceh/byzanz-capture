@@ -23,8 +23,8 @@ import sys
 # INFO line (and the autodetect logs from byzanz_camera) are captured.
 # Installs the rotating log file, faulthandler and the excepthook that
 # stops PyQt6 from aborting on unhandled slot exceptions.
-from papyri._logging_setup import install as _install_logging
-_install_logging()
+from byzanz_camera.logging_setup import install as _install_logging
+_install_logging("papyri", dir_name="PapyriCapture", debug_env="PAPYRI_DEBUG")
 
 # `gphoto2/__init__.py` rewrites CAMLIBS/IOLIBS on import. Capture the
 # env-provided values before that happens, then let the resolver

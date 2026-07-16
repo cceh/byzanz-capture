@@ -1,11 +1,12 @@
-"""Logging, crash reporting and exception handling for papyri.
+"""Logging, crash reporting and exception handling, shared by the
+byzanz-capture apps (RTI root app and papyri).
 
-Call `install()` first thing in papyri/main.py — before the gphoto2
-import, so the resolver's log lines are captured.
+Call `install(...)` first thing in the app's main module — before the
+gphoto2 import, so the resolver's log lines are captured.
 
 What it sets up:
   - stderr logging (as before) PLUS a rotating log file in the
-    platform log directory (~/Library/Logs/PapyriCapture on macOS).
+    platform log directory (~/Library/Logs/<dir_name> on macOS).
   - `faulthandler` into a separate crash.log: on a C-level crash
     (e.g. a segfault inside libgphoto2) the OS kills the process, but
     faulthandler first dumps the Python stack of every thread there.
@@ -18,7 +19,8 @@ What it sets up:
 
 Diagnosing in the field: ask the operator for the contents of the
 log directory (printed at startup, visible in Console.app on macOS).
-Set PAPYRI_DEBUG=1 to capture DEBUG-level detail in the file.
+Set the app's debug env var (`debug_env`, e.g. PAPYRI_DEBUG=1) to
+capture DEBUG-level detail in the file.
 """
 from __future__ import annotations
 
@@ -36,7 +38,9 @@ _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 _MAX_BYTES = 2 * 1024 * 1024
 _BACKUP_COUNT = 5
 
-_logger = logging.getLogger("papyri")
+# Set by install(); the module is inert until then.
+_logger = logging.getLogger(__name__)
+_log_dir: Path | None = None
 
 # Dialog shown once per unique crash location; repeats only logged,
 # and identical tracebacks are rate-limited so a failure inside the
@@ -56,21 +60,37 @@ _error_bridge = None
 
 
 def log_dir() -> Path:
+    """Resolved log directory. Valid after install()."""
+    assert _log_dir is not None, "logging_setup.install() has not run"
+    return _log_dir
+
+
+def _default_log_dir(dir_name: str) -> Path:
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Logs" / "PapyriCapture"
-    return Path.home() / ".papyri-capture" / "logs"
+        return Path.home() / "Library" / "Logs" / dir_name
+    return Path.home() / f".{dir_name.lower()}" / "logs"
 
 
-def install() -> None:
-    directory = log_dir()
+def install(app_name: str, *, dir_name: str, debug_env: str) -> None:
+    """Set up logging + crash reporting for `app_name`.
+
+    app_name: logger name and log file stem (e.g. "papyri").
+    dir_name: platform log directory name (e.g. "PapyriCapture").
+    debug_env: env var that switches the file handler to DEBUG
+      (e.g. "PAPYRI_DEBUG").
+    """
+    global _logger, _log_dir
+    _logger = logging.getLogger(app_name)
+    _log_dir = _default_log_dir(dir_name)
+    directory = _log_dir
     directory.mkdir(parents=True, exist_ok=True)
 
     file_handler = RotatingFileHandler(
-        directory / "papyri.log",
+        directory / f"{app_name}.log",
         maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8",
     )
     file_handler.setLevel(
-        logging.DEBUG if os.environ.get("PAPYRI_DEBUG") == "1"
+        logging.DEBUG if os.environ.get(debug_env) == "1"
         else logging.INFO
     )
 
@@ -90,8 +110,8 @@ def install() -> None:
     sys.excepthook = _excepthook
     threading.excepthook = _threading_excepthook
 
-    _logger.info("=== papyri start · python %s · logs: %s ===",
-                 sys.version.split()[0], directory)
+    _logger.info("=== %s start · python %s · logs: %s ===",
+                 app_name, sys.version.split()[0], directory)
 
 
 def _enable_faulthandler(crash_path: Path) -> None:
@@ -175,7 +195,7 @@ def _show_error_dialog(exc_type, exc) -> None:
         f"{exc_type.__name__}: {exc}\n\n"
         f"The program will keep running, but if this happens "
         f"repeatedly, please restart it.\n\n"
-        f"Details were saved to:\n{log_dir() / 'papyri.log'}"
+        f"Details were saved to:\n{log_dir()}"
     )
     try:
         _error_bridge.show.emit(message)

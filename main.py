@@ -8,6 +8,14 @@ from pathlib import Path
 
 from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
 
+# Logging + crash reporting BEFORE the gphoto2-path resolver so its
+# INFO line (and the autodetect logs from byzanz_camera) are captured.
+# Installs the rotating log file, faulthandler (crash.log with per-thread
+# stacks on SIGSEGV) and the excepthook that stops PyQt6 from aborting on
+# unhandled slot exceptions. Same mechanism as papyri.
+from byzanz_camera.logging_setup import install as _install_logging
+_install_logging("byzanz-rti", dir_name="ByzanzCapture", debug_env="BYZANZ_DEBUG")
+
 # `gphoto2/__init__.py` rewrites CAMLIBS/IOLIBS on import. Capture the
 # env-provided values before that happens, then let the resolver
 # decide which source wins (frozen / env / vendor / bundled). See
@@ -971,8 +979,8 @@ class RTICaptureMainWindow(QMainWindow):
 if __name__ == "__main__":
     win: RTICaptureMainWindow
 
-    logging.basicConfig(
-        format='%(levelname)s: %(name)s: %(message)s', level=logging.INFO)
+    # Logging (incl. faulthandler crash reporting) is installed at the top
+    # of this module via byzanz_camera.logging_setup.install().
 
     app = QApplication(sys.argv)
     app.setOrganizationName("CCeH")
