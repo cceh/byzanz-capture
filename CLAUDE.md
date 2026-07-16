@@ -95,6 +95,7 @@ event/sink; if there is more than one, funnel them through a single entry**
 | Overlays pinned over the photo viewer | `ViewerWidget.add_corner_overlay` (widget: `PillBadge`) | parent widgets into the viewer/viewport by hand |
 | Draw/blend onto live-view frames | `PapyriMainWindow.add_live_frame_filter` (pre-rotation, per-frame) | composite inline in `_on_preview_image` or in the viewer |
 | Coach state → color (pill border, ghost tint) | `overlap_coach.STATE_COLORS` | hardcode a second state palette |
+| Read a char*-valued widget's value (TEXT/RADIO/MENU) | `gphoto2_safe.widget_text_value` | call `widget.get_value()` — a NULL value segfaults (`PyUnicode_FromString(NULL)`), uncatchable |
 
 **When you discover or introduce a new choke point, add a row here** — that's
 the durable prevention (see the doc above).

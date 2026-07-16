@@ -42,7 +42,7 @@ except:
     BT_AVAILABLE = False
 
 from byzanz_camera.camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest, \
-    ConfigProtocol
+    ConfigProtocol, widget_to_dict
 from open_session_dialog import OpenSessionDialog
 from byzanz_camera.filmstrip_widget import FilmstripWidget
 from byzanz_camera.viewer_widget import ViewerWidget
@@ -704,7 +704,6 @@ class RTICaptureMainWindow(QMainWindow):
             self.cam_config_dialog.setModal(False)
             self.cam_config_dialog.show()
             self.cam_config_dialog.finished.connect(lambda: setattr(self, "cam_config_dialog", None))
-            print(cfg.__dict__)
 
         req = ConfigRequest()
         req.signal.got_config.connect(open_dialog)
@@ -835,45 +834,23 @@ class RTICaptureMainWindow(QMainWindow):
 
 
     def dump_camera_config(self):
+        if not self.session:
+            return
         output_path = os.path.join(self.session.images_dir, "camera_config.json")
         self.logger.info(f"Writing camera configuration dump: {output_path}")
 
-        if not self.session:
-            return
         def on_got_config(cfg: gp.CameraWidget):
-            cfg_dict = {}
-
-            def traverse_widget(widget, widget_dict):
-                widget_type = widget.get_type()
-
-                if widget_type == gp.GP_WIDGET_SECTION or widget_type == gp.GP_WIDGET_WINDOW:
-                    # If the widget is a section, traverse its children
-                    child_count = widget.count_children()
-                    for i in range(child_count):
-                        child = widget.get_child(i)
-                        child_dict = {}
-                        traverse_widget(child, child_dict)
-                        widget_dict[child.get_name()] = child_dict
-                else:
-                    try:
-                        widget_dict['value'] = widget.get_value()
-                    except gp.GPhoto2Error as err:
-                        if err.code == -2:
-                            self.logger.warning(f"Could not get config value for {cfg.get_label()} ({cfg.get_name()}).")
-
-                widget_dict['label'] = widget.get_label()
-
-                return widget_dict
-
-            traverse_widget(cfg, cfg_dict)
-
+            # widget_to_dict reads char*-valued widgets NULL-safely — a raw
+            # PTP TEXT property (e.g. Sony '/main/other/d2c7') can hold a NULL
+            # value that plain CameraWidget.get_value() segfaults on
+            # (uncatchable). See camera_worker.widget_to_dict / gphoto2_safe.
+            cfg_dict = widget_to_dict(cfg, self.logger)
             try:
                 with open(output_path, "w") as output_file:
                     json.dump(cfg_dict, output_file, indent=4)
             except Exception as e:
                 self.logger.error(f"Could not write camera config dump to {output_path}:")
                 self.logger.exception(e)
-
 
         req = ConfigRequest()
         req.signal.got_config.connect(on_got_config)

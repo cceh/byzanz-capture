@@ -21,6 +21,7 @@ from byzanz_camera._autodetect import (
     autodetect as _gphoto2_autodetect,
     set_libgphoto2_setting as _gphoto2_set_setting,
 )
+from byzanz_camera.gphoto2_safe import widget_text_value
 
 # Shorten the PTP camlib's start-of-init timeout from libgphoto2's default
 # of 8000 ms (USB_START_TIMEOUT in camlibs/ptp2/library.c) to 3000 ms.
@@ -115,6 +116,43 @@ class SonyPTPId:
 
 class NikonPTPError(Enum):
     OutOfFocus = "0xa002"
+
+# char*-valued widget types. Their value can be a NULL pointer (e.g. Sony's
+# raw '/main/other/dXXXX' PTP properties in some states), which
+# python-gphoto2's get_value converts with PyUnicode_FromString(NULL) →
+# SIGSEGV — uncatchable. Read them through gphoto2_safe.widget_text_value,
+# which checks the pointer via ctypes and returns None for NULL. RANGE/TOGGLE/
+# DATE store int/float inline and can't NULL-segfault, so use get_value.
+_CHAR_WIDGET_TYPES = (gp.GP_WIDGET_TEXT, gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU)
+
+
+def widget_to_dict(widget: gp.CameraWidget, logger: logging.Logger = None) -> dict:
+    """Recursively convert a config widget tree into a plain dict
+    (sections → nested dicts, leaves → {'value', 'label'}). char*-valued
+    leaves are read NULL-safely (see _CHAR_WIDGET_TYPES); a NULL value
+    becomes None rather than segfaulting the process.
+
+    Reads only cached widget state (no camera I/O), so it is safe to call
+    on the UI thread with a widget received from the worker — the same way
+    camera_config_dialog reads live widget values."""
+    result = {}
+    widget_type = widget.get_type()
+    if widget_type in (gp.GP_WIDGET_SECTION, gp.GP_WIDGET_WINDOW):
+        for i in range(widget.count_children()):
+            child = widget.get_child(i)
+            result[child.get_name()] = widget_to_dict(child, logger)
+    elif widget_type in _CHAR_WIDGET_TYPES:
+        result['value'] = widget_text_value(widget)
+    else:
+        try:
+            result['value'] = widget.get_value()
+        except gp.GPhoto2Error as err:
+            if err.code == -2 and logger:
+                logger.warning("Could not get config value for %s (%s).",
+                               widget.get_label(), widget.get_name())
+    result['label'] = widget.get_label()
+    return result
+
 
 class ConfigRequest():
     class Signal(QObject):
