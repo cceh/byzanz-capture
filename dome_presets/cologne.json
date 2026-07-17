@@ -1,0 +1,7 @@
+{
+  "name": "Cologne (CCeH)",
+  "num_positions": 60,
+  "capture_strategy": "camera_burst",
+  "max_burst": 60,
+  "light_controller": "cceh_ble"
+}
