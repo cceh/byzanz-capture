@@ -42,6 +42,7 @@ from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.config_combo import ConfigComboBox
 from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
 from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
+from byzanz_camera.profiles.virtual_camera_vusb import VirtualCameraVusb
 
 try:
     from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest, BtControllerState
@@ -63,7 +64,14 @@ from camera_config_dialog import CameraConfigDialog
 PROFILES = {
     "ParisDomeSonyIlce7RM5": ParisDomeSonyIlce7RM5(),
     "CCeHDomeNikonD800E": CCeHDomeNikonD800E(),
-    "MoritzA7III": MoritzA7MIII()
+    "MoritzA7III": MoritzA7MIII(),
+    # Virtual cameras for testing without hardware. Manually selectable in
+    # Settings, like papyri — never auto-selected: a real profile's model
+    # pattern excludes them from autodetect (see _apply_camera_filter).
+    "VirtualCameraVusb": VirtualCameraVusb(),
+    "VirtualCameraVusb2": VirtualCameraVusb(
+        port="vusb:2", name="Virtual Camera 2 (vusb)"
+    ),
 }
 
 class Session:
@@ -99,6 +107,9 @@ class RTICaptureMainWindow(QMainWindow):
 
         current_profile = QSettings().value("profile", "CCeHDomeNikonD800E")
         self.profile = PROFILES[current_profile]
+        # Filter detection to this profile's camera before the worker's first
+        # find_camera (emitted on `initialized`, below).
+        self._apply_camera_filter(self.profile)
 
         # Set up UI and find controls
         loadUi(get_ui_path('ui/main_window.ui'), self)
@@ -683,6 +694,14 @@ class RTICaptureMainWindow(QMainWindow):
                                         "finished."))
                             continue
                         self.profile = new_profile
+                        # Refilter detection to the new camera and grant the
+                        # new target a fresh USB-recovery allowance (the old
+                        # one may have spent it). The detection filter lives as
+                        # plain worker attributes, so it must be rebound here;
+                        # the pending connect_camera(self.profile) carries the
+                        # new profile object.
+                        self._apply_camera_filter(new_profile)
+                        self.camera_worker.reset_usb_recovery_budget()
                         # In Waiting there is no connection to tear down and
                         # the worker can't process a queued reconnect while
                         # inside its find loop — the pending Found →
@@ -721,6 +740,16 @@ class RTICaptureMainWindow(QMainWindow):
         self.connect_camera_button.setEnabled(not busy)
         self.disconnect_camera_button.setEnabled(not busy)
         self.camera_busy_spinner.isAnimated = busy
+
+    def _apply_camera_filter(self, profile):
+        """Restrict autodetect to the profile's camera, so the app never
+        latches onto a different body — notably a virtual vusb camera — when
+        the real one is momentarily absent. Without this the worker connects
+        to the first camera gphoto2 reports (see __find_camera). Mirrors
+        papyri's _spawn_worker / _hot_switch_profile. Plain attribute writes,
+        safe from the UI thread; __find_camera re-reads them each pass."""
+        self.camera_worker.target_model_pattern = profile.gphoto2_model_pattern()
+        self.camera_worker.pinned_port = profile.gphoto2_port()
 
     def connect_camera(self):
         self.camera_worker.commands.connect_camera.emit(self.profile)
