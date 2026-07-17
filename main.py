@@ -735,13 +735,17 @@ class RTICaptureMainWindow(QMainWindow):
 
     def _reconcile_bluetooth(self, was_enabled: bool):
         """Bring the BLE controller in line with the dome's light_controller
-        after a settings change: connect when the dome now uses BLE, disconnect
-        when it no longer does (mirrors the old enableBluetooth toggle)."""
+        after a settings change. Disabling drops the controller entirely — so
+        its indicator disappears (update_ui_bluetooth hides the frame when
+        bt_controller is None) and its now-False keep_connected flag can't wedge
+        a later reconnect. Enabling builds a fresh controller (keep_connected
+        True), which reconnects on the spot instead of only after a restart."""
         now_enabled = self.dome.uses_bluetooth
         if now_enabled and not was_enabled and BT_AVAILABLE:
             asyncio.get_running_loop().create_task(self.init_bluetooth())
-        elif not now_enabled and was_enabled and self.bt_controller:
+        elif not now_enabled and self.bt_controller is not None:
             self.bt_controller.bt_disconnect()
+            self.bt_controller = None
         self.update_ui_bluetooth()
 
     def open_advanced_capture_settings(self):
