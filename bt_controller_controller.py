@@ -6,7 +6,7 @@ from enum import Enum, auto
 from PyQt6.QtCore import QObject, pyqtSignal, QEventLoop
 from PyQt6.QtWidgets import QApplication
 
-from bleak import BleakClient, BleakGATTCharacteristic, BleakError
+from bleak import BleakClient, BleakGATTCharacteristic, BleakError, BleakScanner
 
 class BtControllerCommand(Enum):
     LED_ON = 0x01
@@ -41,7 +41,6 @@ class BtControllerRequest:
 class BtControllerController(QObject):
 
     DEVICE_NAME = "CCeH Dome Controller"
-    DEVICE_ADDRESS = "00:0E:0B:10:45:63"
     BLE_CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 
     state_changed = pyqtSignal(BtControllerState)
@@ -49,8 +48,7 @@ class BtControllerController(QObject):
     def __init__(self, parent=None):
         super(BtControllerController, self).__init__(parent)
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._device_address = None
-        self._client = BleakClient(self.DEVICE_ADDRESS, disconnected_callback=self._disconnect_callback)
+        self._client: BleakClient | None = None
         self._queue: asyncio.Queue[tuple[BtControllerResponse, int | None]] = asyncio.Queue()
         self._state: BtControllerState = BtControllerState.DISCONNECTED
 
@@ -72,6 +70,9 @@ class BtControllerController(QObject):
 
     def bt_disconnect(self):
         self.keep_connected = False
+        if self._client is None:
+            self._set_state(BtControllerState.DISCONNECTED)
+            return
         self._logger.info("Disconnecting...")
         self._set_state(BtControllerState.DISCONNECTING)
         asyncio.run_coroutine_threadsafe(self._client.disconnect(), asyncio.get_running_loop())
@@ -137,8 +138,15 @@ class BtControllerController(QObject):
     async def _connect(self):
         while self.keep_connected:
             try:
-                self._logger.info("Connecting...")
+                self._logger.info(f"Scanning for {self.DEVICE_NAME!r}...")
                 self._set_state(BtControllerState.CONNECTING)
+                # macOS (CoreBluetooth) has no MAC addresses, so the device
+                # must be discovered by name instead of a fixed address.
+                device = await BleakScanner.find_device_by_name(self.DEVICE_NAME)
+                if device is None:
+                    raise BleakError(f"Device {self.DEVICE_NAME!r} not found")
+                self._logger.info(f"Found {device!r}, connecting...")
+                self._client = BleakClient(device, disconnected_callback=self._disconnect_callback)
                 await self._client.connect()
                 await self._client.start_notify(self.BLE_CHARACTERISTIC_UUID, self._response_callback)
                 self._logger.info("Connected.")

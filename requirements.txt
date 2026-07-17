@@ -2,7 +2,8 @@ gphoto2~=2.6.3
 PyQt6~=6.11.0
 Pillow~=12.2.0
 Send2Trash~=1.8.3
-#bleak==0.22.3
+# optional: BLE control of the CCeH RTI dome (app runs without it, see BT_AVAILABLE in main.py)
+bleak~=3.0.2
 qasync~=0.27.1
 rawpy~=0.26.1
 numpy~=2.4.4
