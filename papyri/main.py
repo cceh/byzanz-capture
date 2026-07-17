@@ -100,12 +100,7 @@ from papyri.object_title_bar import ObjectTitleBar
 from papyri.objects_sidebar import ObjectsSidebar
 from papyri.rotated_sample_nudge import install_rotated_sample_nudge  # rotated-sample nudge
 from papyri.session_state import SessionState
-from byzanz_camera.profiles.base import Profile
-from byzanz_camera.profiles.sony_a7iii import SonyA7III
-from byzanz_camera.profiles.sony_a7rm5 import SonyA7RM5
-from byzanz_camera.profiles.nikon_d800e import NikonD800E
-from byzanz_camera.profiles.nikon_d90 import NikonD90
-from byzanz_camera.profiles.virtual_camera_vusb import VirtualCameraVusb
+from byzanz_camera.profiles import PROFILES, Profile
 from byzanz_camera.settings_migration import migrate_papyri_settings
 from papyri.bucket_selector import BucketSelector, FusingPanel
 from papyri.calibration import CalibrationController
@@ -128,19 +123,9 @@ from send2trash import send2trash
 from camera_config_dialog import CameraConfigDialog
 from papyri.settings_dialog import PapyriSettingsDialog
 
-PROFILES = {
-    "SonyA7III": SonyA7III(),
-    "SonyA7RM5": SonyA7RM5(),
-    "NikonD800E": NikonD800E(),
-    "NikonD90": NikonD90(),
-    "VirtualCameraVusb": VirtualCameraVusb(),
-    # Second emulator on the "vusb:2" port (patched vendor build), so the
-    # visible AND infrared slots can both run without hardware: assign this
-    # to the IR profile in Settings while the visible slot uses the first.
-    "VirtualCameraVusb2": VirtualCameraVusb(
-        port="vusb:2", name="Virtual Camera 2 (vusb)"
-    ),
-}
+# Camera profiles come from the shared registry (byzanz_camera/profiles) so RTI
+# and papyri offer the same cameras. papyri picks a visible + an IR profile from
+# it independently.
 
 
 # Step-id ↔ (side, spectrum) maps and the workflow-group definitions now

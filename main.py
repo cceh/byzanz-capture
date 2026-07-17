@@ -6,8 +6,6 @@ import sys
 from enum import Enum
 from pathlib import Path
 
-from byzanz_camera.profiles.sony_a7iii import SonyA7III
-
 # Logging + crash reporting BEFORE the gphoto2-path resolver so its
 # INFO line (and the autodetect logs from byzanz_camera) are captured.
 # Installs the rotating log file, faulthandler (crash.log with per-thread
@@ -40,9 +38,7 @@ from send2trash import send2trash
 
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.config_combo import ConfigComboBox
-from byzanz_camera.profiles.nikon_d800e import NikonD800E
-from byzanz_camera.profiles.sony_a7rm5 import SonyA7RM5
-from byzanz_camera.profiles.virtual_camera_vusb import VirtualCameraVusb
+from byzanz_camera.profiles import PROFILES
 
 try:
     from bt_controller_controller import BtControllerController, BtControllerCommand, BtControllerRequest, BtControllerState
@@ -63,18 +59,10 @@ from byzanz_camera.spinner import Spinner
 from camera_config_dialog import CameraConfigDialog
 
 
-PROFILES = {
-    "SonyA7RM5": SonyA7RM5(),
-    "NikonD800E": NikonD800E(),
-    "SonyA7III": SonyA7III(),
-    # Virtual cameras for testing without hardware. Manually selectable in
-    # Settings, like papyri — never auto-selected: a real profile's model
-    # pattern excludes them from autodetect (see _apply_camera_filter).
-    "VirtualCameraVusb": VirtualCameraVusb(),
-    "VirtualCameraVusb2": VirtualCameraVusb(
-        port="vusb:2", name="Virtual Camera 2 (vusb)"
-    ),
-}
+# Camera profiles live in the shared registry (byzanz_camera/profiles) so every
+# app variant offers the same cameras. Virtual cameras are manually selectable
+# in Settings, never auto-selected — a real profile's model pattern excludes
+# them from autodetect (see _apply_camera_filter).
 
 class Session:
     def __init__(self, name, working_dir):
