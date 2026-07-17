@@ -67,27 +67,11 @@ class Profile(ABC):
         return ""
 
     @abstractmethod
-    def supports_chs(self):
-        pass
-
-    @abstractmethod
-    def manual_trigger(self):
-        pass
-
-    @abstractmethod
     def poll_config(self) -> list[str] | None:
         pass
 
     @abstractmethod
-    def num_captures(self):
-        pass
-
-    @abstractmethod
     def enable_capture_controls_in_live_preview(self) -> bool:
-        pass
-
-    @abstractmethod
-    def use_burst(self):
         pass
 
     @abstractmethod

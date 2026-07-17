@@ -101,11 +101,12 @@ from papyri.objects_sidebar import ObjectsSidebar
 from papyri.rotated_sample_nudge import install_rotated_sample_nudge  # rotated-sample nudge
 from papyri.session_state import SessionState
 from byzanz_camera.profiles.base import Profile
-from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
-from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
-from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
+from byzanz_camera.profiles.sony_a7iii import SonyA7III
+from byzanz_camera.profiles.sony_a7rm5 import SonyA7RM5
+from byzanz_camera.profiles.nikon_d800e import NikonD800E
 from byzanz_camera.profiles.nikon_d90 import NikonD90
 from byzanz_camera.profiles.virtual_camera_vusb import VirtualCameraVusb
+from byzanz_camera.settings_migration import migrate_papyri_settings
 from papyri.bucket_selector import BucketSelector, FusingPanel
 from papyri.calibration import CalibrationController
 from papyri.calibration_bar import CalibrationBar
@@ -128,9 +129,9 @@ from camera_config_dialog import CameraConfigDialog
 from papyri.settings_dialog import PapyriSettingsDialog
 
 PROFILES = {
-    "MoritzA7III": MoritzA7MIII(),
-    "ParisDomeSonyIlce7RM5": ParisDomeSonyIlce7RM5(),
-    "CCeHDomeNikonD800E": CCeHDomeNikonD800E(),
+    "SonyA7III": SonyA7III(),
+    "SonyA7RM5": SonyA7RM5(),
+    "NikonD800E": NikonD800E(),
     "NikonD90": NikonD90(),
     "VirtualCameraVusb": VirtualCameraVusb(),
     # Second emulator on the "vusb:2" port (patched vendor build), so the
@@ -628,7 +629,7 @@ class PapyriMainWindow(QMainWindow):
         # Qt's default QPixmapCache limit is 10 MB — too small for one decoded
         # JPEG (~72 MB) let alone a RAW (~180 MB). Apply the user setting.
         QPixmapCache.setCacheLimit(int(self.q_settings.value("maxPixmapCache")) * 1024)
-        self.profile = PROFILES[self.q_settings.value("profile", "MoritzA7III")]
+        self.profile = PROFILES[self.q_settings.value("profile", "SonyA7III")]
         # Live-view display rotation in degrees (0/90/180/270), per spectrum
         # — VIS and IR are the two physical cameras, so this is per-camera.
         # Client-side display only (we rotate the preview pixmap), persisted
@@ -697,7 +698,7 @@ class PapyriMainWindow(QMainWindow):
 
     def _init_default_settings(self):
         defaults = {
-            "profile": "MoritzA7III",
+            "profile": "SonyA7III",
             "irProfile": None,                              # set when IR camera is configured
             "captureMode": "papyri",                        # "papyri" | "simple"
             "simpleOutputDirectory": "",                    # simple mode output folder (chosen via picker)
@@ -3153,6 +3154,9 @@ def main():
     app = QApplication(sys.argv)
     app.setOrganizationName("CCeH")
     app.setApplicationName("Crocodile Capture")
+    # Rename any stored camera-profile ids to the camera-centric scheme before
+    # the window reads them (QSettings targets this store once org/app are set).
+    migrate_papyri_settings(QSettings())
     # Multi-resolution icon for dock / taskbar / alt-tab / window
     # decorations. Set on the QApplication so every window inherits
     # it, on every platform.

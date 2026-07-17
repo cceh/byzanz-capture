@@ -43,20 +43,8 @@ class NikonD90(Profile):
     def focus_magnify_value(self, on: bool) -> str:
         return "50%" if on else "Entire Display"
 
-    def supports_chs(self):
-        return False
-
-    def manual_trigger(self):
-        return False
-
-    def num_captures(self):
-        return 1
-
     def burstnumber_property_name(self):
         return "burstnumber"
-
-    def use_burst(self):
-        return True
 
     def iso_property_name(self):
         return "iso"

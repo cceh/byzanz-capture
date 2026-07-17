@@ -22,7 +22,17 @@ from byzanz_camera import dome_config
 from byzanz_camera.dome_config import DomeConfig, CaptureStrategy
 
 SETTINGS_VERSION = "settingsVersion"
-CURRENT_SETTINGS_VERSION = 1
+CURRENT_SETTINGS_VERSION = 2
+
+# Camera-centric id rename (v2). The old ids conflated camera + dome
+# ("CCeHDome…", "ParisDome…"); the new ones name only the camera body. Applied
+# to every stored camera-profile id (RTI's cameraProfile, papyri's profile /
+# irProfile).
+_ID_RENAME = {
+    "CCeHDomeNikonD800E":    "NikonD800E",
+    "ParisDomeSonyIlce7RM5": "SonyA7RM5",
+    "MoritzA7III":           "SonyA7III",
+}
 
 # Old bundled "profile" id → the dome it implied:
 #   (preset display name, capture_strategy value, base light_controller).
@@ -37,11 +47,28 @@ _V1_DOME_SEED = {
 
 
 def migrate_settings(qs: QSettings) -> None:
-    """Bring `qs` up to CURRENT_SETTINGS_VERSION. Idempotent."""
+    """Bring the RTI app's `qs` up to CURRENT_SETTINGS_VERSION. Idempotent."""
     version = int(qs.value(SETTINGS_VERSION, 0))
     if version < 1:
         _migrate_v1_unbundle_profile(qs)
+    if version < 2:
+        _rename_camera_id(qs, "cameraProfile")
     qs.setValue(SETTINGS_VERSION, CURRENT_SETTINGS_VERSION)
+
+
+def migrate_papyri_settings(qs: QSettings) -> None:
+    """Rename papyri's stored camera-profile ids in place. Papyri keeps its own
+    QSettings store with a two-camera (visible + IR) model and no dome, so the
+    v1 unbundle does not apply — only the id rename does. Idempotent: an id
+    that is not an old id is left untouched."""
+    _rename_camera_id(qs, "profile")
+    _rename_camera_id(qs, "irProfile")
+
+
+def _rename_camera_id(qs: QSettings, key: str) -> None:
+    old = qs.value(key)
+    if old in _ID_RENAME:
+        qs.setValue(key, _ID_RENAME[old])
 
 
 def _migrate_v1_unbundle_profile(qs: QSettings) -> None:

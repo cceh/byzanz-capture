@@ -1,49 +1,25 @@
 from .base import Profile
 
 
-class ParisDomeSonyIlce7RM5(Profile):
+class SonyA7III(Profile):
     def name(self) -> str:
-        return "Paris Dome with Sony A7alpha 5"
+        return "Sony A7 III"
 
     def gphoto2_model_pattern(self) -> str:
-        # gphoto2 reports the A7R V as "Sony ILCE-7RM5 (PC Control)" — the
-        # Sony PTP camlib uses the model code rather than the marketing name
-        # for this body. (Other Sonys like the A7 III use "Alpha-A7 III" —
-        # naming is inconsistent across Sony bodies; verify per camera.)
-        return "ILCE-7RM5"
-
-    def supports_chs(self):
-        return False
-
-    def focus_magnify_property_name(self) -> str:
-        # The A7R V toggles the live-view focus magnifier via the
-        # "focusmagnifier" action; "Off" cancels it.
-        return "focusmagnifier"
-
-    def focus_magnify_value(self, on: bool) -> str:
-        return "4.7" if on else "Off"
-
-    def manual_trigger(self):
-        return True
-
-    def num_captures(self):
-        return 60
+        # Verified via `gphoto2 --auto-detect` against this camera:
+        # "Sony Alpha-A7 III (PC Control)".
+        return "Alpha-A7 III"
 
     def burstnumber_property_name(self):
         return None
-
-    def use_burst(self):
-        return False
-
 
     def iso_property_name(self):
         return "iso"
 
     def shutterspeed_property_name(self):
         # Sony's gphoto2 driver names the exposure-time property
-        # "shutterspeed" and the aperture property "f-number". These two
-        # were previously swapped, which surfaced the shutter value under
-        # the aperture control (and vice versa) in the capture-setting UI.
+        # "shutterspeed" and the aperture property "f-number" (these were
+        # previously swapped — see SonyA7RM5).
         return "shutterspeed"
 
     def f_number_property_name(self):
@@ -60,18 +36,9 @@ class ParisDomeSonyIlce7RM5(Profile):
 
     def initial_settings(self):
         return {
-            "500e": "4",                     # Exposure Program Mode: manual
-            "whitebalance": "Daylight",
-            "d1a7": "2",                     # Enable release w/o card
-            # Lens distortion compensation: 1=Off, 2=Auto. MUST be Auto —
-            # the FE 90mm Macro has ~0.76% pincushion (≈43px at the 60MP
-            # corner) that otherwise lands uncorrected in the embedded
-            # JPEG previews the stitching check/preview work from. The
-            # menu item is locked while PC Remote holds priority, so the
-            # profile is the reliable owner of this setting. Identified
-            # via config-dialog export/diff, 2026-07 — see
-            # docs/papyri-stitching-concept.md ("Lens distortion, measured").
-            "d1a4": "2",
+ #          "500e": "4",                     # Exposure Program Mode: manual
+ #          "whitebalance": "Daylight",
+ #          "d1a7": "2"                      # Enable release w/o card
             # Decouple AF from the shutter: capture (trigger_capture) must
             # NEVER refocus. Focusing happens only on demand via the app's
             # autofocus button (the separate `autofocus` action below — S1
@@ -80,6 +47,12 @@ class ParisDomeSonyIlce7RM5(Profile):
             # AF trigger. Workflow: AF button -> focus & hold -> capture only
             # releases the shutter.
             "afwithshutter": "Off",
+            # Lens distortion compensation: 1=Off, 2=Auto (Sony vendor PTP
+            # property, same code as on the A7R V — unknown keys are logged
+            # and skipped by __try_set_config, so this is safe if this body
+            # names it differently). Keeps the embedded JPEG previews that
+            # the stitching check/preview read geometrically corrected.
+            "d1a4": "2",
         }
 
     def start_autofocus_settings(self):

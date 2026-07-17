@@ -66,23 +66,10 @@ class VirtualCameraVusb(Profile):
         # control that silently does nothing.
         return False
 
-    def supports_chs(self):
-        return False
-
-    def manual_trigger(self):
-        return False
-
-    def num_captures(self):
-        return 1
-
-    def use_burst(self):
-        # The emulator emits a clean per-trigger CAPTURE_COMPLETE, so the
-        # non-burst path (one trigger → one shot) fits. It also has no
-        # `burstnumber` config for the burst path to drive.
-        return False
-
     def burstnumber_property_name(self):
-        return "burstnumber"  # unused (use_burst() is False)
+        # Unused: the emulator emits a clean per-trigger CAPTURE_COMPLETE and
+        # has no `burstnumber` config, so no dome ever bursts it.
+        return "burstnumber"
 
     def iso_property_name(self):
         return "iso"

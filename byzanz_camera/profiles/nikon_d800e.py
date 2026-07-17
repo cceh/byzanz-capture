@@ -1,29 +1,17 @@
 from .base import Profile
 
 
-class CCeHDomeNikonD800E(Profile):
+class NikonD800E(Profile):
     def name(self) -> str:
-        return "CCeH Dome with Nikon D800E"
+        return "Nikon D800E"
 
     def gphoto2_model_pattern(self) -> str:
         # gphoto2 typically reports the D800/D800E as "Nikon DSC D800".
         # Adjust if your specific firmware reports differently.
         return "Nikon DSC D800"
 
-    def supports_chs(self):
-        return False
-
-    def manual_trigger(self):
-        return False
-
-    def num_captures(self):
-        return 60
-
     def burstnumber_property_name(self):
         return "burstnumber"
-
-    def use_burst(self):
-        return True
 
     def iso_property_name(self):
         return "iso"

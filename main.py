@@ -6,7 +6,7 @@ import sys
 from enum import Enum
 from pathlib import Path
 
-from byzanz_camera.profiles.corodile_test_sony_ilce_7m3 import MoritzA7MIII
+from byzanz_camera.profiles.sony_a7iii import SonyA7III
 
 # Logging + crash reporting BEFORE the gphoto2-path resolver so its
 # INFO line (and the autodetect logs from byzanz_camera) are captured.
@@ -40,8 +40,8 @@ from send2trash import send2trash
 
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.config_combo import ConfigComboBox
-from byzanz_camera.profiles.cceh_dome_nikon_d800e import CCeHDomeNikonD800E
-from byzanz_camera.profiles.paris_dome_sony_ilce_7rm5 import ParisDomeSonyIlce7RM5
+from byzanz_camera.profiles.nikon_d800e import NikonD800E
+from byzanz_camera.profiles.sony_a7rm5 import SonyA7RM5
 from byzanz_camera.profiles.virtual_camera_vusb import VirtualCameraVusb
 
 try:
@@ -64,9 +64,9 @@ from camera_config_dialog import CameraConfigDialog
 
 
 PROFILES = {
-    "ParisDomeSonyIlce7RM5": ParisDomeSonyIlce7RM5(),
-    "CCeHDomeNikonD800E": CCeHDomeNikonD800E(),
-    "MoritzA7III": MoritzA7MIII(),
+    "SonyA7RM5": SonyA7RM5(),
+    "NikonD800E": NikonD800E(),
+    "SonyA7III": SonyA7III(),
     # Virtual cameras for testing without hardware. Manually selectable in
     # Settings, like papyri — never auto-selected: a real profile's model
     # pattern excludes them from autodetect (see _apply_camera_filter).
@@ -107,7 +107,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_state: CameraStates.StateType = None
         self.cam_config_dialog: CameraConfigDialog = None
 
-        self.profile = PROFILES[QSettings().value("cameraProfile", "CCeHDomeNikonD800E")]
+        self.profile = PROFILES[QSettings().value("cameraProfile", "NikonD800E")]
         # The dome (shot count, capture strategy, light controller) is config
         # data, independent of the camera — see byzanz_camera/dome_config.py.
         self.dome = dome_config.current_dome(QSettings())
@@ -1073,7 +1073,7 @@ if __name__ == "__main__":
     # Fresh-install defaults: the historical default rig is the Cologne Nikon
     # (camera + burst/BLE dome). Existing installs get these from migration.
     if "cameraProfile" not in settings.allKeys():
-        settings.setValue("cameraProfile", "CCeHDomeNikonD800E")
+        settings.setValue("cameraProfile", "NikonD800E")
     if dome_config.CAPTURE_STRATEGY not in settings.allKeys():
         dome_config.apply_preset(settings, dome_config.load_presets()["cologne"])
 
