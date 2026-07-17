@@ -96,6 +96,8 @@ event/sink; if there is more than one, funnel them through a single entry**
 | Draw/blend onto live-view frames | `PapyriMainWindow.add_live_frame_filter` (pre-rotation, per-frame) | composite inline in `_on_preview_image` or in the viewer |
 | Coach state → color (pill border, ghost tint) | `overlap_coach.STATE_COLORS` | hardcode a second state palette |
 | Read a char*-valued widget's value (TEXT/RADIO/MENU) | `gphoto2_safe.widget_text_value` | call `widget.get_value()` — a NULL value segfaults (`PyUnicode_FromString(NULL)`), uncatchable |
+| Read/write the RTI dome config (shot count, capture strategy, light controller) | `dome_config.current_dome` / `apply_preset`; presets are read-only JSON in `dome_presets/` | read/write the `dome/*` QSettings keys inline, or map a camera to a dome (they are independent) |
+| QSettings schema changes / migration | `settings_migration.migrate_settings` (RTI) / `migrate_papyri_settings` (papyri), versioned by `settingsVersion` | change stored keys/ids without a versioned, idempotent migration step |
 
 **When you discover or introduce a new choke point, add a row here** — that's
 the durable prevention (see the doc above).
