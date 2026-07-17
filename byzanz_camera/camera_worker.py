@@ -364,14 +364,14 @@ class CameraWorker(QObject):
         self.pinned_port: str | None = None
         self.target_port: str | None = None
 
+        # filesCounter is the single source of truth for capture progress:
+        # shots done = filesCounter // expect_files. Everything else (the UI
+        # state's num_captured, the non-burst loop counter) derives from it.
         self.filesCounter = 0
+        # Burst path only: set on GP_EVENT_CAPTURE_COMPLETE, reset per burst,
+        # bounds each burst iteration's wait. The non-burst path counts files,
+        # not completes (the A7III emits few/none under manual triggering).
         self.captureComplete = False
-        # Per-capture count of GP_EVENT_CAPTURE_COMPLETE events. A counter,
-        # not a flag: with manual triggering the camera can fire faster than
-        # the event drain runs, so several completes arrive in one drain —
-        # a boolean collapses them and loses shots (frozen progress, capture
-        # never finishing). The burst path still uses the boolean.
-        self.captures_completed = 0
 
         # Live-view health, reset on every connect (__connect_camera).
         self.__preview_failures = 0        # consecutive capture_preview() errors
@@ -751,59 +751,64 @@ class CameraWorker(QObject):
                 basename, extension = os.path.splitext(data.name)
 
                 if isinstance(self.__state, CameraStates.CaptureInProgress) and not self.shouldCancel and not self.thread().isInterruptionRequested():
-                    self.filesCounter += 1
-                    tpl = Template(self.__state.capture_request.file_path_template)
-                    file_target_path = tpl.substitute(
-                        basename=basename,
-                        extension=extension,
-                        num=str(self.filesCounter + 1).zfill(3)
-                    )
-                    cam_file = self.camera.file_get(
-                        data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
-                    self.__logger.info("Saving to %s" % file_target_path)
-                    # Write to a `.part` temp file then atomic-rename. Stops
-                    # consumers (PhotoBrowser FS watcher, papyri Object refresh)
-                    # from seeing a half-written file. PhotoBrowser's filter
-                    # ignores `.part` extensions; rawpy only ever opens the
-                    # final, fully-written file.
-                    # `os.replace` is atomic on both POSIX and NTFS (Python 3.3+
-                    # uses MoveFileEx with REPLACE_EXISTING) — `os.rename`
-                    # would fail on Windows if the destination already exists.
-                    temp_path = file_target_path + ".part"
-                    cam_file.save(temp_path)
-                    # Bake the display rotation into the file's EXIF Orientation
-                    # while it is still the (invisible) `.part` temp, BEFORE the
-                    # atomic replace makes it visible. This closes the race where
-                    # a consumer (filmstrip FS watcher) decodes the final file
-                    # for display before a post-capture stamp lands, leaving the
-                    # preview/thumbnail un-rotated. Best-effort: write_orientation
-                    # never raises. 0 = no orientation written (no-op).
-                    if self.__state.capture_request.orientation:
-                        write_orientation(temp_path, self.__state.capture_request.orientation)
-                    os.replace(temp_path, file_target_path)
-                    self.captured_file_paths.append(file_target_path)
-
                     current_capture_req = self.__state.capture_request
-                    current_capture_req.signal.file_received.emit(file_target_path)
-                    # File-based progress for BOTH paths. Files are the only
-                    # signal that arrives reliably on every camera: the Sony
-                    # A7III with manual triggering emits few/no per-shot
-                    # CAPTURE_COMPLETE events, so complete-based progress
-                    # freezes while files keep streaming in. The app sets the
-                    # capture format explicitly, so expect_files is an accurate
-                    # files→shots conversion. Guarded to never move backwards
-                    # (complete-based counting may be ahead).
-                    if self.filesCounter % current_capture_req.expect_files == 0:
-                        num_captured = int(self.filesCounter / current_capture_req.expect_files)
-                        if num_captured > self.__state.num_captured:
-                            self.__set_state(CameraStates.CaptureInProgress(self.__state.capture_request, num_captured))
+                    expected_total = current_capture_req.num_images * current_capture_req.expect_files
+                    if self.filesCounter >= expected_total:
+                        # Overshoot: the camera fired more frames than requested
+                        # — e.g. the shutter held down in high-speed mode past
+                        # the RTI count. Don't ingest it (would land in the
+                        # object/filmstrip and break the file count); the
+                        # file_delete below still clears it off the camera.
+                        self.__logger.warning(
+                            "Extra capture beyond the requested %d files — dropping %s.",
+                            expected_total, data.name)
+                    else:
+                        self.filesCounter += 1
+                        tpl = Template(current_capture_req.file_path_template)
+                        file_target_path = tpl.substitute(
+                            basename=basename,
+                            extension=extension,
+                            num=str(self.filesCounter + 1).zfill(3)
+                        )
+                        cam_file = self.camera.file_get(
+                            data.folder, data.name, gp.GP_FILE_TYPE_NORMAL)
+                        self.__logger.info("Saving to %s" % file_target_path)
+                        # Write to a `.part` temp file then atomic-rename. Stops
+                        # consumers (PhotoBrowser FS watcher, papyri Object refresh)
+                        # from seeing a half-written file. PhotoBrowser's filter
+                        # ignores `.part` extensions; rawpy only ever opens the
+                        # final, fully-written file.
+                        # `os.replace` is atomic on both POSIX and NTFS (Python 3.3+
+                        # uses MoveFileEx with REPLACE_EXISTING) — `os.rename`
+                        # would fail on Windows if the destination already exists.
+                        temp_path = file_target_path + ".part"
+                        cam_file.save(temp_path)
+                        # Bake the display rotation into the file's EXIF Orientation
+                        # while it is still the (invisible) `.part` temp, BEFORE the
+                        # atomic replace makes it visible. This closes the race where
+                        # a consumer (filmstrip FS watcher) decodes the final file
+                        # for display before a post-capture stamp lands, leaving the
+                        # preview/thumbnail un-rotated. Best-effort: write_orientation
+                        # never raises. 0 = no orientation written (no-op).
+                        if current_capture_req.orientation:
+                            write_orientation(temp_path, current_capture_req.orientation)
+                        os.replace(temp_path, file_target_path)
+                        self.captured_file_paths.append(file_target_path)
 
+                        current_capture_req.signal.file_received.emit(file_target_path)
+                        # File-based progress, single writer. Shots done =
+                        # filesCounter // expect_files; the UI state carries it.
+                        # Files are the only signal every camera delivers
+                        # reliably (the A7III emits few/no per-shot completes
+                        # under manual triggering). Advances only at a shot
+                        # boundary and never backwards.
+                        shots_done = self.filesCounter // current_capture_req.expect_files
+                        if (self.filesCounter % current_capture_req.expect_files == 0
+                                and shots_done > self.__state.num_captured):
+                            self.__set_state(CameraStates.CaptureInProgress(current_capture_req, shots_done))
 
-                    remaining = current_capture_req.num_images * current_capture_req.expect_files - self.filesCounter
-                    self.__logger.info("Curr. files: {0} (remaining: {1}).".format(self.filesCounter, remaining))
-
-
-
+                        remaining = expected_total - self.filesCounter
+                        self.__logger.info("Curr. files: {0} (remaining: {1}).".format(self.filesCounter, remaining))
                 else:
                     self.__logger.warning(
                         "Received file but capture not in progress, ignoring. State: " + self.__state.__class__.__name__)
@@ -814,7 +819,6 @@ class CameraWorker(QObject):
             elif event_type == gp.GP_EVENT_CAPTURE_COMPLETE:
                 self.__logger.info("Capture complete event")
                 self.captureComplete = True
-                self.captures_completed += 1
 
             elif event_type == gp.GP_EVENT_UNKNOWN:
                 #match = re.search(r'PTP Property (\w+) changed, "(\w+)" to "(-?\d+[,\.]\d+)"', data)
@@ -956,7 +960,6 @@ class CameraWorker(QObject):
             self.filesCounter = 0
             self.captured_file_paths.clear()
             self.captureComplete = False
-            self.captures_completed = 0
 
             self.__set_state(CameraStates.CaptureInProgress(capture_request=capture_req, num_captured=0))
 
@@ -1004,40 +1007,35 @@ class CameraWorker(QObject):
                 num_captured = int(self.filesCounter / capture_req.expect_files)
             else:
                 # ---- NON-BURST PATH ----
-                # A shot counts as done when EITHER a CAPTURE_COMPLETE event
-                # arrived (captures_completed) OR its files landed
-                # (filesCounter / expect_files). Neither signal alone is
-                # reliable: the Sony A7III emits few/no per-shot completes
-                # under manual triggering (progress froze, the loop never
-                # terminated), while completes can also arrive before a slow
-                # camera's files are drained. Progress display per file is
-                # handled inside empty_event_queue; this loop drives shot
-                # accounting and termination.
+                # Pure file-based: shots done = filesCounter // expect_files.
+                # The A7III emits few/no per-shot CAPTURE_COMPLETE events under
+                # manual triggering, so counting completes froze progress and
+                # never terminated; files are the signal we actually ingest and
+                # the only one that always arrives. The overshoot cap in the
+                # event handler keeps filesCounter from exceeding
+                # num_images * expect_files, so this terminates cleanly.
+                # Per-file progress display is written by the handler; this loop
+                # only reads the count to pace triggering and to terminate.
                 def _shots_done() -> int:
-                    return max(self.captures_completed,
-                               self.filesCounter // capture_req.expect_files)
+                    return self.filesCounter // capture_req.expect_files
 
                 shot_idx = 0
                 while shot_idx < capture_req.num_images and not self.shouldCancel and not self.thread().isInterruptionRequested():
                     if not capture_req.manual_trigger:
                         self.camera.trigger_capture()
 
-                    # Wait until at least one more shot is accounted for;
-                    # FILE_ADDED events are saved by empty_event_queue's
-                    # handler and tracked in self.captured_file_paths.
+                    # Wait until at least one more shot's files have landed;
+                    # they're saved + counted by empty_event_queue's handler.
                     while _shots_done() <= shot_idx and not self.shouldCancel and not self.thread().isInterruptionRequested():
                         self.empty_event_queue(timeout=100)
                         QApplication.processEvents()
 
-                    # Brief grace window for late FILE_ADDED events that arrive
-                    # after CAPTURE_COMPLETE on slower cameras.
+                    # Brief grace window for late FILE_ADDED events (e.g. the RAW
+                    # of a JPEG+RAW pair arriving just after the JPEG).
                     self.empty_event_queue(timeout=300)
                     QApplication.processEvents()
 
                     shot_idx = min(_shots_done(), capture_req.num_images)
-                    self.__set_state(CameraStates.CaptureInProgress(
-                        capture_request=capture_req, num_captured=shot_idx
-                    ))
                     self.__logger.info("Shot {0}/{1}: {2} files so far".format(
                         shot_idx, capture_req.num_images, self.filesCounter))
 
