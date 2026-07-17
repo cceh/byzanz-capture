@@ -52,6 +52,8 @@ except:
 
 from byzanz_camera.camera_worker import CameraWorker, CaptureImagesRequest, CameraStates, PropertyChangeEvent, ConfigRequest, \
     ConfigProtocol, widget_to_dict
+from byzanz_camera import dome_config
+from byzanz_camera.settings_migration import migrate_settings
 from open_session_dialog import OpenSessionDialog
 from byzanz_camera.filmstrip_widget import FilmstripWidget
 from byzanz_camera.viewer_widget import ViewerWidget
@@ -105,8 +107,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_state: CameraStates.StateType = None
         self.cam_config_dialog: CameraConfigDialog = None
 
-        current_profile = QSettings().value("profile", "CCeHDomeNikonD800E")
-        self.profile = PROFILES[current_profile]
+        self.profile = PROFILES[QSettings().value("cameraProfile", "CCeHDomeNikonD800E")]
+        # The dome (shot count, capture strategy, light controller) is config
+        # data, independent of the camera — see byzanz_camera/dome_config.py.
+        self.dome = dome_config.current_dome(QSettings())
         # Filter detection to this profile's camera before the worker's first
         # find_camera (emitted on `initialized`, below).
         self._apply_camera_filter(self.profile)
@@ -428,7 +432,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.session_loading_spinner.isAnimated = has_session and not session_loaded
         self.capture_view.setEnabled(has_session)
 
-        self.capture_progress_bar.setMaximum(self.profile.num_captures())
+        self.capture_progress_bar.setMaximum(self.dome.num_positions)
         self.capture_progress_bar.setValue(self.rti_filmstrip.num_files() if session_loaded else 0)
 
         if has_session:
@@ -676,8 +680,9 @@ class RTICaptureMainWindow(QMainWindow):
         dialog = SettingsDialog(q_settings, PROFILES, self)
         dialog.setModal(True)
         if dialog.exec():
+            dome_changed = False
             for name, value in dialog.settings.items():
-                if name == "profile":
+                if name == "cameraProfile":
                     new_profile = PROFILES[value]
                     if new_profile is not self.profile:
                         # Never yank the camera out from under an in-flight
@@ -715,15 +720,29 @@ class RTICaptureMainWindow(QMainWindow):
                 q_settings.setValue(name, value)
                 if name == "maxPixmapCache":
                     QPixmapCache.setCacheLimit(value * 1024)
-                elif name == "enableBluetooth":
-                    event_loop = asyncio.get_running_loop()
-                    if value is True:
-                        event_loop.create_task(self.init_bluetooth())
-                    elif self.bt_controller:
-                        self.bt_controller.bt_disconnect()
-                    self.update_ui_bluetooth()
                 elif name == "enableSecondScreenMirror":
                     self.reset_mirror_view()
+                elif name.startswith("dome/"):
+                    dome_changed = True
+
+            # The dome/* keys are written above; re-read the whole record once
+            # and reconcile anything that depends on it (BLE, progress range).
+            if dome_changed:
+                was_using_bt = self.dome.uses_bluetooth
+                self.dome = dome_config.current_dome(q_settings)
+                self._reconcile_bluetooth(was_using_bt)
+                self.update_ui()
+
+    def _reconcile_bluetooth(self, was_enabled: bool):
+        """Bring the BLE controller in line with the dome's light_controller
+        after a settings change: connect when the dome now uses BLE, disconnect
+        when it no longer does (mirrors the old enableBluetooth toggle)."""
+        now_enabled = self.dome.uses_bluetooth
+        if now_enabled and not was_enabled and BT_AVAILABLE:
+            asyncio.get_running_loop().create_task(self.init_bluetooth())
+        elif not now_enabled and was_enabled and self.bt_controller:
+            self.bt_controller.bt_disconnect()
+        self.update_ui_bluetooth()
 
     def open_advanced_capture_settings(self):
         def open_dialog(cfg: gp.CameraWidget):
@@ -923,16 +942,17 @@ class RTICaptureMainWindow(QMainWindow):
     def trigger_autofocus(self):
         self.camera_worker.commands.trigger_autofocus.emit()
 
-    def _capture_strategy(self, *, manual_trigger: bool):
-        """Map the active profile to a capture strategy. Burst is a camera/dome
-        property (the Cologne dome flashes its LEDs in lockstep); otherwise the
-        app triggers each shot, unless the dome triggers externally
-        (manual_trigger, e.g. the Paris dome). Preview shots always pass
-        manual_trigger=False so the app fires the test shot itself."""
+    def _capture_strategy(self, *, is_preview: bool):
+        """The dome decides how a capture runs (Cologne bursts in lockstep with
+        its LEDs; Paris triggers each shot externally; otherwise the app fires
+        each shot). A preview is always fired by the app itself, so an
+        externally-triggered dome still uses APP_PER_SHOT for the single test
+        shot — a burst dome bursts even for the preview (a one-frame burst)."""
         S = CaptureImagesRequest.CaptureStrategy
-        if self.profile.use_burst():
-            return S.CAMERA_BURST
-        return S.EXTERNAL_PER_SHOT if manual_trigger else S.APP_PER_SHOT
+        strategy = self.dome.capture_strategy
+        if is_preview and strategy == S.EXTERNAL_PER_SHOT:
+            return S.APP_PER_SHOT
+        return strategy
 
     def capture_image(self):
         capture_req: CaptureImagesRequest
@@ -943,7 +963,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.session.preview_count + 1) + "${extension}"
             file_path_template = os.path.join(self.session.preview_dir, filename_template)
             capture_req = CaptureImagesRequest(file_path_template, num_images=1,
-                                               capture_strategy=self._capture_strategy(manual_trigger=False),
+                                               capture_strategy=self._capture_strategy(is_preview=True),
                                                image_quality=QSettings().value(
                                                    "previewCaptureFormat",
                                                    CaptureImagesRequest.CaptureFormat.JPEG))
@@ -967,13 +987,13 @@ class RTICaptureMainWindow(QMainWindow):
 
             filename_template = self.session.name.replace(" ", "_") + "_${num}${extension}"
             file_path_template = os.path.join(self.session.images_dir, filename_template)
-            capture_req = CaptureImagesRequest(file_path_template, num_images=self.profile.num_captures(),
-                                               capture_strategy=self._capture_strategy(manual_trigger=self.profile.manual_trigger()),
-                                               max_burst=int(QSettings().value("maxBurstNumber")),
+            capture_req = CaptureImagesRequest(file_path_template, num_images=self.dome.num_positions,
+                                               capture_strategy=self._capture_strategy(is_preview=False),
+                                               max_burst=self.dome.max_burst,
                                                image_quality=QSettings().value(
                                                    "rtiCaptureFormat",
                                                    CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW))
-            self.capture_progress_bar.setMaximum(self.profile.num_captures())
+            self.capture_progress_bar.setMaximum(self.dome.num_positions)
             self.capture_progress_bar.setValue(0)
 
         def on_file_received(path: str):
@@ -1037,6 +1057,12 @@ if __name__ == "__main__":
         app.installTranslator(translator)
 
     settings = QSettings()
+
+    # Bring settings up to the current schema (v1 unbundles the old combined
+    # "profile" into cameraProfile + dome/*, retires maxBurstNumber /
+    # enableBluetooth) before reading or seeding anything below.
+    migrate_settings(settings)
+
     if "workingDirectory" not in settings.allKeys():
         settings.setValue("workingDirectory",
                           QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation))
@@ -1044,17 +1070,18 @@ if __name__ == "__main__":
     if "maxPixmapCache" not in settings.allKeys():
         settings.setValue("maxPixmapCache", 1024)
 
-    if "maxBurstNumber" not in settings.allKeys():
-        settings.setValue("maxBurstNumber", 60)
+    # Fresh-install defaults: the historical default rig is the Cologne Nikon
+    # (camera + burst/BLE dome). Existing installs get these from migration.
+    if "cameraProfile" not in settings.allKeys():
+        settings.setValue("cameraProfile", "CCeHDomeNikonD800E")
+    if dome_config.CAPTURE_STRATEGY not in settings.allKeys():
+        dome_config.apply_preset(settings, dome_config.load_presets()["cologne"])
 
     if "previewCaptureFormat" not in settings.allKeys():
         settings.setValue("previewCaptureFormat", CaptureImagesRequest.CaptureFormat.JPEG)
 
     if "rtiCaptureFormat" not in settings.allKeys():
         settings.setValue("rtiCaptureFormat", CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW)
-
-    if "enableBluetooth" not in settings.allKeys():
-        settings.setValue("enableBluetooth", True)
 
     if "enableSecondScreenMirror" not in settings.allKeys():
         settings.setValue("enableSecondScreenMirror", True)
@@ -1087,7 +1114,7 @@ if __name__ == "__main__":
 
     # Create a coroutine for bluetooth initialization
     async def initialize_bluetooth():
-        if BT_AVAILABLE and QSettings().value("enableBluetooth", type=bool):
+        if BT_AVAILABLE and win.dome.uses_bluetooth:
             try:
                 await win.init_bluetooth()
             except Exception as e:
@@ -1111,7 +1138,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler)
 
 
-    if BT_AVAILABLE and QSettings().value("enableBluetooth", type=bool):
+    if BT_AVAILABLE and win.dome.uses_bluetooth:
         asyncio.ensure_future(initialize_bluetooth(), loop=loop)
 
     # Run the event loop

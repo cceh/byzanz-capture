@@ -5,6 +5,7 @@ from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QDialog, QLineEdit, QFileDialog, QToolButton, QSpinBox, QCheckBox, QComboBox
 from PyQt6.uic import loadUi
 
+from byzanz_camera import dome_config
 from byzanz_camera.camera_worker import CaptureImagesRequest
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.profiles.base import Profile
@@ -22,13 +23,13 @@ class SettingsDialog(QDialog):
         self.profile_select: QComboBox = self.findChild(QComboBox, "profileSelect")
         for profile_id, profile in profiles.items():
             self.profile_select.addItem(profile.name(), profile_id)
-        current_profile_id = q_settings.value("profile")
+        current_profile_id = q_settings.value("cameraProfile")
         if current_profile_id:
             index = self.profile_select.findData(current_profile_id)
             if index >= 0:
                 self.profile_select.setCurrentIndex(index)
         self.profile_select.currentIndexChanged.connect(
-            lambda index: self.set("profile", self.profile_select.itemData(index))
+            lambda index: self.set("cameraProfile", self.profile_select.itemData(index))
         )
 
         self.working_directory_input: QLineEdit = self.findChild(QLineEdit, "workingDirectoryInput")
@@ -52,12 +53,6 @@ class SettingsDialog(QDialog):
             lambda text: self.set("maxPixmapCache", int(text))
         )
 
-        self.max_burst_number_input: QSpinBox = self.findChild(QSpinBox, "maxBurstNumberInput")
-        self.max_burst_number_input.setValue(int(q_settings.value("maxBurstNumber")))
-        self.max_burst_number_input.textChanged.connect(
-            lambda text: self.set("maxBurstNumber", int(text))
-        )
-
         capture_format_options = (
             (self.tr("JPEG + RAW"), CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW),
             (self.tr("Nur JPEG"), CaptureImagesRequest.CaptureFormat.JPEG),
@@ -75,17 +70,76 @@ class SettingsDialog(QDialog):
                 lambda i, c=combo, key=settings_key: self.set(key, c.itemData(i))
             )
 
-        self.enable_bluetooth_checkbox: QCheckBox = self.findChild(QCheckBox, "enableBluetoothCheckbox")
-        self.enable_bluetooth_checkbox.setChecked(q_settings.value("enableBluetooth", type=bool))
-        self.enable_bluetooth_checkbox.stateChanged.connect(
-            lambda: self.set("enableBluetooth", self.enable_bluetooth_checkbox.isChecked())
-        )
-
         self.enable_second_screen_mirror_checkbox: QCheckBox = self.findChild(QCheckBox, "enableSecondScreenMirrorCheckbox")
         self.enable_second_screen_mirror_checkbox.setChecked(q_settings.value("enableSecondScreenMirror", type=bool))
         self.enable_second_screen_mirror_checkbox.stateChanged.connect(
             lambda: self.set("enableSecondScreenMirror", self.enable_second_screen_mirror_checkbox.isChecked())
         )
+
+        self._init_dome_group(q_settings)
+
+    def _init_dome_group(self, q_settings: QSettings):
+        """Camera and dome are independent. This group edits the dome/* config
+        directly; a preset only *loads* values into the fields (they stay
+        editable afterwards — there is no stored "active preset")."""
+        dome = dome_config.current_dome(q_settings)
+
+        self.dome_num_positions_input: QSpinBox = self.findChild(QSpinBox, "domeNumPositionsInput")
+        self.dome_max_burst_input: QSpinBox = self.findChild(QSpinBox, "domeMaxBurstInput")
+        self.dome_strategy_select: QComboBox = self.findChild(QComboBox, "domeStrategySelect")
+        self.dome_light_select: QComboBox = self.findChild(QComboBox, "domeLightSelect")
+        self.dome_preset_select: QComboBox = self.findChild(QComboBox, "domePresetSelect")
+
+        S = CaptureImagesRequest.CaptureStrategy
+        for label, value in ((self.tr("Kamera-Burst (Kölner Dom)"), S.CAMERA_BURST.value),
+                             (self.tr("Extern getriggert (Pariser Dom)"), S.EXTERNAL_PER_SHOT.value),
+                             (self.tr("Einzelbild per App"), S.APP_PER_SHOT.value)):
+            self.dome_strategy_select.addItem(label, value)
+
+        for label, value in ((self.tr("CCeH-Controller (Bluetooth)"), dome_config.LIGHT_CCEH_BLE),
+                             (self.tr("Keine / autonom"), dome_config.LIGHT_NONE)):
+            self.dome_light_select.addItem(label, value)
+
+        # Seed the fields from the current config *before* connecting handlers,
+        # so only real user edits land in self.settings.
+        self.dome_num_positions_input.setValue(dome.num_positions)
+        self.dome_max_burst_input.setValue(dome.max_burst)
+        self._select_combo_data(self.dome_strategy_select, dome.capture_strategy.value)
+        self._select_combo_data(self.dome_light_select, dome.light_controller)
+
+        self.dome_num_positions_input.valueChanged.connect(
+            lambda v: self.set(dome_config.NUM_POSITIONS, v))
+        self.dome_max_burst_input.valueChanged.connect(
+            lambda v: self.set(dome_config.MAX_BURST, v))
+        self.dome_strategy_select.currentIndexChanged.connect(
+            lambda i: self.set(dome_config.CAPTURE_STRATEGY, self.dome_strategy_select.itemData(i)))
+        self.dome_light_select.currentIndexChanged.connect(
+            lambda i: self.set(dome_config.LIGHT_CONTROLLER, self.dome_light_select.itemData(i)))
+
+        self._presets = dome_config.load_presets()
+        self.dome_preset_select.addItem(self.tr("— Preset laden —"), None)
+        for key, preset in self._presets.items():
+            self.dome_preset_select.addItem(preset.name, key)
+        self.dome_preset_select.currentIndexChanged.connect(self._apply_dome_preset)
+
+    def _select_combo_data(self, combo: QComboBox, data: Any):
+        index = combo.findData(data)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+
+    def _apply_dome_preset(self, index: int):
+        key = self.dome_preset_select.itemData(index)
+        if key is None:
+            return
+        preset = self._presets[key]
+        self.dome_num_positions_input.setValue(preset.num_positions)
+        self.dome_max_burst_input.setValue(preset.max_burst)
+        self._select_combo_data(self.dome_strategy_select, preset.capture_strategy.value)
+        self._select_combo_data(self.dome_light_select, preset.light_controller)
+        self.set(dome_config.NAME, preset.name)
+        # Snap the loader back to its placeholder so the same preset can be
+        # re-applied (and it isn't mistaken for a stored selection).
+        self.dome_preset_select.setCurrentIndex(0)
 
     def set(self, name: str, value: QVariant):
         self.settings[name] = value

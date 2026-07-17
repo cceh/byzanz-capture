@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>618</width>
-    <height>187</height>
+    <height>380</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -42,9 +42,9 @@
      </property>
      <layout class="QFormLayout" name="formLayout">
       <item row="0" column="0">
-       <widget class="QLabel" name="label">
+       <widget class="QLabel" name="labelCamera">
         <property name="text">
-         <string>Profil:</string>
+         <string>Kamera:</string>
         </property>
        </widget>
       </item>
@@ -53,15 +53,10 @@
         <property name="cursor">
          <cursorShape>PointingHandCursor</cursorShape>
         </property>
-        <property name="styleSheet">
-         <string notr="true">QLineEdit::icon {
-    background-color: red;
-}</string>
-        </property>
        </widget>
       </item>
       <item row="1" column="0">
-       <widget class="QLabel" name="label">
+       <widget class="QLabel" name="labelWorkingDir">
         <property name="text">
          <string>Arbeitsverzeichnis:</string>
         </property>
@@ -72,11 +67,6 @@
         <property name="cursor">
          <cursorShape>PointingHandCursor</cursorShape>
         </property>
-        <property name="styleSheet">
-         <string notr="true">QLineEdit::icon {
-          background-color: red;
-          }</string>
-        </property>
         <property name="text">
          <string>/tmp</string>
         </property>
@@ -86,7 +76,7 @@
        </widget>
       </item>
       <item row="2" column="0">
-       <widget class="QLabel" name="label_2">
+       <widget class="QLabel" name="labelPixmapCache">
         <property name="text">
          <string>Max. Pixmap-Cache (in MB):</string>
         </property>
@@ -100,14 +90,98 @@
        </widget>
       </item>
       <item row="3" column="0">
-       <widget class="QLabel" name="label_3">
+       <widget class="QLabel" name="previewFormatLabel">
         <property name="text">
-         <string>Max. Burst-Nummer:</string>
+         <string>Format Vorschau-Aufnahmen:</string>
         </property>
        </widget>
       </item>
       <item row="3" column="1">
-       <widget class="QSpinBox" name="maxBurstNumberInput">
+       <widget class="QComboBox" name="previewFormatSelect"/>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="captureFormatLabel">
+        <property name="text">
+         <string>Format RTI-Serie:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QComboBox" name="captureFormatSelect"/>
+      </item>
+      <item row="5" column="1">
+       <widget class="QCheckBox" name="enableSecondScreenMirrorCheckbox">
+        <property name="text">
+         <string>Bildansicht auf zweitem Bildschirm spiegeln</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="domeGroup">
+     <property name="title">
+      <string>Dom</string>
+     </property>
+     <layout class="QFormLayout" name="domeFormLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="domePresetLabel">
+        <property name="text">
+         <string>Preset laden:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QComboBox" name="domePresetSelect">
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
+        <property name="toolTip">
+         <string>Füllt die Felder unten mit den Werten eines Presets. Danach frei editierbar.</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="domeNumPositionsLabel">
+        <property name="text">
+         <string>LED-Positionen:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QSpinBox" name="domeNumPositionsInput">
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>999</number>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="domeStrategyLabel">
+        <property name="text">
+         <string>Aufnahme-Modus:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QComboBox" name="domeStrategySelect">
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="domeMaxBurstLabel">
+        <property name="text">
+         <string>Max. Burst:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QSpinBox" name="domeMaxBurstInput">
         <property name="minimum">
          <number>1</number>
         </property>
@@ -117,46 +191,16 @@
        </widget>
       </item>
       <item row="4" column="0">
-       <widget class="QLabel" name="previewFormatLabel">
+       <widget class="QLabel" name="domeLightLabel">
         <property name="text">
-         <string>Format Vorschau-Aufnahmen:</string>
+         <string>Lichtsteuerung:</string>
         </property>
        </widget>
       </item>
       <item row="4" column="1">
-       <widget class="QComboBox" name="previewFormatSelect"/>
-      </item>
-      <item row="5" column="0">
-       <widget class="QLabel" name="captureFormatLabel">
-        <property name="text">
-         <string>Format RTI-Serie:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="5" column="1">
-       <widget class="QComboBox" name="captureFormatSelect"/>
-      </item>
-      <item row="6" column="0">
-       <widget class="QLabel" name="label_4">
-        <property name="text">
-         <string/>
-        </property>
-       </widget>
-      </item>
-      <item row="6" column="1">
-       <widget class="QCheckBox" name="enableBluetoothCheckbox">
-        <property name="locale">
-         <locale language="German" country="Germany"/>
-        </property>
-        <property name="text">
-         <string>Bluetooth-Funktion des CCeH-Controllers verwenden</string>
-        </property>
-       </widget>
-      </item>
-      <item row="7" column="1">
-       <widget class="QCheckBox" name="enableSecondScreenMirrorCheckbox">
-        <property name="text">
-         <string>Bildansicht auf zweitem Bildschirm spiegeln</string>
+       <widget class="QComboBox" name="domeLightSelect">
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
         </property>
        </widget>
       </item>

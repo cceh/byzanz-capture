@@ -24,7 +24,8 @@ pyinstaller --onedir \
     --add-binary "$CAMLIB_DIR":. \
     --add-binary "$CV2_PYD":. \
     --add-binary /mingw64/bin/libusb-1.0.dll:. \
-    --add-data ui:ui main.py \
+    --add-data ui:ui \
+    --add-data dome_presets:dome_presets main.py \
     --runtime-hook ./build_win_hook.py \
     --noconfirm \
     --name byzanz-capture

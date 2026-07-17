@@ -1,4 +1,4 @@
-"""Versioned, idempotent QSettings migration — shared by the RTI app and papyri.
+"""Versioned, idempotent QSettings migration for the RTI app.
 
 Mirrors the pattern of papyri's on-disk layout migration (object_layout.py):
 a monotonic version key gates idempotent steps. Call `migrate_settings(qs)`
@@ -9,6 +9,10 @@ v1 unbundles the old combined `"profile"` (which mixed camera + dome) into a
 preserves each install's capture behaviour; afterwards camera and dome are fully
 independent (nothing couples them). The camera-centric id rename happens in a
 later step with its own version bump.
+
+Papyri keeps its own QSettings store (a different application name) and has a
+two-camera model with no dome, so it is *not* migrated by this v1 unbundle —
+its profile-id rename is handled separately when the ids are renamed.
 """
 from __future__ import annotations
 
