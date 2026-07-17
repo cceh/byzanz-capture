@@ -1040,6 +1040,17 @@ class CameraWorker(QObject):
                 def _shots_done() -> int:
                     return self.filesCounter // capture_req.expect_files
 
+                # Single-frame release on a burst-capable body (Nikon): each
+                # trigger here must fire exactly one frame, so reset burstnumber
+                # to 1 — otherwise a value left over from a CAMERA_BURST series
+                # (e.g. 60) would turn one trigger into a whole burst. The burst
+                # path sets burstnumber to N, this path sets it to 1: every
+                # capture sets what it needs, so no reset elsewhere is required.
+                # Bodies without a burstnumber property (Sony) return None here.
+                if self.profile.burstnumber_property_name() is not None:
+                    with self.__open_config("write") as cfg:
+                        self.__try_set_config(cfg, self.profile.burstnumber_property_name(), 1)
+
                 shot_idx = 0
                 while shot_idx < capture_req.num_images and not self.shouldCancel and not self.thread().isInterruptionRequested():
                     if app_triggers:

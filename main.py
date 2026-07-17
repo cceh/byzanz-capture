@@ -943,16 +943,16 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.commands.trigger_autofocus.emit()
 
     def _capture_strategy(self, *, is_preview: bool):
-        """The dome decides how a capture runs (Cologne bursts in lockstep with
-        its LEDs; Paris triggers each shot externally; otherwise the app fires
-        each shot). A preview is always fired by the app itself, so an
-        externally-triggered dome still uses APP_PER_SHOT for the single test
-        shot — a burst dome bursts even for the preview (a one-frame burst)."""
-        S = CaptureImagesRequest.CaptureStrategy
-        strategy = self.dome.capture_strategy
-        if is_preview and strategy == S.EXTERNAL_PER_SHOT:
-            return S.APP_PER_SHOT
-        return strategy
+        """How a capture runs. The RTI *series* follows the dome's strategy
+        (Cologne bursts in lockstep with its LEDs; Paris triggers each shot
+        externally; otherwise the app fires each shot). A *preview* is always a
+        single, app-triggered frame — the dome's series strategy does not apply
+        to it — so it is always APP_PER_SHOT. On a burst-capable body the
+        non-burst path resets burstnumber to 1, so a preview never inherits the
+        series' burst count (see CameraWorker.captureImages)."""
+        if is_preview:
+            return CaptureImagesRequest.CaptureStrategy.APP_PER_SHOT
+        return self.dome.capture_strategy
 
     def capture_image(self):
         capture_req: CaptureImagesRequest
