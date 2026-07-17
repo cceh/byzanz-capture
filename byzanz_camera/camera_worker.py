@@ -168,6 +168,20 @@ class CaptureImagesRequest():
         JPEG_AND_RAW = "jpeg_and_raw"
         RAW = "raw"
 
+    class CaptureStrategy(Enum):
+        """How the N-shot sequence is driven — a capture/dome property, not a
+        camera one. The worker branches on this alone; it no longer reads
+        use_burst()/manual_trigger() off the profile."""
+        # One trigger fires a burst; the dome flashes its LEDs in lockstep and
+        # we count files. (Cologne / CCeH dome.)
+        CAMERA_BURST = "camera_burst"
+        # The dome (or user) triggers each shot externally; the app only waits
+        # for the files. (Paris dome, corodile manual-trigger test.)
+        EXTERNAL_PER_SHOT = "external_per_shot"
+        # The app triggers each shot and waits for its file. (Papyri single
+        # shot; a future app-driven dome.)
+        APP_PER_SHOT = "app_per_shot"
+
     class Signal(QObject):
         file_received = pyqtSignal(str)
 
@@ -175,16 +189,17 @@ class CaptureImagesRequest():
     num_images: int
     expect_files: int
     max_burst: int = 1
-    manual_trigger: bool = False
+    capture_strategy: "CaptureImagesRequest.CaptureStrategy"
     image_quality: CaptureFormat
     orientation: int = 0
 
-    def __init__(self, file_path_template, num_images, image_quality, max_burst = 1, manual_trigger = False, orientation = 0):
+    def __init__(self, file_path_template, num_images, image_quality, max_burst=1,
+                 capture_strategy=None, orientation=0):
         self.file_path_template = file_path_template
         self.num_images = num_images
         self.expect_files = 2 if image_quality == CaptureImagesRequest.CaptureFormat.JPEG_AND_RAW else 1
         self.max_burst = max_burst
-        self.manual_trigger = manual_trigger
+        self.capture_strategy = capture_strategy or CaptureImagesRequest.CaptureStrategy.APP_PER_SHOT
         self.image_quality = image_quality
         # Clockwise display rotation (0/90/180/270) to bake into each
         # captured file's EXIF Orientation *before* it is made visible to
@@ -980,17 +995,23 @@ class CameraWorker(QObject):
             #    many files it produced (handles RAW-only, JPEG-only, AEB
             #    brackets, multi-exposure, etc. uniformly).
 
-            if self.profile.use_burst():
-                # ---- BURST PATH (existing logic, unchanged) ----
+            strategy = capture_req.capture_strategy
+            # app_triggers replaces the old `not manual_trigger`: the app fires
+            # the shutter for CAMERA_BURST and APP_PER_SHOT, never for
+            # EXTERNAL_PER_SHOT (the dome/user triggers those).
+            app_triggers = strategy != CaptureImagesRequest.CaptureStrategy.EXTERNAL_PER_SHOT
+
+            if strategy == CaptureImagesRequest.CaptureStrategy.CAMERA_BURST:
+                # ---- BURST PATH (Cologne dome; app-triggered) ----
                 remaining = capture_req.num_images * capture_req.expect_files
                 while remaining > 0 and not self.shouldCancel and not self.thread().isInterruptionRequested():
                     burst = min(capture_req.max_burst, int(remaining / capture_req.expect_files))
-                    if not capture_req.manual_trigger:
+                    if app_triggers:
                         with self.__open_config("write") as cfg:
                             self.__try_set_config(cfg, self.profile.burstnumber_property_name(), burst)
 
                     self.captureComplete = False
-                    if not capture_req.manual_trigger:
+                    if app_triggers:
                         self.camera.trigger_capture()
 
                     while not self.captureComplete and not self.shouldCancel and not self.thread().isInterruptionRequested():
@@ -1000,7 +1021,7 @@ class CameraWorker(QObject):
                     remaining = capture_req.num_images * capture_req.expect_files - self.filesCounter
                     self.__logger.info("Burst: {0} files (remaining: {1}).".format(self.filesCounter, remaining))
 
-                    if not capture_req.manual_trigger:
+                    if app_triggers:
                         with self.__open_config("write") as cfg:
                             self.__try_set_config(cfg, self.profile.burstnumber_property_name(), burst)
 
@@ -1021,7 +1042,7 @@ class CameraWorker(QObject):
 
                 shot_idx = 0
                 while shot_idx < capture_req.num_images and not self.shouldCancel and not self.thread().isInterruptionRequested():
-                    if not capture_req.manual_trigger:
+                    if app_triggers:
                         self.camera.trigger_capture()
 
                     # Wait until at least one more shot's files have landed;

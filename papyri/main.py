@@ -2752,7 +2752,7 @@ class PapyriMainWindow(QMainWindow):
             ),
             num_images=1,
             image_quality=CaptureImagesRequest.CaptureFormat.RAW,
-            manual_trigger=False,
+            capture_strategy=CaptureImagesRequest.CaptureStrategy.APP_PER_SHOT,
             # Bake this camera's fixed mount rotation into the captured file's
             # EXIF Orientation in the worker, before the file is made visible —
             # so the filmstrip/viewer decode never races an un-rotated file.

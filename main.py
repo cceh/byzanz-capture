@@ -923,6 +923,17 @@ class RTICaptureMainWindow(QMainWindow):
     def trigger_autofocus(self):
         self.camera_worker.commands.trigger_autofocus.emit()
 
+    def _capture_strategy(self, *, manual_trigger: bool):
+        """Map the active profile to a capture strategy. Burst is a camera/dome
+        property (the Cologne dome flashes its LEDs in lockstep); otherwise the
+        app triggers each shot, unless the dome triggers externally
+        (manual_trigger, e.g. the Paris dome). Preview shots always pass
+        manual_trigger=False so the app fires the test shot itself."""
+        S = CaptureImagesRequest.CaptureStrategy
+        if self.profile.use_burst():
+            return S.CAMERA_BURST
+        return S.EXTERNAL_PER_SHOT if manual_trigger else S.APP_PER_SHOT
+
     def capture_image(self):
         capture_req: CaptureImagesRequest
 
@@ -932,6 +943,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.session.preview_count + 1) + "${extension}"
             file_path_template = os.path.join(self.session.preview_dir, filename_template)
             capture_req = CaptureImagesRequest(file_path_template, num_images=1,
+                                               capture_strategy=self._capture_strategy(manual_trigger=False),
                                                image_quality=QSettings().value(
                                                    "previewCaptureFormat",
                                                    CaptureImagesRequest.CaptureFormat.JPEG))
@@ -955,7 +967,8 @@ class RTICaptureMainWindow(QMainWindow):
 
             filename_template = self.session.name.replace(" ", "_") + "_${num}${extension}"
             file_path_template = os.path.join(self.session.images_dir, filename_template)
-            capture_req = CaptureImagesRequest(file_path_template, num_images=self.profile.num_captures(), manual_trigger=self.profile.manual_trigger(),
+            capture_req = CaptureImagesRequest(file_path_template, num_images=self.profile.num_captures(),
+                                               capture_strategy=self._capture_strategy(manual_trigger=self.profile.manual_trigger()),
                                                max_burst=int(QSettings().value("maxBurstNumber")),
                                                image_quality=QSettings().value(
                                                    "rtiCaptureFormat",
