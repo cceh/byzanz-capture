@@ -1175,6 +1175,17 @@ if __name__ == "__main__":
         _working_dir = os.path.dirname(os.path.normpath(auto_open))
         QTimer.singleShot(500, lambda: win.set_session(Session(_session_name, _working_dir)))
 
+    # BYZANZ_SMOKE_TEST=1 lets the app fully initialise (all imports, the Qt
+    # platform plugin, the bundled ui/ + dome_presets/ data, the camera-worker
+    # thread + first detect pass) and then quits cleanly after a few seconds.
+    # CI runs this against the frozen bundle to catch an incomplete PyInstaller
+    # inclusion: a missing module / plugin / data file crashes at startup with a
+    # non-zero exit here, instead of only in front of a user.
+    if os.environ.get("BYZANZ_SMOKE_TEST"):
+        from PyQt6.QtCore import QTimer
+        logging.info("Smoke-test mode: quitting ~5s after startup.")
+        QTimer.singleShot(5000, app.quit)
+
     def excepthook(exc_type, exc_value, exc_traceback):
         logging.exception(msg="Exception", exc_info=(exc_type, exc_value, exc_traceback))
         if win.bt_controller and win.bt_controller.state != BtControllerState.DISCONNECTED:

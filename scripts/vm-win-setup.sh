@@ -8,6 +8,7 @@
 #   ./scripts/vm-win-setup.sh deps    # install/upgrade all MINGW64 packages the RTI app needs
 #   ./scripts/vm-win-setup.sh venv    # recreate .venv and pip-install the pure-python + sdist deps
 #   ./scripts/vm-win-setup.sh build   # run build_win.sh (PyInstaller onedir bundle into dist/)
+#   ./scripts/vm-win-setup.sh smoketest  # launch the frozen bundle headless; fail on a startup crash
 #
 # Each phase self-logs to /tmp/vmsetup-<phase>.log via tee.
 #
@@ -74,8 +75,29 @@ build)
     source .venv/bin/activate
     ./build_win.sh
     ;;
+smoketest)
+    # Launch the frozen bundle headless and verify it starts up cleanly. A
+    # missing PyInstaller inclusion (module, Qt plugin, or bundled ui/ /
+    # dome_presets/ data) crashes at startup with a non-zero exit. The app
+    # self-quits ~5s after init (BYZANZ_SMOKE_TEST); the timeout is only a
+    # backstop against a hang (which would also fail the test).
+    EXE="dist/byzanz-capture/byzanz-capture.exe"
+    [ -x "$EXE" ] || { echo "smoke test: $EXE not found — run the build phase first"; exit 1; }
+    export QT_QPA_PLATFORM=offscreen BYZANZ_SMOKE_TEST=1
+    set +e
+    out="$(timeout 120 "$EXE" 2>&1)"; rc=$?
+    set -e
+    echo "$out"
+    if [ "$rc" -ne 0 ]; then
+        echo "SMOKE TEST FAILED (exit=$rc)"; exit 1
+    fi
+    if echo "$out" | grep -qiE "Fatal Python error|could not (find|load) the Qt platform|DLL load failed|ModuleNotFoundError"; then
+        echo "SMOKE TEST FAILED (crash marker in output)"; exit 1
+    fi
+    echo "SMOKE TEST OK"
+    ;;
 *)
-    echo "usage: $0 {sync|deps|venv|build}" >&2
+    echo "usage: $0 {sync|deps|venv|build|smoketest}" >&2
     exit 1
     ;;
 esac
