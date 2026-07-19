@@ -1118,6 +1118,14 @@ class CameraWorker(QObject):
                 raise Exception("Invalid cfg open mode: %s" % mode)
 
     def __try_set_config(self, config: CameraWidget, name: str, value) -> None:
+        if not name:
+            # No config key — e.g. a body-property getter that returned None
+            # (burstnumber_property_name() is None on Sony). gphoto2's
+            # gp_widget_get_child_by_name(NULL) does strcmp(NULL) in C and
+            # segfaults uncatchably (like PyUnicode_FromString(NULL)), so bail
+            # before we ever reach it.
+            self.__logger.debug("Skipping config set for empty key.")
+            return
         try:
             config_widget = config.get_child_by_name(name)
             self.__logger.info("2 Set config '%s' to %s." % (name, str(value)))

@@ -1025,6 +1025,21 @@ class RTICaptureMainWindow(QMainWindow):
 
         # Capture RTI Series
         else:
+            # A camera-burst dome needs a body that supports the burst (has a
+            # burstnumber property). Paired with one that doesn't (e.g. a Sony)
+            # it can't work — refuse clearly here instead of crashing in the
+            # worker (get_child_by_name(None)) or hanging on a CAPTURE_COMPLETE
+            # the body never sends.
+            if (self._capture_strategy(is_preview=False) == CaptureImagesRequest.CaptureStrategy.CAMERA_BURST
+                    and self.profile.burstnumber_property_name() is None):
+                QMessageBox.warning(
+                    self, self.tr("Aufnahmemodus passt nicht zur Kamera"),
+                    self.tr("Der Dom-Aufnahmemodus ist „Kamera-Burst“, aber diese "
+                            "Kamera unterstützt das nicht. Stelle in den "
+                            "Einstellungen den Aufnahmemodus auf „Extern "
+                            "getriggert“ oder „Einzelbild per App“."))
+                return
+
             if self.rti_filmstrip.num_files() > 0:
                 message_box = QMessageBox(QMessageBox.Icon.Warning, self.tr("RTI-Serie aufnehmen"),
                                           self.tr("Vorhandene Aufnahmen werden gelöscht."))
