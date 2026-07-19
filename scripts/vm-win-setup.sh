@@ -36,6 +36,10 @@ PACKAGES=(
     mingw-w64-x86_64-pkgconf         # gphoto2 sdist build locates libgphoto2 via pkg-config
     mingw-w64-x86_64-libgphoto2
     mingw-w64-x86_64-qt6-base
+    mingw-w64-x86_64-qt6-svg         # Qt6Svg.dll for PyQt6.QtSvg (SVG icon rendering);
+                                     # NOT part of qt6-base, and python-pyqt6 doesn't pull
+                                     # it — without it the frozen app crashes at startup
+                                     # ("DLL load failed while importing QtSvg").
     mingw-w64-x86_64-python-pyqt6
     mingw-w64-x86_64-python-pillow
     mingw-w64-x86_64-python-numpy
