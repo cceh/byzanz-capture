@@ -211,6 +211,19 @@ class ViewerWidget(QWidget):
             # so the bar's mirror stays consistent.
             self._sync_zoom_bar()
 
+    def fit(self) -> None:
+        """Fit the current photo to the viewport (no-op if empty). Call this
+        after the widget gains its real size — e.g. a viewer on a tab/page that
+        decoded its image while laid out at zero size (so its initial fit was
+        against an empty viewport)."""
+        if self.photo_viewer.hasPhoto():
+            self.photo_viewer.fitInView()
+            self._sync_zoom_bar()
+
+    def has_photo(self) -> bool:
+        """Whether the viewer currently shows a pixmap (live frame or static)."""
+        return self.photo_viewer.hasPhoto()
+
     def show_busy(self) -> None:
         """Show the centered spinner overlay. Use during async loads
         (e.g. full-image decode of a clicked thumbnail) so the user

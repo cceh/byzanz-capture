@@ -149,9 +149,12 @@ class ZoomControlBar(QWidget):
         self._pct_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._pct_label)
 
-        # Natural width — host adds a stretch around the bar to push
-        # neighboring controls to the edges of the toolbar.
-        self.setSizePolicy(QSizePolicy.Policy.Preferred,
+        # Maximum (not Preferred): the bar never grows past its natural width,
+        # so its buttons stay compact in ANY host layout — whether the host
+        # adds a stretch beside it (papyri toolbar) or drops it into a
+        # full-width slot (RTI's live-view bar / RTI-series toolbar). It may
+        # still shrink if the window is narrower than its content.
+        self.setSizePolicy(QSizePolicy.Policy.Maximum,
                            QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(32)
 

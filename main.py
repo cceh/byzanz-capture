@@ -137,10 +137,12 @@ class RTICaptureMainWindow(QMainWindow):
         self.previewPage: QWidget = self.findChild(QWidget, "previewPage")
         self.preview_viewer: ViewerWidget = self.findChild(ViewerWidget, "previewViewer")
         self.preview_filmstrip: FilmstripWidget = self.findChild(FilmstripWidget, "previewFilmstrip")
-        self.preview_viewer.attach_zoom_bar(self.findChild(ZoomControlBar, "previewZoomBar"))
+        self.preview_zoom_bar: ZoomControlBar = self.findChild(ZoomControlBar, "previewZoomBar")
+        self.preview_viewer.attach_zoom_bar(self.preview_zoom_bar)
         self.rti_viewer: ViewerWidget = self.findChild(ViewerWidget, "rtiViewer")
         self.rti_filmstrip: FilmstripWidget = self.findChild(FilmstripWidget, "rtiFilmstrip")
-        self.rti_viewer.attach_zoom_bar(self.findChild(ZoomControlBar, "rtiZoomBar"))
+        self.rti_zoom_bar: ZoomControlBar = self.findChild(ZoomControlBar, "rtiZoomBar")
+        self.rti_viewer.attach_zoom_bar(self.rti_zoom_bar)
 
         # Filmstrip → viewer wiring (per mode). The filmstrip handles all
         # the directory/async-thumb work and emits a decoded pixmap when
@@ -157,6 +159,17 @@ class RTICaptureMainWindow(QMainWindow):
             filmstrip.image_decode_started.connect(viewer.show_busy)
             filmstrip.image_cleared.connect(viewer.clear)
             filmstrip.directory_closed.connect(lambda path, v=viewer: v.clear())
+            # Zoom controls belong to a static photo being reviewed — keep their
+            # visibility in step with what the viewer actually shows.
+            filmstrip.image_decoded.connect(lambda *_: self._update_zoom_visibility())
+            filmstrip.image_cleared.connect(self._update_zoom_visibility)
+            filmstrip.directory_closed.connect(lambda *_: self._update_zoom_visibility())
+        # Choosing a preview test shot means "review this" — switch live view off
+        # so the shot stays put and the zoom controls appear over it.
+        self.preview_filmstrip.image_selected.connect(self._on_preview_capture_selected)
+        # Toggling live view flips the zoom controls immediately (the toggle is
+        # the source of truth), rather than waiting for the async camera state.
+        self.toggle_live_view_button.toggled.connect(lambda *_: self._update_zoom_visibility())
         self.capture_button: QPushButton = self.findChild(QPushButton, "captureButton")
         self.cancel_capture_button: QPushButton = self.findChild(QPushButton, "cancelCaptureButton")
 
@@ -222,16 +235,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.camera_worker.state_changed.connect(self.set_camera_state)
         self.camera_worker.events.config_updated.connect(self.on_config_update)
         self.camera_worker.property_changed.connect(self.on_property_change)
-        self.camera_worker.preview_image.connect(
-            # .copy() detaches from the PIL-owned bytes buffer — ImageQt
-            # wraps it without owning it, and for RGB32 frames
-            # QPixmap.fromImage takes a shallow share instead of converting,
-            # so the pixmap would dangle once the ImageQt temporary is
-            # collected (segfault on a later repaint after live view stops).
-            lambda image: self.preview_viewer.show_image(
-                QPixmap.fromImage(ImageQt(image.image).copy()), fit=True
-            )
-        )
+        self.camera_worker.preview_image.connect(self._on_live_frame)
         self.camera_worker.initialized.connect(lambda: self.camera_worker.commands.find_camera.emit())
         self.camera_worker.usb_offenders_detected.connect(self._on_usb_offenders_detected)
         self.camera_thread.started.connect(self.camera_worker.initialize)
@@ -533,7 +537,9 @@ class RTICaptureMainWindow(QMainWindow):
                     self.live_view_error_label.setText(None)
 
             case CameraStates.LiveViewStopped():
-                self.preview_viewer.clear()
+                # Don't blank the viewer here: with live view off, incoming
+                # frames are already dropped (see _on_live_frame), so a reviewed
+                # shot / the last frame stays put instead of flashing away.
                 self.light_lcd_number.display(None)
                 self.light_lcd_frame.setEnabled(False)
                 self.live_view_error_label.setText(None)
@@ -600,6 +606,10 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
                 self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
 
+        # Show the zoom controls only over a static photo — never during live
+        # view, never when empty (keeps them in step with every state change).
+        self._update_zoom_visibility()
+
     def update_ui_bluetooth(self):
         if self.bt_controller is not None:
             self.bluetooth_frame.setVisible(True)
@@ -653,9 +663,28 @@ class RTICaptureMainWindow(QMainWindow):
 
     def on_capture_mode_changed(self):
         self.update_mirror_view()
-        if self.capture_mode == CaptureMode.RTI and isinstance(self.camera_state, CameraStates.LiveViewActive):
-            self.camera_worker.commands.live_view.emit(False)
+        if self.capture_mode == CaptureMode.RTI and self.toggle_live_view_button.isChecked():
+            # The RTI-series page has no live view — make sure it's off (so the
+            # RTI zoom controls, gated on "not live", can appear).
+            self.toggle_live_view_button.setChecked(False)
+        # The viewer on a QToolBox page is laid out at zero size while that page
+        # is hidden, so an image it decoded then fit against an empty viewport
+        # (shows tiny). Re-fit the now-visible page's viewer once layout settles.
+        viewer = self.preview_viewer if self.capture_mode == CaptureMode.Preview else self.rti_viewer
+        QTimer.singleShot(0, viewer.fit)
         self.update_ui()
+
+    def _update_zoom_visibility(self):
+        """Zoom controls belong to a static photo being reviewed: hide them
+        during live view (a live stream isn't zoomed) and when the viewer is
+        empty. Called on camera-state changes and whenever the viewer's content
+        changes (filmstrip decode/clear)."""
+        # "Live view on" is exactly the toggle's state (set the instant the user
+        # clicks, unlike the async camera_state) — so it also hides the controls
+        # the moment a shot is selected for review.
+        live = self.toggle_live_view_button.isChecked()
+        self.preview_zoom_bar.setVisible(self.preview_viewer.has_photo() and not live)
+        self.rti_zoom_bar.setVisible(self.rti_viewer.has_photo())
 
     def update_mirror_view(self):
         if self.capture_mode == CaptureMode.Preview:
@@ -798,6 +827,19 @@ class RTICaptureMainWindow(QMainWindow):
 
         self.update_ui()
 
+        # papyri-style: a freshly opened session with no test shots yet starts
+        # live view once so the user can frame. Seeded HERE (session fully
+        # loaded, capture controls already re-enabled by update_ui) — never in
+        # the camera-ready handler, so turning live view off stays off and the
+        # capture button keeps its ready state.
+        if (self.session.preview_dir_loaded and self.session.images_dir_loaded
+                and self.capture_mode == CaptureMode.Preview
+                and self.preview_filmstrip.num_files() == 0
+                and isinstance(self.camera_state, CameraStates.Ready)
+                and self.profile.supports_live_view()
+                and not self.toggle_live_view_button.isChecked()):
+            self.toggle_live_view_button.setChecked(True)
+
     def close_session(self):
         self.preview_filmstrip.close_directory()
         self.rti_filmstrip.close_directory()
@@ -930,6 +972,27 @@ class RTICaptureMainWindow(QMainWindow):
 
     def enable_live_view(self, enable: bool):
         self.camera_worker.commands.live_view.emit(enable)
+
+    def _on_live_frame(self, image):
+        # The live-view toggle is the single source of truth for "live view on".
+        # When it's off we're reviewing a static shot (or paused), so drop any
+        # in-flight live frames — they would otherwise overwrite the shown shot.
+        if not self.toggle_live_view_button.isChecked():
+            return
+        # .copy() detaches from the PIL-owned bytes buffer — ImageQt wraps it
+        # without owning it, and for RGB32 frames QPixmap.fromImage takes a
+        # shallow share instead of converting, so the pixmap would dangle once
+        # the ImageQt temporary is collected (segfault on a later repaint).
+        self.preview_viewer.show_image(
+            QPixmap.fromImage(ImageQt(image.image).copy()), fit=True)
+
+    def _on_preview_capture_selected(self, *_):
+        """A preview test shot was chosen for review: switch live view off (its
+        frames would overwrite the static shot). The toggle's off state is what
+        then reveals the zoom controls — no separate 'reviewing' flag needed."""
+        if self.toggle_live_view_button.isChecked():
+            self.toggle_live_view_button.setChecked(False)  # → enable_live_view(False)
+        self._update_zoom_visibility()
 
     def trigger_autofocus(self):
         self.camera_worker.commands.trigger_autofocus.emit()
