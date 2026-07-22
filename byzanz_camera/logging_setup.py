@@ -6,7 +6,8 @@ gphoto2 import, so the resolver's log lines are captured.
 
 What it sets up:
   - stderr logging (as before) PLUS a rotating log file in the
-    platform log directory (~/Library/Logs/<dir_name> on macOS).
+    platform log directory (~/Library/Logs/<dir_name> on macOS,
+    %LOCALAPPDATA%\\<dir_name>\\Logs on Windows).
   - `faulthandler` into a separate crash.log: on a C-level crash
     (e.g. a segfault inside libgphoto2) the OS kills the process, but
     faulthandler first dumps the Python stack of every thread there.
@@ -68,6 +69,11 @@ def log_dir() -> Path:
 def _default_log_dir(dir_name: str) -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Logs" / dir_name
+    if sys.platform == "win32":
+        # Windows convention: per-user, non-roaming app data —
+        # %LOCALAPPDATA%\<App>\Logs (e.g. …\AppData\Local\ByzanzCapture\Logs).
+        base = os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+        return Path(base) / dir_name / "Logs"
     return Path.home() / f".{dir_name.lower()}" / "logs"
 
 
