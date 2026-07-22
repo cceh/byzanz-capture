@@ -9,6 +9,7 @@
 #   ./scripts/vm-win-setup.sh venv    # recreate .venv and pip-install the pure-python + sdist deps
 #   ./scripts/vm-win-setup.sh build   # run build_win.sh (PyInstaller onedir bundle into dist/)
 #   ./scripts/vm-win-setup.sh smoketest  # launch the frozen bundle headless; fail on a startup crash
+#   ./scripts/vm-win-setup.sh run     # run the app from source (python main.py) for development
 #
 # Each phase self-logs to /tmp/vmsetup-<phase>.log via tee.
 #
@@ -100,8 +101,27 @@ smoketest)
     fi
     echo "SMOKE TEST OK"
     ;;
+run)
+    # Run the app from source (python main.py) — for developing on the Windows
+    # machine without producing a frozen bundle. Needs `deps` + `venv` done once.
+    #
+    # python-gphoto2 is pip-built from sdist here, and its import rewrites
+    # CAMLIBS/IOLIBS to package-internal dirs that ship NO camera drivers (only
+    # port libs) — so autodetect would find nothing. Point both at the MINGW
+    # system libgphoto2 as *Windows* paths (via cygpath -w, like the frozen
+    # bundle uses sys._MEIPASS); byzanz_camera/_gphoto2_paths.py picks these up
+    # as the pre-import env override so the drivers are found.
+    source .venv/bin/activate
+    CAMLIB_DIR=$(ls -d /mingw64/lib/libgphoto2/*/ | sort -V | tail -1)
+    IOLIB_DIR=$(ls -d /mingw64/lib/libgphoto2_port/*/ | sort -V | tail -1)
+    export CAMLIBS="$(cygpath -w "${CAMLIB_DIR%/}")"
+    export IOLIBS="$(cygpath -w "${IOLIB_DIR%/}")"
+    echo "CAMLIBS=$CAMLIBS"
+    echo "IOLIBS=$IOLIBS"
+    python main.py
+    ;;
 *)
-    echo "usage: $0 {sync|deps|venv|build|smoketest}" >&2
+    echo "usage: $0 {sync|deps|venv|build|smoketest|run}" >&2
     exit 1
     ;;
 esac
