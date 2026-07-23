@@ -11,9 +11,6 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter
 
-#from .dark_mode_support import isDarkWindow
-
-
 class Spinner(QtWidgets.QWidget):
     """
     A macOS style spinning progress indicator. ``QProgressIndicator`` automatically
@@ -46,8 +43,6 @@ class Spinner(QtWidgets.QWidget):
         self.m_delay = 5/60*1000
         self.m_displayedWhenStopped = False
         self.m_color = color
-
-        self.update_dark_mode()
 
         # Set size and focus policy
         self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
@@ -143,13 +138,3 @@ class Spinner(QtWidgets.QWidget):
             painter.drawRoundedRect(rect, capsuleRadius, capsuleRadius)
             painter.restore()
 
-    def changeEvent(self, QEvent):
-
-        if QEvent.type() == QtCore.QEvent.Type.PaletteChange:
-            self.update_dark_mode()
-
-    def update_dark_mode(self):
-        # if isDarkWindow():
-        #     self.setColor(self.m_light_color)
-        # else:
-            self.setColor(self.m_dark_color)

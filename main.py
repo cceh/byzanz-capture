@@ -26,7 +26,7 @@ _apply_gphoto2_paths(_pre_camlibs, _pre_iolibs)
 
 import qasync
 from PIL.ImageQt import ImageQt
-from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt, QTranslator, QTimer, QLocale
+from PyQt6.QtCore import QThread, QSettings, QSize, QStandardPaths, pyqtSignal, Qt, QTranslator, QTimer, QLocale
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent, QBrush, QPainter
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
@@ -135,6 +135,12 @@ class RTICaptureMainWindow(QMainWindow):
         self.preview_led_frame: QFrame = self.findChild(QFrame, "previewLedFrame")
         
         self.capture_view: QTabWidget = self.findChild(QTabWidget, "captureView")
+        # Step tabs are the app's primary mode switch — bump them up a
+        # notch from the default tab typography.
+        tab_font = self.capture_view.tabBar().font()
+        tab_font.setPointSize(tab_font.pointSize() + 2)
+        tab_font.setBold(True)
+        self.capture_view.tabBar().setFont(tab_font)
         self.rtiPage: QWidget = self.findChild(QWidget, "rtiPage")
         self.previewPage: QWidget = self.findChild(QWidget, "previewPage")
         self.preview_viewer: ViewerWidget = self.findChild(ViewerWidget, "previewViewer")
@@ -179,6 +185,15 @@ class RTICaptureMainWindow(QMainWindow):
         self.toggle_live_view_button.toggled.connect(lambda *_: self._update_zoom_visibility())
         self.capture_button: QPushButton = self.findChild(QPushButton, "captureButton")
         self.cancel_capture_button: QPushButton = self.findChild(QPushButton, "cancelCaptureButton")
+        # The capture button is the app's primary action — bigger, bold,
+        # icon at 28px (same as the camera-control icon labels). The cancel
+        # button swaps into its place during capture, so style it the same.
+        for btn in (self.capture_button, self.cancel_capture_button):
+            btn_font = btn.font()
+            btn_font.setPointSize(btn_font.pointSize() + 2)
+            btn_font.setBold(True)
+            btn.setFont(btn_font)
+            btn.setIconSize(QSize(28, 28))
 
         self.rti_progress_view: QWidget = self.findChild(QWidget, "rtiProgressView")
         self.capture_progress_bar: QProgressBar = self.findChild(QProgressBar, "captureProgressBar")
@@ -351,6 +366,19 @@ class RTICaptureMainWindow(QMainWindow):
     def get_camera_state(self):
         return self.camera_state
 
+    def _active_capture_viewer(self) -> ViewerWidget:
+        """The viewer belonging to the current capture mode (preview tab →
+        preview viewer, RTI tab → RTI viewer)."""
+        return (self.rti_viewer if self.capture_mode == CaptureMode.RTI
+                else self.preview_viewer)
+
+    def _hide_capture_busy_message(self) -> None:
+        """Take down the "waiting for captures" overlay wherever it is —
+        called from every capture end state (finished / canceled / error)
+        and on connection loss. Idempotent on both viewers."""
+        self.preview_viewer.hide_busy_message()
+        self.rti_viewer.hide_busy_message()
+
     def _on_usb_offenders_detected(self, offenders: list):
         """macOS USB-claim recovery couldn't free the camera. While the
         dialog is on screen, set_camera_state suppresses the auto-
@@ -483,6 +511,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.disconnect_camera_button.setVisible(False)
                 self.camera_busy_spinner.isAnimated = True
                 self.capture_status_label.setText(None)
+                self._hide_capture_busy_message()  # e.g. connection lost mid-capture
 
                 self.live_view_controls.setEnabled(False)
                 self.light_lcd_frame.setEnabled(False)
@@ -612,14 +641,22 @@ class RTICaptureMainWindow(QMainWindow):
 
                 self.capture_progress_bar.setMaximum(camera_state.capture_request.num_images)
                 self.capture_progress_bar.setValue(camera_state.num_captured)
-                print(camera_state.capture_request.num_images)
-                print(camera_state.num_captured)
+
+                # Externally triggered capture: the app fires nothing and just
+                # waits for the dome/user to trigger each shot — make that
+                # visible with a spinner + text over the active viewer.
+                # (Idempotent — this state re-fires per received image.)
+                if (camera_state.capture_request.capture_strategy
+                        == CaptureImagesRequest.CaptureStrategy.EXTERNAL_PER_SHOT):
+                    self._active_capture_viewer().show_busy_message(
+                        self.tr("Warte auf Aufnahmen …"))
 
 
             case CameraStates.CaptureCancelling():
                 self.cancel_capture_button.setEnabled(False)
 
             case CameraStates.CaptureCanceled():
+                self._hide_capture_busy_message()
                 self.capture_status_label.setText(self.tr("Aufnahme abgebrochen!"))
                 self.capture_status_label.setStyleSheet("color: red;")
 
@@ -630,6 +667,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_view.setTabEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.CaptureError():
+                self._hide_capture_busy_message()
                 self.capture_status_label.setText(self.tr("Fehler: %s" % str(camera_state.error)))
                 self.capture_status_label.setStyleSheet("color: red;")
 
@@ -640,6 +678,7 @@ class RTICaptureMainWindow(QMainWindow):
                 self.capture_view.setTabEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.CaptureFinished():
+                self._hide_capture_busy_message()
                 self.capture_status_label.setText(self.tr("Fertig in %ss!") % str(camera_state.elapsed_time / 1000))
                 self.capture_progress_bar.setValue(camera_state.num_captured)
                 self.session_controls.setEnabled(True)

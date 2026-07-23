@@ -14,7 +14,7 @@ from PyQt6.QtCore import QEvent, QRectF, QSize, Qt
 from PyQt6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap,
 )
-from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from .helpers import set_state
 from .photo_viewer import PhotoViewer
@@ -164,7 +164,26 @@ class ViewerWidget(QWidget):
         # area, positioned relative to the viewport rect.
         self._spinner = Spinner(self.photo_viewer, Spinner.m_light_color)
         self._spinner.isAnimated = False
-        self._reposition_spinner()
+
+        # Busy-message text under the spinner (see show_busy_message).
+        # Light text is correct in BOTH color schemes: the photo canvas is
+        # a fixed dark grey (PhotoViewer.setBackgroundBrush(30,30,30))
+        # regardless of theme, so light-on-dark always reads.
+        self._busy_label = QLabel(self.photo_viewer)
+        self._busy_label.setStyleSheet(
+            "color: #e5e5e5; background: transparent;")
+        busy_font = QFont()
+        busy_font.setPointSize(16)
+        busy_font.setBold(True)
+        self._busy_label.setFont(busy_font)
+        self._busy_label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._busy_label.hide()
+        # While a busy MESSAGE is up (e.g. "waiting for captures"), incoming
+        # images must not clear the overlay — show_image only auto-hides the
+        # plain (message-less) busy spinner.
+        self._busy_message_active = False
+        self._reposition_spinner()  # after _busy_label exists — it moves both
 
         self.photo_viewer.viewport().installEventFilter(self)
         # Initial view-state paint — sets viewState property + pill.
@@ -203,7 +222,8 @@ class ViewerWidget(QWidget):
         self.photo_viewer.setPhoto(pixmap)
         if pixmap is not None and fit:
             self.photo_viewer.fitInView()
-        self._spinner.stopAnimation()
+        if not self._busy_message_active:
+            self._spinner.stopAnimation()
         if self.zoom_bar is not None:
             self.zoom_bar.set_photo_present(pixmap is not None)
             # setPhoto / fitInView already emit zoom_changed, but cover the
@@ -233,6 +253,26 @@ class ViewerWidget(QWidget):
 
     def hide_busy(self) -> None:
         """Hide the spinner. Usually called implicitly by show_image."""
+        self._spinner.stopAnimation()
+
+    def show_busy_message(self, text: str) -> None:
+        """Centered spinner + a text line beneath it (e.g. "Warte auf
+        Aufnahmen …" while an externally triggered capture runs). Unlike
+        the plain show_busy, this overlay survives incoming images — it
+        stays up until hide_busy_message() is called. Idempotent."""
+        self._busy_message_active = True
+        self._busy_label.setText(text)
+        self._busy_label.adjustSize()
+        self._reposition_spinner()
+        self._busy_label.show()
+        self._busy_label.raise_()
+        self._spinner.startAnimation()
+
+    def hide_busy_message(self) -> None:
+        """Take down the spinner + text shown by show_busy_message.
+        Safe to call when nothing is shown."""
+        self._busy_message_active = False
+        self._busy_label.hide()
         self._spinner.stopAnimation()
 
     def set_view_state(self, mode: str, label: str = "") -> None:
@@ -355,6 +395,12 @@ class ViewerWidget(QWidget):
         y = vp_rect.top() + max(0, (vp_rect.height() - size) // 2)
         self._spinner.setGeometry(x, y, size, size)
         self._spinner.raise_()
+        # Busy-message text sits centered just below the spinner.
+        self._busy_label.move(
+            vp_rect.left() + max(0, (vp_rect.width() - self._busy_label.width()) // 2),
+            y + size + 12,
+        )
+        self._busy_label.raise_()
 
     def _reposition_corner_overlays(self) -> None:
         vp_rect = self.photo_viewer.viewport().geometry()
