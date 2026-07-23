@@ -1253,13 +1253,19 @@ class RTICaptureMainWindow(QMainWindow):
             if self.rti_filmstrip.num_files() > 0:
                 message_box = QMessageBox(QMessageBox.Icon.Warning, self.tr("RTI-Serie aufnehmen"),
                                           self.tr("Vorhandene Aufnahmen werden gelöscht."))
-                message_box.addButton(
-                    QPushButton(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton), self.tr("Abbrechen")),
-                    QMessageBox.ButtonRole.NoRole)
-                message_box.addButton(
-                    QPushButton(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOkButton), self.tr("Fortfahren")),
-                    QMessageBox.ButtonRole.YesRole)
-                if not message_box.exec():
+                cancel_button = QPushButton(
+                    self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton), self.tr("Abbrechen"))
+                proceed_button = QPushButton(
+                    self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOkButton), self.tr("Fortfahren"))
+                message_box.addButton(cancel_button, QMessageBox.ButtonRole.NoRole)
+                message_box.addButton(proceed_button, QMessageBox.ButtonRole.YesRole)
+                message_box.setEscapeButton(cancel_button)
+                # For custom buttons, exec()'s return value is an opaque code
+                # (truthiness told us nothing — "Abbrechen" used to proceed!);
+                # only clickedButton() identifies the choice. Esc/close →
+                # clickedButton is the escape button → also aborts.
+                message_box.exec()
+                if message_box.clickedButton() is not proceed_button:
                     return
 
             existing_files = [os.path.join(self.session.images_dir, f) for f in os.listdir(self.session.images_dir)]
