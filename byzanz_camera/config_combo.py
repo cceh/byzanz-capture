@@ -25,7 +25,7 @@ RTI app to its single worker — so this widget stays worker-agnostic.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 import gphoto2 as gp
 from PyQt6.QtCore import pyqtSignal
@@ -43,9 +43,14 @@ class ConfigComboBox(QComboBox):
 
     # ---- public API ----------------------------------------------------
 
-    def update_from_config(self, config, name: str, value_map: dict | None = None) -> bool:
+    def update_from_config(self, config, name: str,
+                           value_map: dict | Callable[[str], str] | None = None) -> bool:
         """Sync items + selection to property `name` in `config` (anything
         with `get_child_by_name` — a CameraWidget or PseudoConfig).
+
+        `value_map` turns a raw choice value into its display label — either a
+        dict (missing keys fall back to the raw value) or a callable applied to
+        every choice. The item *data* stays the raw camera value either way.
 
         Missing / empty / read-only widget → cleared and reported as not
         settable. Returns whether the property is settable (present,
@@ -63,7 +68,10 @@ class ConfigComboBox(QComboBox):
             self.clear_binding()
             return False
 
-        desired = [((value_map or {}).get(c, c), c) for c in choices]
+        if callable(value_map):
+            desired = [(value_map(c), c) for c in choices]
+        else:
+            desired = [((value_map or {}).get(c, c), c) for c in choices]
         have = [(self.itemText(i), self.itemData(i)) for i in range(self.count())]
         blocked = self.blockSignals(True)
         try:

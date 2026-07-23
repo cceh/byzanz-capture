@@ -1,8 +1,10 @@
 from os import path
+import math
+import re
 import sys
 from typing import Any
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QLocale, QSize, Qt
 from PyQt6.QtGui import QIcon, QImage, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication, QWidget
@@ -13,6 +15,33 @@ def get_ui_path(file: str):
     else:
         bundle_dir = path.abspath(path.dirname("__FILE__"))
     return path.join(bundle_dir, file)
+
+
+_FRACTION_RE = re.compile(r"(\d+)/(\d+)")
+
+def format_exposure_time(value: str) -> str:
+    """Display label for a camera-reported exposure time: values parseable as
+    a fraction (e.g. "1/250", "6/5") become a locale-formatted decimal number
+    ("0,004" / "1,2" with a comma-decimal locale); anything else — including a
+    zero denominator — passes through as reported by the camera. Rounded to 3
+    significant digits ("1/60" → "0,0167"), trailing zeros stripped."""
+    match = _FRACTION_RE.fullmatch(value.strip())
+    if not match:
+        return value
+    numerator, denominator = int(match.group(1)), int(match.group(2))
+    if denominator == 0 or numerator == 0:
+        return value
+    decimal = numerator / denominator
+    # 'f' with enough places for 3 significant digits — never scientific
+    # notation, which 'g' would switch to for e.g. 1/32000.
+    places = max(1, 2 - math.floor(math.log10(decimal)))
+    locale = QLocale()
+    locale.setNumberOptions(QLocale.NumberOption.OmitGroupSeparator)
+    text = locale.toString(decimal, 'f', places)
+    decimal_point = locale.decimalPoint()
+    if decimal_point in text:
+        text = text.rstrip('0').rstrip(decimal_point)
+    return text
 
 
 # Sizes baked into the in-app QIcon. Includes the small sizes Qt

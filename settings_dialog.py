@@ -70,6 +70,28 @@ class SettingsDialog(QDialog):
                 lambda i, c=combo, key=settings_key: self.set(key, c.itemData(i))
             )
 
+        # Main-window camera controls: per-control visibility + how exposure
+        # times are labeled (raw camera value vs. parsed decimal number).
+        for checkbox_name, settings_key in (("showFormatCheckbox", "showFormatControl"),
+                                            ("showIsoCheckbox", "showIsoControl"),
+                                            ("showExposureTimeCheckbox", "showExposureTimeControl"),
+                                            ("showApertureCheckbox", "showApertureControl")):
+            checkbox: QCheckBox = self.findChild(QCheckBox, checkbox_name)
+            checkbox.setChecked(q_settings.value(settings_key, True, type=bool))
+            checkbox.toggled.connect(
+                lambda checked, key=settings_key: self.set(key, checked)
+            )
+
+        self.exposure_time_display_select: QComboBox = self.findChild(QComboBox, "exposureTimeDisplaySelect")
+        for label, value in ((self.tr("Wie von Kamera gemeldet"), "camera"),
+                             (self.tr("Dezimalzahl"), "decimal")):
+            self.exposure_time_display_select.addItem(label, value)
+        self._select_combo_data(self.exposure_time_display_select,
+                                q_settings.value("exposureTimeDisplayMode", "camera"))
+        self.exposure_time_display_select.currentIndexChanged.connect(
+            lambda i: self.set("exposureTimeDisplayMode", self.exposure_time_display_select.itemData(i))
+        )
+
         self.enable_second_screen_mirror_checkbox: QCheckBox = self.findChild(QCheckBox, "enableSecondScreenMirrorCheckbox")
         self.enable_second_screen_mirror_checkbox.setChecked(q_settings.value("enableSecondScreenMirror", type=bool))
         self.enable_second_screen_mirror_checkbox.stateChanged.connect(

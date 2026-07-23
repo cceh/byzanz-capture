@@ -99,6 +99,8 @@ event/sink; if there is more than one, funnel them through a single entry**
 | Read/write the RTI dome config (shot count, capture strategy, light controller) | `dome_config.current_dome` / `apply_preset`; presets are read-only JSON in `dome_presets/` | read/write the `dome/*` QSettings keys inline, or map a camera to a dome (they are independent) |
 | QSettings schema changes / migration | `settings_migration.migrate_settings` (RTI) / `migrate_papyri_settings` (papyri), versioned by `settingsVersion` | change stored keys/ids without a versioned, idempotent migration step |
 | List / register camera profiles | `byzanz_camera/profiles` `PROFILES` (one shared registry, all app variants) | keep a per-app profile dict — they drift (RTI once lacked NikonD90) |
+| Main-window camera-control prefs (per-control visibility, exposure-time label style) | `RTICaptureMainWindow._apply_camera_control_prefs` (keys in `CAMERA_CONTROL_PREF_KEYS`) | setVisible on the combos/icon labels at call sites, or read the `show*Control` / `exposureTimeDisplayMode` keys inline |
+| Exposure-time display label (fraction → decimal) | `byzanz_camera.helpers.format_exposure_time` | parse/format shutter-speed strings inline |
 
 **When you discover or introduce a new choke point, add a row here** — that's
 the durable prevention (see the doc above).

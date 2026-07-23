@@ -36,7 +36,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.uic import loadUi
 from send2trash import send2trash
 
-from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.helpers import format_exposure_time, get_ui_path
 from byzanz_camera.config_combo import ConfigComboBox
 from byzanz_camera.profiles import PROFILES
 
@@ -183,6 +183,15 @@ class RTICaptureMainWindow(QMainWindow):
         self.shutter_speed_select: ConfigComboBox = self.findChild(ConfigComboBox, "shutterSpeedSelect")
         self.crop_select: ConfigComboBox = self.findChild(ConfigComboBox, "cropSelect")
         self.iso_select: ConfigComboBox = self.findChild(ConfigComboBox, "isoSelect")
+        self.f_number_icon_label: QLabel = self.findChild(QLabel, "fNumberIconLabel")
+        self.shutter_speed_icon_label: QLabel = self.findChild(QLabel, "shutterSpeedIconLabel")
+        self.crop_icon_label: QLabel = self.findChild(QLabel, "cropIconLabel")
+        self.iso_icon_label: QLabel = self.findChild(QLabel, "isoIconLabel")
+        # Last config snapshot, kept so a settings change can re-label the
+        # combos immediately instead of waiting for the next config update.
+        self._last_camera_config: ConfigProtocol | None = None
+        self._exposure_time_decimal = False
+        self._apply_camera_control_prefs()
         # A user pick on any capture-setting combo routes to the worker.
         # Connected once; the widget only emits on genuine user changes
         # (never on the 0.5s poll), so no disconnect/reconnect churn.
@@ -742,6 +751,9 @@ class RTICaptureMainWindow(QMainWindow):
                 elif name.startswith("dome/"):
                     dome_changed = True
 
+            if any(key in dialog.settings for key in self.CAMERA_CONTROL_PREF_KEYS):
+                self._apply_camera_control_prefs()
+
             # The dome/* keys are written above; re-read the whole record once
             # and reconcile anything that depends on it (BLE, progress range).
             if dome_changed:
@@ -953,10 +965,38 @@ class RTICaptureMainWindow(QMainWindow):
         # popup is closed — so the 0.5s poll no longer disrupts an open
         # dropdown. The user-pick → set_single_config wiring is connected once
         # in __init__ via value_chosen.
+        self._last_camera_config = config
         self.iso_select.update_from_config(config, self.profile.iso_property_name())
         self.f_number_select.update_from_config(config, self.profile.f_number_property_name())
-        self.shutter_speed_select.update_from_config(config, self.profile.shutterspeed_property_name())
+        self.shutter_speed_select.update_from_config(
+            config, self.profile.shutterspeed_property_name(),
+            value_map=format_exposure_time if self._exposure_time_decimal else None)
         self.crop_select.update_from_config(config, self.profile.image_format_property_name())
+
+    # Settings keys handled by _apply_camera_control_prefs; open_settings uses
+    # this to know when to re-apply after the dialog closes.
+    CAMERA_CONTROL_PREF_KEYS = ("showFormatControl", "showIsoControl",
+                                "showExposureTimeControl", "showApertureControl",
+                                "exposureTimeDisplayMode")
+
+    def _apply_camera_control_prefs(self):
+        """Visibility of the format/ISO/exposure-time/aperture controls and
+        the exposure-time label style, as configured in general settings."""
+        q_settings = QSettings()
+        for key, widgets in (
+                ("showFormatControl", (self.crop_icon_label, self.crop_select)),
+                ("showIsoControl", (self.iso_icon_label, self.iso_select)),
+                ("showExposureTimeControl", (self.shutter_speed_icon_label, self.shutter_speed_select)),
+                ("showApertureControl", (self.f_number_icon_label, self.f_number_select))):
+            visible = q_settings.value(key, True, type=bool)
+            for widget in widgets:
+                widget.setVisible(visible)
+        self._exposure_time_decimal = \
+            q_settings.value("exposureTimeDisplayMode", "camera") == "decimal"
+        # Re-label the exposure-time choices right away instead of waiting for
+        # the next config update from the worker.
+        if self._last_camera_config is not None:
+            self.on_config_update(self._last_camera_config)
 
     def on_property_change(self, event: PropertyChangeEvent):
         match event.property_name:

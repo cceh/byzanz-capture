@@ -120,6 +120,71 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="cameraControlsGroup">
+     <property name="title">
+      <string>Kamera-Bedienelemente im Hauptfenster</string>
+     </property>
+     <layout class="QFormLayout" name="cameraControlsFormLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="visibleControlsLabel">
+        <property name="text">
+         <string>Anzeigen:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <layout class="QHBoxLayout" name="visibleControlsLayout">
+        <item>
+         <widget class="QCheckBox" name="showFormatCheckbox">
+          <property name="text">
+           <string>Format</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="showIsoCheckbox">
+          <property name="text">
+           <string>ISO</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="showExposureTimeCheckbox">
+          <property name="text">
+           <string>Belichtungszeit</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="showApertureCheckbox">
+          <property name="text">
+           <string>Blende</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="exposureTimeDisplayLabel">
+        <property name="text">
+         <string>Belichtungszeit anzeigen als:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="exposureTimeDisplaySelect">
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
+        <property name="toolTip">
+         <string>„Dezimalzahl“ zeigt als Bruch gemeldete Werte (z.&#8201;B. 1/250) als Zahl an.</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="domeGroup">
      <property name="title">
       <string>Dom</string>

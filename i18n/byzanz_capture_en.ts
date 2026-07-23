@@ -4,415 +4,565 @@
 <context>
     <name>Dialog</name>
     <message>
-        <location filename="../ui/press-buttons-dialog.ui" line="0"/>
+        <location filename="..\ui\press-buttons-dialog.ui" line="0" />
         <source>Knöpfe drücken!</source>
-        <translation type="unfinished">Push buttons!</translation>
+        <translation>Push buttons!</translation>
     </message>
     <message>
-        <location filename="../ui/press-buttons-dialog.ui" line="0"/>
-        <source>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
-&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;meta charset=&quot;utf-8&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
+        <location filename="..\ui\press-buttons-dialog.ui" line="0" />
+        <source>&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd"&gt;
+&lt;html&gt;&lt;head&gt;&lt;meta name="qrichtext" content="1" /&gt;&lt;meta charset="utf-8" /&gt;&lt;style type="text/css"&gt;
 p, li { white-space: pre-wrap; }
 hr { height: 1px; border-width: 0; }
-&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:&apos;Ubuntu&apos;; font-size:11pt; font-weight:400; font-style:normal;&quot;&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;• Erst den &lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700; color:#c01c28;&quot;&gt;ROTEN&lt;/span&gt; &lt;span style=&quot; font-size:14pt;&quot;&gt;Knopf drücken&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
+&lt;/style&gt;&lt;/head&gt;&lt;body style=" font-family:'Ubuntu'; font-size:11pt; font-weight:400; font-style:normal;"&gt;
+&lt;p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;&lt;span style=" font-size:14pt;"&gt;• Erst den &lt;/span&gt;&lt;span style=" font-size:14pt; font-weight:700; color:#c01c28;"&gt;ROTEN&lt;/span&gt; &lt;span style=" font-size:14pt;"&gt;Knopf drücken&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd"&gt;
+&lt;html&gt;&lt;head&gt;&lt;meta name="qrichtext" content="1" /&gt;&lt;meta charset="utf-8" /&gt;&lt;style type="text/css"&gt;
+p, li { white-space: pre-wrap; }
+hr { height: 1px; border-width: 0; }
+&lt;/style&gt;&lt;/head&gt;&lt;body style=" font-family:'Ubuntu'; font-size:11pt; font-weight:400; font-style:normal;"&gt;
+&lt;p style=" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;&lt;span style=" font-size:14pt;"&gt;• First press the &lt;/span&gt;&lt;span style=" font-size:14pt; font-weight:700; color:#c01c28;"&gt;RED&lt;/span&gt; &lt;span style=" font-size:14pt;"&gt;button&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
-        <location filename="../ui/press-buttons-dialog.ui" line="0"/>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;• &lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700;&quot;&gt;Danach &lt;/span&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;auf&lt;/span&gt;&lt;span style=&quot; font-size:14pt; font-weight:700;&quot;/&gt;&lt;span style=&quot; font-size:14pt; font-style:italic;&quot;&gt;OK&lt;/span&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt; klicken!&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
+        <location filename="..\ui\press-buttons-dialog.ui" line="0" />
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:14pt;"&gt;• &lt;/span&gt;&lt;span style=" font-size:14pt; font-weight:700;"&gt;Danach &lt;/span&gt;&lt;span style=" font-size:14pt;"&gt;auf&lt;/span&gt;&lt;span style=" font-size:14pt; font-weight:700;"/&gt;&lt;span style=" font-size:14pt; font-style:italic;"&gt;OK&lt;/span&gt;&lt;span style=" font-size:14pt;"&gt; klicken!&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:14pt;"&gt;• &lt;/span&gt;&lt;span style=" font-size:14pt; font-weight:700;"&gt;Then &lt;/span&gt;&lt;span style=" font-size:14pt;"&gt;click &lt;/span&gt;&lt;span style=" font-size:14pt; font-weight:700;"/&gt;&lt;span style=" font-size:14pt; font-style:italic;"&gt;OK&lt;/span&gt;&lt;span style=" font-size:14pt;"&gt;!&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>Einstellungen</name>
     <message>
-        <location filename="../ui/settings_dialog.ui" line="0"/>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
         <source>Dialog</source>
-        <translation type="unfinished">Dialog</translation>
+        <translation>Dialog</translation>
     </message>
     <message>
-        <location filename="../ui/settings_dialog.ui" line="0"/>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Kamera:</source>
+        <translation>Camera:</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
         <source>Arbeitsverzeichnis:</source>
-        <translation type="unfinished">Working directory:</translation>
+        <translation>Working directory:</translation>
     </message>
     <message>
-        <location filename="../ui/settings_dialog.ui" line="0"/>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
         <source>/tmp</source>
-        <translation type="unfinished"></translation>
+        <translation>/tmp</translation>
     </message>
     <message>
-        <location filename="../ui/settings_dialog.ui" line="0"/>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
         <source>Max. Pixmap-Cache (in MB):</source>
-        <translation type="unfinished">Max. pixmap cache (in MB):</translation>
+        <translation>Max. pixmap cache (in MB):</translation>
     </message>
     <message>
-        <location filename="../ui/settings_dialog.ui" line="0"/>
-        <source>Max. Burst-Nummer:</source>
-        <translation type="unfinished">Max. burst number:</translation>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Format Vorschau-Aufnahmen:</source>
+        <translation>Preview capture format:</translation>
     </message>
     <message>
-        <location filename="../ui/settings_dialog.ui" line="0"/>
-        <source>Bluetooth-Funktion des CCeH-Controllers verwenden</source>
-        <translation type="unfinished">Use Bluetooth features of the CCeH Dome Controller</translation>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Format RTI-Serie:</source>
+        <translation>RTI capture format:</translation>
     </message>
     <message>
-        <location filename="../ui/settings_dialog.ui" line="0"/>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
         <source>Bildansicht auf zweitem Bildschirm spiegeln</source>
-        <translation type="unfinished">Mirror view on secondary screen</translation>
+        <translation>Mirror view on secondary screen</translation>
     </message>
-</context>
-<context>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Kamera-Bedienelemente im Hauptfenster</source>
+        <translation>Camera controls in the main window</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Anzeigen:</source>
+        <translation>Show:</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Format</source>
+        <translation>Format</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>ISO</source>
+        <translation>ISO</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Belichtungszeit</source>
+        <translation>Exposure time</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Blende</source>
+        <translation>Aperture</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Belichtungszeit anzeigen als:</source>
+        <translation>Show exposure time as:</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>„Dezimalzahl“ zeigt als Bruch gemeldete Werte (z. B. 1/250) als Zahl an.</source>
+        <translation>“Decimal number” shows values reported as fractions (e.g. 1/250) as a number.</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Dom</source>
+        <translation>Dome</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Preset laden:</source>
+        <translation>Load preset:</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Füllt die Felder unten mit den Werten eines Presets. Danach frei editierbar.</source>
+        <translation>Fills the fields below with the values of a preset. Freely editable afterwards.</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>LED-Positionen:</source>
+        <translation>LED positions:</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Aufnahme-Modus:</source>
+        <translation>Capture mode:</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Max. Burst:</source>
+        <translation>Max. burst:</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Lichtsteuerung:</source>
+        <translation>Light control:</translation>
+    </message>
+    <message>
+        <source>Max. Burst-Nummer:</source>
+        <translation type="vanished">Max. burst number:</translation>
+    </message>
+    <message>
+        <source>Bluetooth-Funktion des CCeH-Controllers verwenden</source>
+        <translation type="vanished">Use Bluetooth features of the CCeH Dome Controller</translation>
+    </message>
+</context><context>
     <name>Form</name>
     <message>
-        <location filename="../ui/photo_browser.ui" line="0"/>
-        <source>Form</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../ui/photo_browser.ui" line="0"/>
         <source>Bilder</source>
-        <translation type="unfinished">Photos</translation>
+        <translation type="vanished">Photos</translation>
     </message>
     <message>
-        <location filename="../ui/photo_browser.ui" line="0"/>
         <source>Vorschau</source>
-        <translation type="unfinished">Preview</translation>
+        <translation type="vanished">Preview</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>MainWindow</name>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>CCeH Byzanz RTI</source>
-        <translation type="unfinished"></translation>
+        <translation>CCeH Byzanz RTI</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Name der Sitzung</source>
-        <translation type="unfinished">Session name</translation>
+        <translation>Session name</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Sitzung starten</source>
-        <translation type="unfinished">Start session</translation>
+        <translation>Start session</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Sitzung beenden</source>
-        <translation type="unfinished">End session</translation>
+        <translation>End session</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Bestehende Sitzung öffnen</source>
-        <translation type="unfinished">Open existing session</translation>
+        <translation>Open existing session</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>...</source>
-        <translation type="unfinished"></translation>
+        <translation>...</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Kamera-Status&lt;br&gt;&lt;b&gt;Hersteller Modell&lt;/b&gt;</source>
-        <translation type="unfinished">Camera state&lt;br&gt;&lt;b&gt;Manufacturer Model&lt;/b&gt;</translation>
+        <translation>Camera state&lt;br&gt;&lt;b&gt;Manufacturer Model&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Kamera trennen</source>
-        <translation type="unfinished">Disconnect camera</translation>
+        <translation>Disconnect camera</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Kamera verbinden</source>
-        <translation type="unfinished">Connect camera</translation>
+        <translation>Connect camera</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Einstellungen</source>
-        <translation type="unfinished">Settings</translation>
+        <translation>Settings</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Byzanz RTI</source>
-        <translation type="unfinished"></translation>
+        <translation>Byzanz RTI</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Schritt 1: Vorschaubilder aufnehmen</source>
-        <translation type="unfinished">Step 1: Take preview photos</translation>
+        <translation>Step 1: Take preview photos</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>LED für Vorschaubild:</source>
-        <translation type="unfinished">LED for preview photo:</translation>
+        <translation>LED for preview photo:</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>LiveView-Fehler</source>
-        <translation type="unfinished">LiveView error</translation>
+        <translation>LiveView error</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Kamera-Lichtsensor</source>
-        <translation type="unfinished">Camera light sensor</translation>
+        <translation>Camera light sensor</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Fokus</source>
-        <translation type="unfinished">Focus</translation>
+        <translation>Focus</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Live-Ansicht</source>
-        <translation type="unfinished">Live view</translation>
+        <translation>Live view</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Schritt 2: RTI-Serie aufnehmen</source>
-        <translation type="unfinished">Step 2: Capture RTI series</translation>
+        <translation>Step 2: Capture RTI series</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>RTI-Fortschritt:</source>
-        <translation type="unfinished">RTI progress:</translation>
+        <translation>RTI progress:</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Aufnahme-Status</source>
-        <translation type="unfinished">Recording progress</translation>
+        <translation>Recording progress</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Aufnahmeformat</source>
-        <translation type="unfinished">Photo format</translation>
+        <translation>Photo format</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>ISO-Wert</source>
-        <translation type="unfinished">ISO</translation>
+        <translation>ISO</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Belichtungszeit</source>
-        <translation type="unfinished">Exposure time</translation>
+        <translation>Exposure time</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Blendenöffnung</source>
-        <translation type="unfinished">Aperture</translation>
+        <translation>Aperture</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Aufnahme starten</source>
-        <translation type="unfinished">Start capture</translation>
+        <translation>Start capture</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Space</source>
-        <translation type="unfinished"></translation>
+        <translation>Space</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.ui" line="0"/>
+        <location filename="..\ui\main_window.ui" line="0" />
         <source>Aufnahme abbrechen</source>
-        <translation type="unfinished">Cancel capture</translation>
+        <translation>Cancel capture</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>OpenSessionDialog</name>
     <message>
-        <location filename="../open_session_dialog.py" line="14"/>
+        <location filename="..\open_session_dialog.py" line="14" />
         <source>Bestehende Sitzung öffnen</source>
-        <translation type="unfinished">Open existing session</translation>
+        <translation>Open existing session</translation>
     </message>
     <message>
-        <location filename="../open_session_dialog.py" line="53"/>
+        <location filename="..\open_session_dialog.py" line="53" />
         <source>Fehler</source>
-        <translation type="unfinished">Error</translation>
+        <translation>Error</translation>
     </message>
     <message>
-        <location filename="../open_session_dialog.py" line="53"/>
+        <location filename="..\open_session_dialog.py" line="53" />
         <source>Gewähltes Verzeichnis befindet sich nicht im Arbeitsverzeichnis.</source>
-        <translation type="unfinished">Chosen directory is not in the working directory.</translation>
+        <translation>Chosen directory is not in the working directory.</translation>
     </message>
-</context>
-<context>
+</context><context>
     <name>RTICaptureMainWindow</name>
     <message>
-        <location filename="../main.py" line="131"/>
+        <location filename="..\main.py" line="217" />
         <source>Allgemeine Einstellungen</source>
-        <translation type="unfinished">General settings</translation>
+        <translation>General settings</translation>
     </message>
     <message>
-        <location filename="../main.py" line="134"/>
+        <location filename="..\main.py" line="220" />
         <source>Erweiterte Kamerakonfiguration</source>
-        <translation type="unfinished">Advanced camera settings</translation>
+        <translation>Advanced camera settings</translation>
     </message>
     <message>
-        <location filename="../main.py" line="183"/>
+        <location filename="..\main.py" line="271" />
         <source>Sekundäransicht</source>
-        <translation type="unfinished">Secondary Screen</translation>
+        <translation>Secondary Screen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="312"/>
+        <location filename="..\main.py" line="431" />
         <source>Sitzung beenden</source>
-        <translation type="unfinished">End session</translation>
+        <translation>End session</translation>
     </message>
     <message>
-        <location filename="../main.py" line="312"/>
+        <location filename="..\main.py" line="431" />
         <source>Laden abbrechen...</source>
-        <translation type="unfinished">Cancel loading...</translation>
+        <translation>Cancel loading...</translation>
     </message>
     <message>
-        <location filename="../main.py" line="326"/>
+        <location filename="..\main.py" line="445" />
         <source>Suche Kamera...</source>
-        <translation type="unfinished">Finding camera...</translation>
+        <translation>Finding camera...</translation>
     </message>
     <message>
-        <location filename="../main.py" line="407"/>
-        <location filename="../main.py" line="342"/>
+        <location filename="..\main.py" line="526" />
+        <location filename="..\main.py" line="461" />
         <source>Nicht verbunden</source>
-        <translation type="unfinished">Not connected</translation>
+        <translation>Not connected</translation>
     </message>
     <message>
-        <location filename="../main.py" line="350"/>
+        <location filename="..\main.py" line="469" />
         <source>Kamera getrennt&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
-        <translation type="unfinished">Camera disconnected&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
+        <translation>Camera disconnected&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../main.py" line="366"/>
+        <location filename="..\main.py" line="485" />
         <source>Verbinde... &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
-        <translation type="unfinished">Connecting... &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
+        <translation>Connecting... &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../main.py" line="374"/>
+        <location filename="..\main.py" line="493" />
         <source>Kamera verbunden&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
-        <translation type="unfinished">Camera connected &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
+        <translation>Camera connected &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="../main.py" line="391"/>
+        <location filename="..\main.py" line="510" />
         <source>Vorschaubild aufnehmen</source>
-        <translation type="unfinished">Take preview photo</translation>
+        <translation>Take preview photo</translation>
     </message>
     <message>
-        <location filename="../main.py" line="393"/>
+        <location filename="..\main.py" line="512" />
         <source>RTI-Aufnahme starten</source>
-        <translation type="unfinished">Start RTI capture</translation>
+        <translation>Start RTI capture</translation>
     </message>
     <message>
-        <location filename="../main.py" line="398"/>
+        <location filename="..\main.py" line="517" />
         <source>Trenne Kamera...</source>
-        <translation type="unfinished">Disconnecting camera...</translation>
+        <translation>Disconnecting camera...</translation>
     </message>
     <message>
-        <location filename="../main.py" line="424"/>
+        <location filename="..\main.py" line="544" />
         <source>Konnte nicht fokussieren. Zu dunkel?</source>
-        <translation type="unfinished">Could not focus. Too dark?</translation>
+        <translation>Could not focus. Too dark?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="465"/>
+        <location filename="..\main.py" line="590" />
         <source>Aufnahme abgebrochen!</source>
-        <translation type="unfinished">Capture canceled!</translation>
+        <translation>Capture canceled!</translation>
     </message>
     <message>
-        <location filename="../main.py" line="485"/>
+        <location filename="..\main.py" line="610" />
         <source>Fertig in %ss!</source>
-        <translation type="unfinished">Finished in %ss!</translation>
+        <translation>Finished in %ss!</translation>
     </message>
     <message>
-        <location filename="../main.py" line="503"/>
+        <location filename="..\main.py" line="632" />
         <source>Bluetooth-Verbindung zum Controller getrennt</source>
-        <translation type="unfinished">Bluetooth disconnected from controller</translation>
+        <translation>Bluetooth disconnected from controller</translation>
     </message>
     <message>
-        <location filename="../main.py" line="507"/>
+        <location filename="..\main.py" line="636" />
         <source>Bluetooth-Verbindung zum Controller wird aufgebaut...</source>
-        <translation type="unfinished">Connecting to controller via Bluetooth...</translation>
+        <translation>Connecting to controller via Bluetooth...</translation>
     </message>
     <message>
-        <location filename="../main.py" line="512"/>
+        <location filename="..\main.py" line="641" />
         <source>Bluetooth-Verbindung zum Controller aktiv</source>
-        <translation type="unfinished">Connected to controller via Bluetooth</translation>
+        <translation>Connected to controller via Bluetooth</translation>
     </message>
     <message>
-        <location filename="../main.py" line="516"/>
+        <location filename="..\main.py" line="645" />
         <source>Bluetooth-Verbindung zum Controller wird getrennt...</source>
-        <translation type="unfinished">Disconnecting Bluetooth connection to controller...</translation>
+        <translation>Disconnecting Bluetooth connection to controller...</translation>
     </message>
     <message>
-        <location filename="../main.py" line="652"/>
-        <location filename="../main.py" line="604"/>
+        <location filename="..\main.py" line="721" />
+        <source>Capture in progress</source>
+        <translation>Capture in progress</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="722" />
+        <source>The camera profile was not changed because a capture is running. Change it again once the capture has finished.</source>
+        <translation>The camera profile was not changed because a capture is running. Change it again once the capture has finished.</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="882" />
+        <location filename="..\main.py" line="821" />
         <source>Fehler</source>
-        <translation type="unfinished">Error</translation>
+        <translation>Error</translation>
     </message>
     <message>
-        <location filename="../main.py" line="605"/>
+        <location filename="..\main.py" line="822" />
         <source>Sitzung %s existiert bereits. Soll sie erneut geöffnet werden?</source>
-        <translation type="unfinished">Session %s already exists. Do you want to open it again?</translation>
+        <translation>Session %s already exists. Do you want to open it again?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="645"/>
+        <location filename="..\main.py" line="875" />
         <source>Aktuelle Sitzung umbenennen</source>
-        <translation type="unfinished">Rename currenct session</translation>
+        <translation>Rename currenct session</translation>
     </message>
     <message>
-        <location filename="../main.py" line="645"/>
+        <location filename="..\main.py" line="875" />
         <source>Neuer Name</source>
-        <translation type="unfinished">New name</translation>
+        <translation>New name</translation>
     </message>
     <message>
-        <location filename="../main.py" line="652"/>
+        <location filename="..\main.py" line="882" />
         <source>Sitzung %s existiert bereits.</source>
-        <translation type="unfinished">Session %s already exists.</translation>
+        <translation>Session %s already exists.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="756"/>
-        <source>Voll</source>
-        <translation type="unfinished">Full</translation>
+        <location filename="..\main.py" line="1076" />
+        <source>Aufnahmemodus passt nicht zur Kamera</source>
+        <translation>Capture mode does not match the camera</translation>
     </message>
     <message>
-        <location filename="../main.py" line="757"/>
-        <source>Klein</source>
-        <translation type="unfinished">Small</translation>
+        <location filename="..\main.py" line="1077" />
+        <source>Der Dom-Aufnahmemodus ist „Kamera-Burst“, aber diese Kamera unterstützt das nicht. Stelle in den Einstellungen den Aufnahmemodus auf „Extern getriggert“ oder „Einzelbild per App“.</source>
+        <translation>The dome capture mode is “Camera burst”, but this camera does not support it. In the settings, set the capture mode to “Externally triggered” or “Single shot via app”.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="758"/>
-        <source>Mittel</source>
-        <translation type="unfinished">Medium</translation>
-    </message>
-    <message>
-        <location filename="../main.py" line="759"/>
-        <source>Mittel 2</source>
-        <translation type="unfinished">Medium 2</translation>
-    </message>
-    <message>
-        <location filename="../main.py" line="793"/>
+        <location filename="..\main.py" line="1084" />
         <source>RTI-Serie aufnehmen</source>
-        <translation type="unfinished">Capture RTI series</translation>
+        <translation>Capture RTI series</translation>
     </message>
     <message>
-        <location filename="../main.py" line="794"/>
+        <location filename="..\main.py" line="1085" />
         <source>Vorhandene Aufnahmen werden gelöscht.</source>
-        <translation type="unfinished">Existing captures will be deleted.</translation>
+        <translation>Existing captures will be deleted.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="796"/>
+        <location filename="..\main.py" line="1087" />
         <source>Abbrechen</source>
-        <translation type="unfinished">Cancel</translation>
+        <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../main.py" line="799"/>
+        <location filename="..\main.py" line="1090" />
         <source>Fortfahren</source>
-        <translation type="unfinished">Continue</translation>
+        <translation>Continue</translation>
     </message>
-</context>
-<context>
+    <message>
+        <source>Voll</source>
+        <translation type="vanished">Full</translation>
+    </message>
+    <message>
+        <source>Klein</source>
+        <translation type="vanished">Small</translation>
+    </message>
+    <message>
+        <source>Mittel</source>
+        <translation type="vanished">Medium</translation>
+    </message>
+    <message>
+        <source>Mittel 2</source>
+        <translation type="vanished">Medium 2</translation>
+    </message>
+</context><context>
     <name>SettingsDialog</name>
     <message>
-        <location filename="../settings_dialog.py" line="63"/>
-        <location filename="../settings_dialog.py" line="25"/>
+        <location filename="..\settings_dialog.py" line="171" />
+        <location filename="..\settings_dialog.py" line="41" />
         <source>Arbeitsverzeichnis wählen</source>
-        <translation type="unfinished">Choose working directory</translation>
+        <translation>Choose working directory</translation>
     </message>
-</context>
-</TS>
+    <message>
+        <location filename="..\settings_dialog.py" line="57" />
+        <source>JPEG + RAW</source>
+        <translation>JPEG + RAW</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="58" />
+        <source>Nur JPEG</source>
+        <translation>JPEG only</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="59" />
+        <source>Nur RAW</source>
+        <translation>RAW only</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="86" />
+        <source>Wie von Kamera gemeldet</source>
+        <translation>As reported by camera</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="87" />
+        <source>Dezimalzahl</source>
+        <translation>Decimal number</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="116" />
+        <source>Kamera-Burst (Kölner Dom)</source>
+        <translation>Camera burst (Cologne dome)</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="117" />
+        <source>Extern getriggert (Pariser Dom)</source>
+        <translation>Externally triggered (Paris dome)</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="118" />
+        <source>Einzelbild per App</source>
+        <translation>Single shot via app</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="121" />
+        <source>CCeH-Controller (Bluetooth)</source>
+        <translation>CCeH controller (Bluetooth)</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="122" />
+        <source>Keine / autonom</source>
+        <translation>None / autonomous</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="142" />
+        <source>— Preset laden —</source>
+        <translation>— Load preset —</translation>
+    </message>
+</context></TS>
