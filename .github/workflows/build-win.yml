@@ -48,9 +48,18 @@ jobs:
     - name: Smoke test (launch frozen app headless)
       run: ./scripts/vm-win-setup.sh smoketest
 
+    - name: Build installer (Inno Setup)
+      run: ./scripts/vm-win-setup.sh installer
+
     - name: Upload artifacts
       if: always()   # keep the bundle for inspection even if the smoke test failed
       uses: actions/upload-artifact@v4
       with:
         name: byzanz-capture-windows
         path: dist/byzanz-capture
+
+    - name: Upload installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: byzanz-capture-windows-installer
+        path: dist/installer/*.exe

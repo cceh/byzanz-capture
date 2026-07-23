@@ -29,5 +29,6 @@ pyinstaller --onedir \
     --add-data cceh-dome-template.lp:. \
     --add-data dome_presets:dome_presets main.py \
     --runtime-hook ./build_win_hook.py \
+    --icon ui/icon/app_icon.ico \
     --noconfirm \
     --name byzanz-capture

@@ -101,6 +101,25 @@ smoketest)
     fi
     echo "SMOKE TEST OK"
     ;;
+installer)
+    # Compile a per-user Windows installer (setup.exe) from the onedir
+    # bundle via Inno Setup — preinstalled on GitHub windows runners;
+    # locally: winget install JRSoftware.InnoSetup
+    EXE="dist/byzanz-capture/byzanz-capture.exe"
+    [ -f "$EXE" ] || { echo "installer: $EXE not found — run the build phase first"; exit 1; }
+    ISCC=""
+    for candidate in "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+                     "/c/Program Files/Inno Setup 6/ISCC.exe"; do
+        [ -f "$candidate" ] && ISCC="$candidate" && break
+    done
+    [ -n "$ISCC" ] || { echo "installer: ISCC.exe not found — install Inno Setup 6 (winget install JRSoftware.InnoSetup)"; exit 1; }
+    # Version: date + short commit (CI provides GITHUB_SHA; local git fallback).
+    SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+    VERSION="$(date +%Y.%m.%d)-${SHA:0:7}"
+    echo "installer: version $VERSION"
+    "$ISCC" "-DAppVersion=$VERSION" scripts/win-installer.iss
+    ls -la dist/installer/
+    ;;
 run)
     # Run the app from source (python main.py) — for developing on the Windows
     # machine without producing a frozen bundle. Needs `deps` + `venv` done once.
@@ -121,7 +140,7 @@ run)
     python main.py
     ;;
 *)
-    echo "usage: $0 {sync|deps|venv|build|smoketest|run}" >&2
+    echo "usage: $0 {sync|deps|venv|build|smoketest|installer|run}" >&2
     exit 1
     ;;
 esac
