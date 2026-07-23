@@ -156,6 +156,11 @@ class RTICaptureMainWindow(QMainWindow):
         # places them left of the viewer; the widget lays them out top-to-bottom.
         self.preview_filmstrip.set_orientation(Qt.Orientation.Vertical)
         self.rti_filmstrip.set_orientation(Qt.Orientation.Vertical)
+        # EXIF line on the thumbs (f-number | exposure | ISO). The exposure
+        # display style follows the settings dialog — pushed into the
+        # filmstrips by _apply_camera_control_prefs.
+        self.preview_filmstrip.set_exif_captions(True)
+        self.rti_filmstrip.set_exif_captions(True)
 
         # Filmstrip → viewer wiring (per mode). The filmstrip handles all
         # the directory/async-thumb work and emits a decoded pixmap when
@@ -1123,6 +1128,11 @@ class RTICaptureMainWindow(QMainWindow):
                 widget.setVisible(visible)
         self._exposure_time_decimal = \
             q_settings.value("exposureTimeDisplayMode", "camera") == "decimal"
+        # The filmstrip thumbs' EXIF line follows the same display setting.
+        exposure_formatter = (format_exposure_time
+                              if self._exposure_time_decimal else None)
+        self.preview_filmstrip.set_exposure_time_formatter(exposure_formatter)
+        self.rti_filmstrip.set_exposure_time_formatter(exposure_formatter)
         # Re-label the exposure-time choices right away instead of waiting for
         # the next config update from the worker.
         if self._last_camera_config is not None:

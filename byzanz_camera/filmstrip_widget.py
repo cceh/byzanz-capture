@@ -72,8 +72,64 @@ STRIP_MARGIN = 8
 # ---- caption overlay (drawn by the default delegate) -------------------
 
 _CAPTION_HEIGHT = 22
+_CAPTION_EXIF_HEIGHT = 14   # extra strip height for the optional EXIF line
 _CAPTION_GRADIENT_TOP = QColor(0, 0, 0, 0)         # transparent at top
 _CAPTION_GRADIENT_BOTTOM = QColor(0, 0, 0, 150)    # ~60% black at bottom
+
+
+def _rational_parts(value) -> Optional[tuple[int, int]]:
+    """EXIF rational → (numerator, denominator). PIL hands rationals as
+    IFDRational or as a plain (num, den) tuple depending on codepath."""
+    num = getattr(value, "numerator", None)
+    den = getattr(value, "denominator", None)
+    if num is not None and den is not None:
+        return num, den
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        return value[0], value[1]
+    return None
+
+
+def _exposure_fraction(value) -> Optional[str]:
+    """EXIF ExposureTime → camera-style fraction string ("1/250"; "2" for
+    whole seconds). Non-rational values fall back to str()."""
+    if value is None:
+        return None
+    parts = _rational_parts(value)
+    if parts is not None and parts[1]:
+        num, den = parts
+        return str(num) if den == 1 else f"{num}/{den}"
+    return str(value)
+
+
+def _f_number_text(value) -> Optional[str]:
+    """EXIF FNumber → display number ("8", "2.8")."""
+    if value is None:
+        return None
+    parts = _rational_parts(value)
+    if parts is not None and parts[1]:
+        value = parts[0] / parts[1]
+    try:
+        return f"{float(value):g}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _exif_line(item: "ImageFileListItem", exposure_formatter) -> str:
+    """The EXIF info line for a thumb — "f/8 | 1/250 | ISO 100", parts
+    omitted when missing. `exposure_formatter` maps the camera-style
+    fraction to its display form (None = show as reported); pass
+    `helpers.format_exposure_time` for the decimal display setting."""
+    parts = []
+    if item.f_number is not None:
+        parts.append(f"f/{item.f_number}")
+    if item.exposure_fraction is not None:
+        exposure = item.exposure_fraction
+        if exposure_formatter is not None:
+            exposure = exposure_formatter(exposure)
+        parts.append(exposure)
+    if item.iso is not None:
+        parts.append(f"ISO {item.iso}")
+    return " | ".join(parts)
 
 
 def stem_of(file_name: str) -> str:
@@ -165,19 +221,23 @@ class CaptionDelegate(QStyledItemDelegate):
         y = cell.y()  # top-anchored, matching IconMode (see VORLÄUFIG above)
         return QRect(x, y, icon.width(), icon.height())
 
-    @staticmethod
     def _paint_caption(
-        painter: QPainter, thumb_rect: QRect, item: ImageFileListItem
+        self, painter: QPainter, thumb_rect: QRect, item: ImageFileListItem
     ) -> None:
-        """Single-line caption: the capture's trailing index (e.g. "017").
-        Full filename + EXIF live in the item's tooltip — set in
-        FilmstripWidget.__add_image_item — so the thumb stays
-        readable at strip scale."""
+        """Caption: the capture's trailing index (e.g. "017"), plus — when
+        the host enabled set_exif_captions — an EXIF line beneath it
+        ("f/8 | 1/250 | ISO 100", exposure formatted per the widget's
+        exposure-time formatter). Full filename + EXIF also live in the
+        item's tooltip — set in FilmstripWidget.__add_image_item."""
+        widget = self.parent()  # the FilmstripWidget (delegate's parent)
+        exif_text = (_exif_line(item, widget._exposure_time_formatter)
+                     if widget._exif_captions else "")
+        strip_height = _CAPTION_HEIGHT + (_CAPTION_EXIF_HEIGHT if exif_text else 0)
         strip = QRect(
             thumb_rect.x(),
-            thumb_rect.bottom() - _CAPTION_HEIGHT + 1,
+            thumb_rect.bottom() - strip_height + 1,
             thumb_rect.width(),
-            _CAPTION_HEIGHT,
+            strip_height,
         )
 
         painter.save()
@@ -194,13 +254,24 @@ class CaptionDelegate(QStyledItemDelegate):
         font.setPointSize(10)
         font.setBold(True)
         painter.setFont(font)
+        caption_rect = QRect(strip.x(), strip.y(), strip.width(), _CAPTION_HEIGHT)
         # Left-elide so the distinguishing tail of a long filename stays
         # visible (e.g. "…12345_vis_001.JPG"). No-op for short captions
         # like the trailing index.
         text = painter.fontMetrics().elidedText(
-            item.text(), Qt.TextElideMode.ElideLeft, strip.width() - 8,
+            item.text(), Qt.TextElideMode.ElideLeft, caption_rect.width() - 8,
         )
-        painter.drawText(strip, Qt.AlignmentFlag.AlignCenter, text)
+        painter.drawText(caption_rect, Qt.AlignmentFlag.AlignCenter, text)
+        if exif_text:
+            font.setPointSize(8)
+            font.setBold(False)
+            painter.setFont(font)
+            exif_rect = QRect(strip.x(), strip.y() + _CAPTION_HEIGHT - 4,
+                              strip.width(), _CAPTION_EXIF_HEIGHT + 4)
+            exif_text = painter.fontMetrics().elidedText(
+                exif_text, Qt.TextElideMode.ElideRight, exif_rect.width() - 8,
+            )
+            painter.drawText(exif_rect, Qt.AlignmentFlag.AlignCenter, exif_text)
         painter.restore()
 
 
@@ -231,6 +302,12 @@ class ImageFileListItem(QListWidgetItem):
         self.file_name = Path(path).name
         self.index = get_file_index(self.file_name)
         self.is_placeholder: bool = is_placeholder
+        # EXIF display fields — set by FilmstripWidget after decode; kept
+        # raw-ish so the caption/tooltip can re-format when the exposure
+        # display setting changes (see set_exposure_time_formatter).
+        self.exposure_fraction: Optional[str] = None
+        self.f_number = None
+        self.iso = None
         if thumbnail is not None:
             pixmap = (QPixmap.fromImage(thumbnail)
                       if isinstance(thumbnail, QImage) else thumbnail)
@@ -390,6 +467,15 @@ class FilmstripWidget(QWidget):
         # set_caption_mode (papyri uses "name").
         self._caption_mode: str = "index"
 
+        # Optional EXIF line on the thumb overlay ("f/8 | 1/250 | ISO 100")
+        # — opt-in via set_exif_captions (the RTI app enables it; papyri
+        # keeps the single-line caption). The exposure-time part goes
+        # through _exposure_time_formatter so the host can apply its
+        # exposure display setting (helpers.format_exposure_time for
+        # "decimal"; None shows the fraction as the camera reported it).
+        self._exif_captions: bool = False
+        self._exposure_time_formatter = None
+
         # Async thumbnail loading — shared global QThreadPool so filmstrip
         # workers and the bucket-selector's chosen-thumb workers compete
         # over one budget (capped at idealThreadCount() by Qt). Bounded
@@ -447,6 +533,32 @@ class FilmstripWidget(QWidget):
         "name" (full filename, left-elided). Affects items added after
         this call — set it once before open_directory."""
         self._caption_mode = mode
+
+    def set_exif_captions(self, enabled: bool) -> None:
+        """Show an EXIF line ("f/8 | 1/250 | ISO 100") on the thumb
+        overlay, under the caption. Set once before open_directory."""
+        self._exif_captions = enabled
+
+    def set_exposure_time_formatter(self, formatter) -> None:
+        """How the EXIF line displays the exposure time: None shows the
+        camera-style fraction ("1/250"); pass helpers.format_exposure_time
+        for the decimal display setting. Re-renders existing thumbs and
+        rebuilds their tooltips, so the host can call this whenever the
+        setting changes."""
+        self._exposure_time_formatter = formatter
+        for i in range(self.image_file_list.count()):
+            item = self.image_file_list.item(i)
+            if isinstance(item, ImageFileListItem) and not item.is_placeholder:
+                item.setToolTip(self.__build_tooltip(item))
+        self.image_file_list.viewport().update()
+
+    def __build_tooltip(self, item: "ImageFileListItem") -> str:
+        """Filename + EXIF line, using the current exposure formatter."""
+        tooltip = item.file_name
+        exif = _exif_line(item, self._exposure_time_formatter)
+        if exif:
+            tooltip += "\n" + exif
+        return tooltip
 
     def open_directory(self, dir_path: str, *,
                        preferred_stem: str | None = None) -> None:
@@ -949,8 +1061,6 @@ class FilmstripWidget(QWidget):
                   if isinstance(result.thumbnail, QImage)
                   else result.thumbnail)
 
-        exposure_time = result.exif.get("ExposureTime")
-        f_number = result.exif.get("FNumber")
         # On-thumb caption: either the trailing capture index ("017",
         # short, for fixed-sequence workflows) or the full filename
         # (left-elided by the delegate so the tail stays readable). Full
@@ -962,9 +1072,6 @@ class FilmstripWidget(QWidget):
             caption = Path(result.path).stem
         else:
             caption = f"{idx:03d}" if idx is not None else Path(result.path).stem
-        tooltip = Path(result.path).name
-        if exposure_time is not None and f_number is not None:
-            tooltip += f"\nf/{f_number} | {getattr(exposure_time, 'real', exposure_time)}"
 
         # Add the item only if a directory is still open (this callback
         # fires from a worker thread completion; the directory may have
@@ -985,7 +1092,13 @@ class FilmstripWidget(QWidget):
                 )
             list_item = ImageFileListItem(result.path, pixmap)
             list_item.setText(caption)
-            list_item.setToolTip(tooltip)
+            list_item.exposure_fraction = _exposure_fraction(
+                result.exif.get("ExposureTime"))
+            list_item.f_number = _f_number_text(result.exif.get("FNumber"))
+            iso = result.exif.get("ISOSpeedRatings")
+            # PIL reports ISO as an int or a tuple of ints — take the first.
+            list_item.iso = iso[0] if isinstance(iso, (tuple, list)) and iso else iso
+            list_item.setToolTip(self.__build_tooltip(list_item))
             self.image_file_list.addItem(list_item)
             self.image_file_list.sortItems()
             self._stop_placeholder_anim_if_done()
