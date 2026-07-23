@@ -937,6 +937,11 @@ class RTICaptureMainWindow(QMainWindow):
     def close_session(self):
         self.preview_filmstrip.close_directory()
         self.rti_filmstrip.close_directory()
+        # Back to step 1: the tab is never reset elsewhere, so a session
+        # closed on step 2 would leave the next session starting there —
+        # which also suppressed the live-view seed in
+        # session_directory_loaded (it is gated on Preview mode).
+        self.capture_mode = CaptureMode.Preview
         self.set_session(None)
 
     def show_session_menu(self):
