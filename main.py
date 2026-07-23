@@ -35,7 +35,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.uic import loadUi
 
-from byzanz_camera.helpers import format_exposure_time, get_ui_path, trash
+from byzanz_camera.helpers import (
+    format_exposure_time, get_ui_path, refresh_themed_icons, set_themed_icon,
+    set_themed_pixmap, trash,
+)
 from byzanz_camera.config_combo import ConfigComboBox
 from byzanz_camera.profiles import PROFILES
 
@@ -206,20 +209,18 @@ class RTICaptureMainWindow(QMainWindow):
         self.session_menu = QMenu(self)
         self.open_session_action = QAction(self.tr('Vorherige Sitzung öffnen...'), self)
         self.open_session_action.triggered.connect(self.open_existing_session_directory)
-        self.open_session_action.setIcon(QIcon(get_ui_path("ui/open.svg")))
         self.rename_session_action = QAction(self.tr('Sitzung umbenennen...'), self)
         self.rename_session_action.triggered.connect(self.rename_current_session)
-        self.rename_session_action.setIcon(QIcon(get_ui_path("ui/rename.svg")))
         self.session_menu.addActions([self.open_session_action, self.rename_session_action])
 
         self.settings_menu = QMenu(self)
         self.open_program_settings_action = QAction(self.tr('Allgemeine Einstellungen'))
         self.open_program_settings_action.triggered.connect(self.open_settings)
-        self.open_program_settings_action.setIcon(QIcon(get_ui_path("ui/general_settings.svg")))
         self.open_advanced_cam_config_action = QAction(self.tr('Erweiterte Kamerakonfiguration'))
         self.open_advanced_cam_config_action.triggered.connect(self.open_advanced_capture_settings)
-        self.open_advanced_cam_config_action.setIcon(QIcon(get_ui_path("ui/cam_settings.svg")))
         self.settings_menu.addActions([self.open_program_settings_action, self.open_advanced_cam_config_action])
+
+        self._install_themed_icons()
 
         self.mirror_graphics_view: QGraphicsView | None = None
         self.second_screen_window: QDialog | None = None
@@ -259,6 +260,41 @@ class RTICaptureMainWindow(QMainWindow):
         QApplication.instance().primaryScreenChanged.connect(self.reset_mirror_view)
 
 
+
+    def _install_themed_icons(self):
+        """Register every monochrome SVG glyph through set_themed_icon /
+        set_themed_pixmap (same mechanism as papyri): currentColor is
+        substituted with a light or dark ink to match the color scheme, and
+        the registration re-renders on a live scheme flip (colorSchemeChanged
+        → refresh_themed_icons, wired in __main__). This overrides the static
+        black icons loadUi assigned from the .ui. Colored status images
+        (camera_*.png state icons, the Bluetooth-blue connected glyph, the
+        CCeH logo) keep their explicit colors — only currentColor is themed."""
+        for button, svg in (
+                (self.start_session_button, "ui/start_session.svg"),
+                (self.close_session_button, "ui/check-circle.svg"),
+                (self.disconnect_camera_button, "ui/disconnect-camera.svg"),
+                (self.connect_camera_button, "ui/camera-change.svg"),
+                (self.settings_button, "ui/settings.svg"),
+                (self.autofocus_button, "ui/focus.svg"),
+                (self.toggle_live_view_button, "ui/live_preview.svg"),
+                (self.capture_button, "ui/capture.svg"),
+                (self.cancel_capture_button, "ui/cancel.svg")):
+            set_themed_icon(button.setIcon, get_ui_path(svg))
+        for label, svg in (
+                (self.findChild(QLabel, "previewLedIconLabel"), "ui/lightbulb-on.svg"),
+                (self.findChild(QLabel, "lightMeterIconLabel"), "ui/light.svg"),
+                (self.crop_icon_label, "ui/aspect_ratio.svg"),
+                (self.iso_icon_label, "ui/iso-svgrepo-com.svg"),
+                (self.shutter_speed_icon_label, "ui/shutter_speed.svg"),
+                (self.f_number_icon_label, "ui/aperture.svg")):
+            set_themed_pixmap(label.setPixmap, get_ui_path(svg))
+        for action, svg in (
+                (self.open_session_action, "ui/open.svg"),
+                (self.rename_session_action, "ui/rename.svg"),
+                (self.open_program_settings_action, "ui/general_settings.svg"),
+                (self.open_advanced_cam_config_action, "ui/cam_settings.svg")):
+            set_themed_icon(action.setIcon, get_ui_path(svg))
 
     def init_mirror_view(self):
         screens = QApplication.screens()
@@ -616,23 +652,28 @@ class RTICaptureMainWindow(QMainWindow):
             self.bluetooth_frame.setVisible(True)
             self.preview_led_frame.setVisible(True)
 
+            # set_themed_pixmap (not a plain QPixmap): the disconnected /
+            # connecting glyphs are currentColor SVGs that must flip with the
+            # scheme. Re-registering on each state change replaces the prior
+            # registration (keyed by the same bound setter), so a scheme flip
+            # re-renders whatever state is current.
             match self.bt_controller.state:
                 case BtControllerState.DISCONNECTED:
-                    self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_disconnected.svg")))
+                    set_themed_pixmap(self.bluetooth_state_icon.setPixmap, get_ui_path("ui/bluetooth_disconnected.svg"))
                     self.preview_led_select.setEnabled(False)
                     self.bluetooth_connecting_spinner.isAnimated = False
                     self.bluetooth_frame.setToolTip(self.tr("Bluetooth-Verbindung zum Controller getrennt"))
                 case BtControllerState.CONNECTING:
-                    self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connecting.svg")))
+                    set_themed_pixmap(self.bluetooth_state_icon.setPixmap, get_ui_path("ui/bluetooth_connecting.svg"))
                     self.bluetooth_connecting_spinner.isAnimated = True
                     self.bluetooth_frame.setToolTip(self.tr("Bluetooth-Verbindung zum Controller wird aufgebaut..."))
                 case BtControllerState.CONNECTED:
-                    self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connected.svg")))
+                    set_themed_pixmap(self.bluetooth_state_icon.setPixmap, get_ui_path("ui/bluetooth_connected.svg"))
                     self.preview_led_select.setEnabled(True)
                     self.bluetooth_connecting_spinner.isAnimated = False
                     self.bluetooth_frame.setToolTip(self.tr("Bluetooth-Verbindung zum Controller aktiv"))
                 case BtControllerState.DISCONNECTING:
-                    self.bluetooth_state_icon.setPixmap(QPixmap(get_ui_path("ui/bluetooth_connecting.svg")))
+                    set_themed_pixmap(self.bluetooth_state_icon.setPixmap, get_ui_path("ui/bluetooth_connecting.svg"))
                     self.bluetooth_connecting_spinner.isAnimated = True
                     self.bluetooth_frame.setToolTip(self.tr("Bluetooth-Verbindung zum Controller wird getrennt..."))
 
@@ -1239,6 +1280,11 @@ if __name__ == "__main__":
     app.setApplicationName("Byzanz RTI")
 
     logging.info("Using libgphoto2: " + ", ".join(gp.gp_library_version(gp.GP_VERSION_SHORT)))
+
+    # Live-refresh all themed (currentColor) SVG icons when the system flips
+    # between light and dark mode — same mechanism as papyri (see
+    # RTICaptureMainWindow._install_themed_icons).
+    app.styleHints().colorSchemeChanged.connect(lambda _: refresh_themed_icons())
 
     # Source strings are German and the only shipped translation is English,
     # so: German UI on German systems, English everywhere else.

@@ -8,7 +8,7 @@ from PyQt6.uic import loadUi
 
 from byzanz_camera import dome_config
 from byzanz_camera.camera_worker import CaptureImagesRequest
-from byzanz_camera.helpers import get_ui_path
+from byzanz_camera.helpers import get_ui_path, themed_icon
 from byzanz_camera.profiles.base import Profile
 
 
@@ -40,7 +40,9 @@ class SettingsDialog(QDialog):
         )
 
         open_action = QAction(self.tr("Arbeitsverzeichnis wählen"), self)
-        open_action.setIcon(QIcon(get_ui_path("ui/folder-open.svg")))
+        # themed_icon (one-shot, no registration): the dialog is short-lived,
+        # rebuilt on every open — set_themed_icon would keep it alive forever.
+        open_action.setIcon(themed_icon(get_ui_path("ui/folder-open.svg")))
         open_action.triggered.connect(self.choose_working_directory)
 
         self.working_directory_input.addAction(open_action, QLineEdit.ActionPosition.TrailingPosition)
@@ -81,10 +83,10 @@ class SettingsDialog(QDialog):
         )
 
         choose_lp_action = QAction(self.tr("LP-Datei wählen"), self)
-        choose_lp_action.setIcon(QIcon(get_ui_path("ui/folder-open.svg")))
+        choose_lp_action.setIcon(themed_icon(get_ui_path("ui/folder-open.svg")))
         choose_lp_action.triggered.connect(self.choose_lp_template_file)
         reset_lp_action = QAction(self.tr("Standard verwenden (mitgelieferte Vorlage)"), self)
-        reset_lp_action.setIcon(QIcon(get_ui_path("ui/cancel.svg")))
+        reset_lp_action.setIcon(themed_icon(get_ui_path("ui/cancel.svg")))
         reset_lp_action.triggered.connect(lambda: self.lp_template_path_input.setText(""))
         self.lp_template_path_input.addAction(choose_lp_action, QLineEdit.ActionPosition.TrailingPosition)
         self.lp_template_path_input.addAction(reset_lp_action, QLineEdit.ActionPosition.TrailingPosition)

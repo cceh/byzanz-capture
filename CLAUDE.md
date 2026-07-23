@@ -103,6 +103,7 @@ event/sink; if there is more than one, funnel them through a single entry**
 | Exposure-time display label (fraction → decimal) | `byzanz_camera.helpers.format_exposure_time` | parse/format shutter-speed strings inline |
 | LP template path (user-chosen or bundled default) | `RTICaptureMainWindow.resolved_lp_template_path` (`lpTemplatePath` key, empty = bundled) | hardcode `cceh-dome-template.lp` or read the key inline |
 | Move files to recycle bin / trash | `byzanz_camera.helpers.trash` | call `send2trash` directly — forward-slash paths (Qt, MSYS2 Python) make it fail on Windows with E_INVALIDARG |
+| Monochrome SVG icons (light/dark theming) | `helpers.set_themed_icon` / `set_themed_pixmap` (window-scoped; RTI: `_install_themed_icons`) or one-shot `themed_icon` in short-lived dialogs | `QIcon(svg)` / `QPixmap(svg)` directly — renders currentColor black in dark mode; don't register short-lived dialogs (leaks them) |
 
 **When you discover or introduce a new choke point, add a row here** — that's
 the durable prevention (see the doc above).
