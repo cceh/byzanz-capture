@@ -118,7 +118,7 @@ from papyri.overlap_coach import STATE_COLORS, OverlapCoach
 from papyri.stitch_bar import StitchBar
 from papyri.stitching import StitchController, snapshot_bucket
 
-from send2trash import send2trash
+from byzanz_camera.helpers import trash
 
 from camera_config_dialog import CameraConfigDialog
 from papyri.settings_dialog import PapyriSettingsDialog
@@ -415,7 +415,7 @@ class Object(QObject):
         paths = [p for p in (cap.jpg_path, cap.raw_path) if p is not None]
         if not paths:
             return
-        send2trash(paths)
+        trash(paths)
         self._drop_stale_stem_markers(side, spectrum, stem)
         self.refresh()
 
@@ -2599,7 +2599,7 @@ class PapyriMainWindow(QMainWindow):
         if isinstance(current, Object) and current.name == name:
             self.close_object()
         try:
-            send2trash(obj_dir)
+            trash(obj_dir)
         except Exception:
             self.logger.exception("Move to Trash failed for %s", obj_dir)
             QMessageBox.critical(

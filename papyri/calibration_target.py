@@ -133,7 +133,7 @@ class CalibrationTarget(QObject):
         return
 
     def delete(self, slot: str, spectrum: str, stem: str) -> None:
-        from send2trash import send2trash
+        from byzanz_camera.helpers import trash
         cap = next((c for c in self._captures.get((slot, spectrum), [])
                     if c.stem == stem), None)
         if cap is None:
@@ -141,7 +141,7 @@ class CalibrationTarget(QObject):
         paths = [p for p in (cap.jpg_path, cap.raw_path) if p is not None]
         if not paths:
             return
-        send2trash(paths)
+        trash(paths)
         self.refresh()
 
     def import_files(self, slot: str, spectrum: str, sources: list) -> list[Path]:

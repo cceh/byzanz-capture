@@ -1,3 +1,4 @@
+import os
 from os import path
 import math
 import re
@@ -15,6 +16,26 @@ def get_ui_path(file: str):
     else:
         bundle_dir = path.abspath(path.dirname("__FILE__"))
     return path.join(bundle_dir, file)
+
+
+def trash(paths) -> None:
+    """Move file(s) to the recycle bin / trash — the single entry point for
+    send2trash. On Windows the shell API behind it
+    (SHCreateItemFromParsingName) rejects forward-slash paths with
+    E_INVALIDARG ('Paramètre incorrect'), and both Qt (QFileDialog,
+    QStandardPaths) and MSYS2's MinGW Python (os.sep == '/') produce exactly
+    those — so normalize to backslashes first. Accepts a single path or a
+    list; str or PathLike."""
+    from send2trash import send2trash
+    if isinstance(paths, (str, os.PathLike)):
+        paths = [paths]
+    if sys.platform == "win32":
+        paths = [os.fspath(p).replace("/", "\\") for p in paths]
+    else:
+        paths = [os.fspath(p) for p in paths]
+    if not paths:
+        return
+    send2trash(paths)
 
 
 _FRACTION_RE = re.compile(r"(\d+)/(\d+)")

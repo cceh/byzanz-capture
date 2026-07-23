@@ -128,15 +128,15 @@ class SimpleTarget(QObject):
         return
 
     def delete(self, side: str, spectrum: str, stem: str) -> None:
-        """Send2Trash both jpg/raw paths of the given stem, then refresh."""
-        from send2trash import send2trash
+        """Trash both jpg/raw paths of the given stem, then refresh."""
+        from byzanz_camera.helpers import trash
         cap = next((c for c in self._captures if c.stem == stem), None)
         if cap is None:
             return
         paths = [p for p in (cap.jpg_path, cap.raw_path) if p is not None]
         if not paths:
             return
-        send2trash(paths)
+        trash(paths)
         self.refresh()
 
     def import_files(self, side: str, spectrum: str, sources: list) -> list[Path]:

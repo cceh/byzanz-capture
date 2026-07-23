@@ -34,9 +34,8 @@ from PyQt6.QtWidgets import (
     QLCDNumber, QGraphicsView, QSizePolicy, QVBoxLayout
 )
 from PyQt6.uic import loadUi
-from send2trash import send2trash
 
-from byzanz_camera.helpers import format_exposure_time, get_ui_path
+from byzanz_camera.helpers import format_exposure_time, get_ui_path, trash
 from byzanz_camera.config_combo import ConfigComboBox
 from byzanz_camera.profiles import PROFILES
 
@@ -1120,7 +1119,16 @@ class RTICaptureMainWindow(QMainWindow):
                     return
 
             existing_files = [os.path.join(self.session.images_dir, f) for f in os.listdir(self.session.images_dir)]
-            send2trash(existing_files)
+            try:
+                trash(existing_files)
+            except OSError as e:
+                logging.exception("Could not trash existing captures")
+                QMessageBox.critical(
+                    self, self.tr("Löschen fehlgeschlagen"),
+                    self.tr("Die vorhandenen Aufnahmen konnten nicht in den "
+                            "Papierkorb verschoben werden:\n{0}\n\nDie Aufnahme "
+                            "wurde nicht gestartet.").format(str(e)))
+                return
 
             filename_template = self.session.name.replace(" ", "_") + "_${num}${extension}"
             file_path_template = os.path.join(self.session.images_dir, filename_template)
