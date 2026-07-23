@@ -335,167 +335,167 @@ hr { height: 1px; border-width: 0; }
 </context><context>
     <name>RTICaptureMainWindow</name>
     <message>
-        <location filename="..\main.py" line="217" />
+        <location filename="..\main.py" line="216" />
         <source>Allgemeine Einstellungen</source>
         <translation>General settings</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="220" />
+        <location filename="..\main.py" line="219" />
         <source>Erweiterte Kamerakonfiguration</source>
         <translation>Advanced camera settings</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="271" />
+        <location filename="..\main.py" line="270" />
         <source>Sekundäransicht</source>
         <translation>Secondary Screen</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="431" />
+        <location filename="..\main.py" line="430" />
         <source>Sitzung beenden</source>
         <translation>End session</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="431" />
+        <location filename="..\main.py" line="430" />
         <source>Laden abbrechen...</source>
         <translation>Cancel loading...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="445" />
+        <location filename="..\main.py" line="444" />
         <source>Suche Kamera...</source>
         <translation>Finding camera...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="526" />
-        <location filename="..\main.py" line="461" />
+        <location filename="..\main.py" line="525" />
+        <location filename="..\main.py" line="460" />
         <source>Nicht verbunden</source>
         <translation>Not connected</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="469" />
+        <location filename="..\main.py" line="468" />
         <source>Kamera getrennt&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
         <translation>Camera disconnected&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="485" />
+        <location filename="..\main.py" line="484" />
         <source>Verbinde... &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
         <translation>Connecting... &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="493" />
+        <location filename="..\main.py" line="492" />
         <source>Kamera verbunden&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
         <translation>Camera connected &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="510" />
+        <location filename="..\main.py" line="509" />
         <source>Vorschaubild aufnehmen</source>
         <translation>Take preview photo</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="512" />
+        <location filename="..\main.py" line="511" />
         <source>RTI-Aufnahme starten</source>
         <translation>Start RTI capture</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="517" />
+        <location filename="..\main.py" line="516" />
         <source>Trenne Kamera...</source>
         <translation>Disconnecting camera...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="544" />
+        <location filename="..\main.py" line="543" />
         <source>Konnte nicht fokussieren. Zu dunkel?</source>
         <translation>Could not focus. Too dark?</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="590" />
+        <location filename="..\main.py" line="589" />
         <source>Aufnahme abgebrochen!</source>
         <translation>Capture canceled!</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="610" />
+        <location filename="..\main.py" line="609" />
         <source>Fertig in %ss!</source>
         <translation>Finished in %ss!</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="632" />
+        <location filename="..\main.py" line="631" />
         <source>Bluetooth-Verbindung zum Controller getrennt</source>
         <translation>Bluetooth disconnected from controller</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="636" />
+        <location filename="..\main.py" line="635" />
         <source>Bluetooth-Verbindung zum Controller wird aufgebaut...</source>
         <translation>Connecting to controller via Bluetooth...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="641" />
+        <location filename="..\main.py" line="640" />
         <source>Bluetooth-Verbindung zum Controller aktiv</source>
         <translation>Connected to controller via Bluetooth</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="645" />
+        <location filename="..\main.py" line="644" />
         <source>Bluetooth-Verbindung zum Controller wird getrennt...</source>
         <translation>Disconnecting Bluetooth connection to controller...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="721" />
+        <location filename="..\main.py" line="720" />
         <source>Capture in progress</source>
         <translation>Capture in progress</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="722" />
+        <location filename="..\main.py" line="721" />
         <source>The camera profile was not changed because a capture is running. Change it again once the capture has finished.</source>
         <translation>The camera profile was not changed because a capture is running. Change it again once the capture has finished.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="882" />
-        <location filename="..\main.py" line="821" />
+        <location filename="..\main.py" line="881" />
+        <location filename="..\main.py" line="820" />
         <source>Fehler</source>
         <translation>Error</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="822" />
+        <location filename="..\main.py" line="821" />
         <source>Sitzung %s existiert bereits. Soll sie erneut geöffnet werden?</source>
         <translation>Session %s already exists. Do you want to open it again?</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="875" />
+        <location filename="..\main.py" line="874" />
         <source>Aktuelle Sitzung umbenennen</source>
         <translation>Rename currenct session</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="875" />
+        <location filename="..\main.py" line="874" />
         <source>Neuer Name</source>
         <translation>New name</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="882" />
+        <location filename="..\main.py" line="881" />
         <source>Sitzung %s existiert bereits.</source>
         <translation>Session %s already exists.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1103" />
-        <location filename="..\main.py" line="917" />
+        <location filename="..\main.py" line="1102" />
+        <location filename="..\main.py" line="916" />
         <source>LP-Datei nicht gefunden</source>
         <translation>LP file not found</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="918" />
+        <location filename="..\main.py" line="917" />
         <source>Die LP-Datei konnte nicht geschrieben werden, da die LP-Vorlagendatei fehlt:
 {0}</source>
         <translation>The LP file could not be written because the LP template file is missing:
 {0}</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1090" />
+        <location filename="..\main.py" line="1089" />
         <source>Aufnahmemodus passt nicht zur Kamera</source>
         <translation>Capture mode does not match the camera</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1091" />
+        <location filename="..\main.py" line="1090" />
         <source>Der Dom-Aufnahmemodus ist „Kamera-Burst“, aber diese Kamera unterstützt das nicht. Stelle in den Einstellungen den Aufnahmemodus auf „Extern getriggert“ oder „Einzelbild per App“.</source>
         <translation>The dome capture mode is “Camera burst”, but this camera does not support it. In the settings, set the capture mode to “Externally triggered” or “Single shot via app”.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1104" />
+        <location filename="..\main.py" line="1103" />
         <source>Die gewählte LP-Vorlagendatei existiert nicht mehr:
 {0}
 
@@ -506,24 +506,40 @@ Die Aufnahme wurde nicht gestartet. Wähle in den allgemeinen Einstellungen eine
 The capture was not started. Choose a different LP file in the general settings.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1111" />
+        <location filename="..\main.py" line="1110" />
         <source>RTI-Serie aufnehmen</source>
         <translation>Capture RTI series</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1112" />
+        <location filename="..\main.py" line="1111" />
         <source>Vorhandene Aufnahmen werden gelöscht.</source>
         <translation>Existing captures will be deleted.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1114" />
+        <location filename="..\main.py" line="1113" />
         <source>Abbrechen</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1117" />
+        <location filename="..\main.py" line="1116" />
         <source>Fortfahren</source>
         <translation>Continue</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="1127" />
+        <source>Löschen fehlgeschlagen</source>
+        <translation>Deletion failed</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="1128" />
+        <source>Die vorhandenen Aufnahmen konnten nicht in den Papierkorb verschoben werden:
+{0}
+
+Die Aufnahme wurde nicht gestartet.</source>
+        <translation>The existing captures could not be moved to the recycle bin:
+{0}
+
+The capture was not started.</translation>
     </message>
     <message>
         <source>Voll</source>
