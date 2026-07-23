@@ -101,6 +101,7 @@ event/sink; if there is more than one, funnel them through a single entry**
 | List / register camera profiles | `byzanz_camera/profiles` `PROFILES` (one shared registry, all app variants) | keep a per-app profile dict — they drift (RTI once lacked NikonD90) |
 | Main-window camera-control prefs (per-control visibility, exposure-time label style) | `RTICaptureMainWindow._apply_camera_control_prefs` (keys in `CAMERA_CONTROL_PREF_KEYS`) | setVisible on the combos/icon labels at call sites, or read the `show*Control` / `exposureTimeDisplayMode` keys inline |
 | Exposure-time display label (fraction → decimal) | `byzanz_camera.helpers.format_exposure_time` | parse/format shutter-speed strings inline |
+| LP template path (user-chosen or bundled default) | `RTICaptureMainWindow.resolved_lp_template_path` (`lpTemplatePath` key, empty = bundled) | hardcode `cceh-dome-template.lp` or read the key inline |
 
 **When you discover or introduce a new choke point, add a row here** — that's
 the durable prevention (see the doc above).

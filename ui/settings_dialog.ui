@@ -109,7 +109,30 @@
       <item row="4" column="1">
        <widget class="QComboBox" name="captureFormatSelect"/>
       </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="lpTemplateLabel">
+        <property name="text">
+         <string>LP-Vorlagendatei:</string>
+        </property>
+       </widget>
+      </item>
       <item row="5" column="1">
+       <widget class="QLineEdit" name="lpTemplatePathInput">
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
+        <property name="placeholderText">
+         <string>Standard (mitgelieferte Vorlage)</string>
+        </property>
+        <property name="toolTip">
+         <string>Vorlage für die LP-Datei der RTI-Serie. Leer = die mitgelieferte CCeH-Dom-Vorlage.</string>
+        </property>
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
        <widget class="QCheckBox" name="enableSecondScreenMirrorCheckbox">
         <property name="text">
          <string>Bildansicht auf zweitem Bildschirm spiegeln</string>

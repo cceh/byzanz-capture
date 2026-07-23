@@ -26,6 +26,7 @@ pyinstaller --onedir \
     --add-binary /mingw64/bin/libusb-1.0.dll:. \
     --add-data ui:ui \
     --add-data i18n:i18n \
+    --add-data cceh-dome-template.lp:. \
     --add-data dome_presets:dome_presets main.py \
     --runtime-hook ./build_win_hook.py \
     --noconfirm \

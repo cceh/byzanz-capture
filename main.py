@@ -899,11 +899,25 @@ class RTICaptureMainWindow(QMainWindow):
             self.close_session()
             self.set_session(Session(new_name, session_dir_parent))
 
+    def resolved_lp_template_path(self) -> str:
+        """The LP template used for the session's LP file: the user-chosen
+        file from settings, or the bundled cceh-dome-template.lp when unset."""
+        return QSettings().value("lpTemplatePath", "") or get_ui_path("cceh-dome-template.lp")
+
     def write_lp(self):
         file_names = [os.path.basename(file_path) for file_path in self.rti_filmstrip.files()]
         num_files = len(file_names)
 
-        lp_template_path = "cceh-dome-template.lp"
+        lp_template_path = self.resolved_lp_template_path()
+        if not os.path.isfile(lp_template_path):
+            # Checked before capture start, but the file can vanish while the
+            # capture runs. The images exist — only the LP file is missing.
+            logging.error("LP template vanished, not writing LP file: " + lp_template_path)
+            QMessageBox.critical(
+                self, self.tr("LP-Datei nicht gefunden"),
+                self.tr("Die LP-Datei konnte nicht geschrieben werden, da die "
+                        "LP-Vorlagendatei fehlt:\n{0}").format(lp_template_path))
+            return
         lp_output_path = os.path.join(self.session.images_dir, self.session.name + ".lp")
         with open(lp_template_path, 'r') as lp_template_file, open(lp_output_path, 'w') as lp_output_file:
             logging.info("Writing LP file: " + lp_output_path)
@@ -1078,6 +1092,19 @@ class RTICaptureMainWindow(QMainWindow):
                             "Kamera unterstützt das nicht. Stelle in den "
                             "Einstellungen den Aufnahmemodus auf „Extern "
                             "getriggert“ oder „Einzelbild per App“."))
+                return
+
+            # The LP file is written from this template after the capture —
+            # refuse up front (before deleting existing captures) if it is
+            # gone, e.g. a chosen file on a removed drive.
+            lp_template_path = self.resolved_lp_template_path()
+            if not os.path.isfile(lp_template_path):
+                QMessageBox.critical(
+                    self, self.tr("LP-Datei nicht gefunden"),
+                    self.tr("Die gewählte LP-Vorlagendatei existiert nicht "
+                            "mehr:\n{0}\n\nDie Aufnahme wurde nicht gestartet. "
+                            "Wähle in den allgemeinen Einstellungen eine andere "
+                            "LP-Datei.").format(lp_template_path))
                 return
 
             if self.rti_filmstrip.num_files() > 0:

@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from PyQt6.QtCore import QSettings, QVariant, Qt
@@ -69,6 +70,26 @@ class SettingsDialog(QDialog):
             combo.currentIndexChanged.connect(
                 lambda i, c=combo, key=settings_key: self.set(key, c.itemData(i))
             )
+
+        # LP template: empty = the bundled default (placeholder text says so),
+        # a path = a user-chosen .lp file. Resolution happens at capture time
+        # via RTICaptureMainWindow.resolved_lp_template_path.
+        self.lp_template_path_input: QLineEdit = self.findChild(QLineEdit, "lpTemplatePathInput")
+        self.lp_template_path_input.setText(q_settings.value("lpTemplatePath", ""))
+        self.lp_template_path_input.textChanged.connect(
+            lambda text: self.set("lpTemplatePath", text)
+        )
+
+        choose_lp_action = QAction(self.tr("LP-Datei wählen"), self)
+        choose_lp_action.setIcon(QIcon(get_ui_path("ui/folder-open.svg")))
+        choose_lp_action.triggered.connect(self.choose_lp_template_file)
+        reset_lp_action = QAction(self.tr("Standard verwenden (mitgelieferte Vorlage)"), self)
+        reset_lp_action.setIcon(QIcon(get_ui_path("ui/cancel.svg")))
+        reset_lp_action.triggered.connect(lambda: self.lp_template_path_input.setText(""))
+        self.lp_template_path_input.addAction(choose_lp_action, QLineEdit.ActionPosition.TrailingPosition)
+        self.lp_template_path_input.addAction(reset_lp_action, QLineEdit.ActionPosition.TrailingPosition)
+        for tool_button in self.lp_template_path_input.findChildren(QToolButton):
+            tool_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Main-window camera controls: per-control visibility + how exposure
         # times are labeled (raw camera value vs. parsed decimal number).
@@ -165,6 +186,14 @@ class SettingsDialog(QDialog):
 
     def set(self, name: str, value: QVariant):
         self.settings[name] = value
+
+    def choose_lp_template_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, self.tr("LP-Datei wählen"),
+            os.path.dirname(self.lp_template_path_input.text()),
+            self.tr("LP-Dateien (*.lp);;Alle Dateien (*)"))
+        if path:
+            self.lp_template_path_input.setText(path)
 
     def choose_working_directory(self):
         file_dialog = QFileDialog(self,

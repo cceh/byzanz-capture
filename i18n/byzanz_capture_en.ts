@@ -67,6 +67,21 @@ hr { height: 1px; border-width: 0; }
     </message>
     <message>
         <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>LP-Vorlagendatei:</source>
+        <translation>LP template file:</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Standard (mitgelieferte Vorlage)</source>
+        <translation>Default (bundled template)</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
+        <source>Vorlage für die LP-Datei der RTI-Serie. Leer = die mitgelieferte CCeH-Dom-Vorlage.</source>
+        <translation>Template for the LP file of the RTI series. Empty = the bundled CCeH dome template.</translation>
+    </message>
+    <message>
+        <location filename="..\ui\settings_dialog.ui" line="0" />
         <source>Bildansicht auf zweitem Bildschirm spiegeln</source>
         <translation>Mirror view on secondary screen</translation>
     </message>
@@ -457,32 +472,56 @@ hr { height: 1px; border-width: 0; }
         <translation>Session %s already exists.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1076" />
+        <location filename="..\main.py" line="1103" />
+        <location filename="..\main.py" line="917" />
+        <source>LP-Datei nicht gefunden</source>
+        <translation>LP file not found</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="918" />
+        <source>Die LP-Datei konnte nicht geschrieben werden, da die LP-Vorlagendatei fehlt:
+{0}</source>
+        <translation>The LP file could not be written because the LP template file is missing:
+{0}</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="1090" />
         <source>Aufnahmemodus passt nicht zur Kamera</source>
         <translation>Capture mode does not match the camera</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1077" />
+        <location filename="..\main.py" line="1091" />
         <source>Der Dom-Aufnahmemodus ist „Kamera-Burst“, aber diese Kamera unterstützt das nicht. Stelle in den Einstellungen den Aufnahmemodus auf „Extern getriggert“ oder „Einzelbild per App“.</source>
         <translation>The dome capture mode is “Camera burst”, but this camera does not support it. In the settings, set the capture mode to “Externally triggered” or “Single shot via app”.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1084" />
+        <location filename="..\main.py" line="1104" />
+        <source>Die gewählte LP-Vorlagendatei existiert nicht mehr:
+{0}
+
+Die Aufnahme wurde nicht gestartet. Wähle in den allgemeinen Einstellungen eine andere LP-Datei.</source>
+        <translation>The chosen LP template file no longer exists:
+{0}
+
+The capture was not started. Choose a different LP file in the general settings.</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="1111" />
         <source>RTI-Serie aufnehmen</source>
         <translation>Capture RTI series</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1085" />
+        <location filename="..\main.py" line="1112" />
         <source>Vorhandene Aufnahmen werden gelöscht.</source>
         <translation>Existing captures will be deleted.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1087" />
+        <location filename="..\main.py" line="1114" />
         <source>Abbrechen</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1090" />
+        <location filename="..\main.py" line="1117" />
         <source>Fortfahren</source>
         <translation>Continue</translation>
     </message>
@@ -505,64 +544,80 @@ hr { height: 1px; border-width: 0; }
 </context><context>
     <name>SettingsDialog</name>
     <message>
-        <location filename="..\settings_dialog.py" line="171" />
-        <location filename="..\settings_dialog.py" line="41" />
+        <location filename="..\settings_dialog.py" line="200" />
+        <location filename="..\settings_dialog.py" line="42" />
         <source>Arbeitsverzeichnis wählen</source>
         <translation>Choose working directory</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="57" />
+        <location filename="..\settings_dialog.py" line="58" />
         <source>JPEG + RAW</source>
         <translation>JPEG + RAW</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="58" />
+        <location filename="..\settings_dialog.py" line="59" />
         <source>Nur JPEG</source>
         <translation>JPEG only</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="59" />
+        <location filename="..\settings_dialog.py" line="60" />
         <source>Nur RAW</source>
         <translation>RAW only</translation>
     </message>
     <message>
+        <location filename="..\settings_dialog.py" line="192" />
+        <location filename="..\settings_dialog.py" line="83" />
+        <source>LP-Datei wählen</source>
+        <translation>Choose LP file</translation>
+    </message>
+    <message>
         <location filename="..\settings_dialog.py" line="86" />
+        <source>Standard verwenden (mitgelieferte Vorlage)</source>
+        <translation>Use default (bundled template)</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="107" />
         <source>Wie von Kamera gemeldet</source>
         <translation>As reported by camera</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="87" />
+        <location filename="..\settings_dialog.py" line="108" />
         <source>Dezimalzahl</source>
         <translation>Decimal number</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="116" />
+        <location filename="..\settings_dialog.py" line="137" />
         <source>Kamera-Burst (Kölner Dom)</source>
         <translation>Camera burst (Cologne dome)</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="117" />
+        <location filename="..\settings_dialog.py" line="138" />
         <source>Extern getriggert (Pariser Dom)</source>
         <translation>Externally triggered (Paris dome)</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="118" />
+        <location filename="..\settings_dialog.py" line="139" />
         <source>Einzelbild per App</source>
         <translation>Single shot via app</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="121" />
+        <location filename="..\settings_dialog.py" line="142" />
         <source>CCeH-Controller (Bluetooth)</source>
         <translation>CCeH controller (Bluetooth)</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="122" />
+        <location filename="..\settings_dialog.py" line="143" />
         <source>Keine / autonom</source>
         <translation>None / autonomous</translation>
     </message>
     <message>
-        <location filename="..\settings_dialog.py" line="142" />
+        <location filename="..\settings_dialog.py" line="163" />
         <source>— Preset laden —</source>
         <translation>— Load preset —</translation>
+    </message>
+    <message>
+        <location filename="..\settings_dialog.py" line="194" />
+        <source>LP-Dateien (*.lp);;Alle Dateien (*)</source>
+        <translation>LP files (*.lp);;All files (*)</translation>
     </message>
 </context></TS>
