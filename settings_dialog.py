@@ -134,10 +134,12 @@ class SettingsDialog(QDialog):
         self.dome_strategy_select: QComboBox = self.findChild(QComboBox, "domeStrategySelect")
         self.dome_light_select: QComboBox = self.findChild(QComboBox, "domeLightSelect")
         self.dome_preset_select: QComboBox = self.findChild(QComboBox, "domePresetSelect")
+        self.dome_show_instructions_checkbox: QCheckBox = self.findChild(
+            QCheckBox, "domeShowInstructionsCheckbox")
 
         S = CaptureImagesRequest.CaptureStrategy
-        for label, value in ((self.tr("Kamera-Burst (Kölner Dom)"), S.CAMERA_BURST.value),
-                             (self.tr("Extern getriggert (Pariser Dom)"), S.EXTERNAL_PER_SHOT.value),
+        for label, value in ((self.tr("Kamera-Burst"), S.CAMERA_BURST.value),
+                             (self.tr("Extern getriggert"), S.EXTERNAL_PER_SHOT.value),
                              (self.tr("Einzelbild per App"), S.APP_PER_SHOT.value)):
             self.dome_strategy_select.addItem(label, value)
 
@@ -151,6 +153,7 @@ class SettingsDialog(QDialog):
         self.dome_max_burst_input.setValue(dome.max_burst)
         self._select_combo_data(self.dome_strategy_select, dome.capture_strategy.value)
         self._select_combo_data(self.dome_light_select, dome.light_controller)
+        self.dome_show_instructions_checkbox.setChecked(dome.show_capture_instructions)
 
         self.dome_num_positions_input.valueChanged.connect(
             lambda v: self.set(dome_config.NUM_POSITIONS, v))
@@ -160,6 +163,8 @@ class SettingsDialog(QDialog):
             lambda i: self.set(dome_config.CAPTURE_STRATEGY, self.dome_strategy_select.itemData(i)))
         self.dome_light_select.currentIndexChanged.connect(
             lambda i: self.set(dome_config.LIGHT_CONTROLLER, self.dome_light_select.itemData(i)))
+        self.dome_show_instructions_checkbox.toggled.connect(
+            lambda checked: self.set(dome_config.SHOW_CAPTURE_INSTRUCTIONS, checked))
 
         self._presets = dome_config.load_presets()
         self.dome_preset_select.addItem(self.tr("— Preset laden —"), None)
@@ -181,6 +186,7 @@ class SettingsDialog(QDialog):
         self.dome_max_burst_input.setValue(preset.max_burst)
         self._select_combo_data(self.dome_strategy_select, preset.capture_strategy.value)
         self._select_combo_data(self.dome_light_select, preset.light_controller)
+        self.dome_show_instructions_checkbox.setChecked(preset.show_capture_instructions)
         self.set(dome_config.NAME, preset.name)
         # Snap the loader back to its placeholder so the same preset can be
         # re-applied (and it isn't mistaken for a stored selection).

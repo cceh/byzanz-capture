@@ -34,6 +34,7 @@ NUM_POSITIONS = "dome/num_positions"
 CAPTURE_STRATEGY = "dome/capture_strategy"
 MAX_BURST = "dome/max_burst"
 LIGHT_CONTROLLER = "dome/light_controller"
+SHOW_CAPTURE_INSTRUCTIONS = "dome/show_capture_instructions"
 
 # light_controller values. Only cceh_ble is a real (Cologne-specific) mechanism
 # today; "none" is an autonomous / no-controller dome (Paris, manual).
@@ -48,6 +49,10 @@ class DomeConfig:
     capture_strategy: CaptureStrategy
     max_burst: int
     light_controller: str  # LIGHT_CCEH_BLE | LIGHT_NONE
+    # Show the "press the dome buttons" instruction dialog before an RTI
+    # capture that isn't app-triggered end-to-end. Cologne-specific hardware
+    # guidance — pointless noise on an externally triggered dome.
+    show_capture_instructions: bool
 
     @property
     def uses_bluetooth(self) -> bool:
@@ -61,6 +66,7 @@ class DomeConfig:
             capture_strategy=CaptureStrategy(d["capture_strategy"]),
             max_burst=int(d.get("max_burst", 1)),
             light_controller=str(d.get("light_controller", LIGHT_NONE)),
+            show_capture_instructions=bool(d.get("show_capture_instructions", True)),
         )
 
 
@@ -85,6 +91,7 @@ def apply_preset(qs: QSettings, dome: DomeConfig) -> None:
     qs.setValue(CAPTURE_STRATEGY, dome.capture_strategy.value)  # store the string, not the enum
     qs.setValue(MAX_BURST, dome.max_burst)
     qs.setValue(LIGHT_CONTROLLER, dome.light_controller)
+    qs.setValue(SHOW_CAPTURE_INSTRUCTIONS, dome.show_capture_instructions)
 
 
 def current_dome(qs: QSettings) -> DomeConfig:
@@ -96,4 +103,5 @@ def current_dome(qs: QSettings) -> DomeConfig:
             qs.value(CAPTURE_STRATEGY, CaptureStrategy.APP_PER_SHOT.value)),
         max_burst=int(qs.value(MAX_BURST, 1)),
         light_controller=str(qs.value(LIGHT_CONTROLLER, LIGHT_NONE)),
+        show_capture_instructions=qs.value(SHOW_CAPTURE_INSTRUCTIONS, True, type=bool),
     )

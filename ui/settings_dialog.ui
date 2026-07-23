@@ -292,6 +292,16 @@
         </property>
        </widget>
       </item>
+      <item row="5" column="1">
+       <widget class="QCheckBox" name="domeShowInstructionsCheckbox">
+        <property name="text">
+         <string>Anleitungs-Dialog vor der RTI-Aufnahme anzeigen</string>
+        </property>
+        <property name="toolTip">
+         <string>Der „Knöpfe drücken“-Hinweis (Kölner Dom). Bei extern getriggerten Domen meist überflüssig.</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

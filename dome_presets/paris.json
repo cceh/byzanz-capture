@@ -3,5 +3,6 @@
   "num_positions": 60,
   "capture_strategy": "external_per_shot",
   "max_burst": 1,
-  "light_controller": "none"
+  "light_controller": "none",
+  "show_capture_instructions": false
 }

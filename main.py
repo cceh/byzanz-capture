@@ -1296,7 +1296,11 @@ class RTICaptureMainWindow(QMainWindow):
         capture_req.signal.file_received.connect(on_file_received)
 
         def start_capture(show_button_message: bool):
-            if self.capture_mode == CaptureMode.RTI and show_button_message:
+            # The "press the dome buttons" instructions are Cologne-dome
+            # guidance — the dome config can turn them off (e.g. externally
+            # triggered domes; see dome settings).
+            if (self.capture_mode == CaptureMode.RTI and show_button_message
+                    and self.dome.show_capture_instructions):
                 press_buttons_dialog = QDialog()
                 loadUi(get_ui_path("ui/press-buttons-dialog.ui"), press_buttons_dialog)
                 if not press_buttons_dialog.exec():
