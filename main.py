@@ -26,7 +26,7 @@ _apply_gphoto2_paths(_pre_camlibs, _pre_iolibs)
 
 import qasync
 from PIL.ImageQt import ImageQt
-from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt, QTranslator, QTimer
+from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt, QTranslator, QTimer, QLocale
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent, QBrush, QPainter
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
@@ -1121,10 +1121,14 @@ if __name__ == "__main__":
 
     logging.info("Using libgphoto2: " + ", ".join(gp.gp_library_version(gp.GP_VERSION_SHORT)))
 
+    # Source strings are German and the only shipped translation is English,
+    # so: German UI on German systems, English everywhere else.
     translator = QTranslator()
-    locale = "de"
-    if translator.load(f"byzanz_capture_{locale}", "i18n"):
-        app.installTranslator(translator)
+    if QLocale.system().language() != QLocale.Language.German:
+        if translator.load("byzanz_capture_en", get_ui_path("i18n")):
+            app.installTranslator(translator)
+        else:
+            logging.warning("Could not load English translation, falling back to German source strings")
 
     settings = QSettings()
 
