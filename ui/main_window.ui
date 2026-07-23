@@ -379,20 +379,9 @@
      </widget>
     </item>
     <item>
-     <widget class="QToolBox" name="captureView">
-      <property name="font">
-       <font>
-        <pointsize>20</pointsize>
-        <bold>false</bold>
-       </font>
-      </property>
+     <widget class="QTabWidget" name="captureView">
       <property name="cursor">
        <cursorShape>PointingHandCursor</cursorShape>
-      </property>
-      <property name="styleSheet">
-       <string notr="true">QToolBox {
-  icon-size: 35px;
-}</string>
       </property>
       <property name="currentIndex">
        <number>0</number>
@@ -409,11 +398,7 @@
        <property name="cursor">
         <cursorShape>ArrowCursor</cursorShape>
        </property>
-       <attribute name="icon">
-        <iconset>
-         <normaloff>chevron_right.svg</normaloff>chevron_right.svg</iconset>
-       </attribute>
-       <attribute name="label">
+       <attribute name="title">
         <string>Schritt 1: Vorschaubilder aufnehmen</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout_2">
@@ -761,11 +746,7 @@
        <property name="cursor">
         <cursorShape>ArrowCursor</cursorShape>
        </property>
-       <attribute name="icon">
-        <iconset>
-         <normaloff>chevron_right.svg</normaloff>chevron_right.svg</iconset>
-       </attribute>
-       <attribute name="label">
+       <attribute name="title">
         <string>Schritt 2: RTI-Serie aufnehmen</string>
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout">

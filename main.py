@@ -30,7 +30,7 @@ from PyQt6.QtCore import QThread, QSettings, QStandardPaths, pyqtSignal, Qt, QTr
 from PyQt6.QtGui import QPixmap, QAction, QPixmapCache, QIcon, QColor, QCloseEvent, QBrush, QPainter
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QWidget, QFrame, QLineEdit,
-    QComboBox, QLabel, QToolBox, QProgressBar, QMenu, QAbstractButton, QInputDialog, QMessageBox, QStyle, QDialog,
+    QComboBox, QLabel, QTabWidget, QProgressBar, QMenu, QAbstractButton, QInputDialog, QMessageBox, QStyle, QDialog,
     QLCDNumber, QGraphicsView, QSizePolicy, QVBoxLayout
 )
 from PyQt6.uic import loadUi
@@ -75,7 +75,7 @@ class Session:
         self.preview_count = 0
 
 
-# Corresponds to itemIndex of the captureView QToolBox
+# Corresponds to the tab index of the captureView QTabWidget
 class CaptureMode(Enum):
     Preview = 0
     RTI = 1
@@ -131,7 +131,7 @@ class RTICaptureMainWindow(QMainWindow):
         self.preview_led_select: QComboBox = self.findChild(QComboBox, "previewLedSelect")
         self.preview_led_frame: QFrame = self.findChild(QFrame, "previewLedFrame")
         
-        self.capture_view: QToolBox = self.findChild(QToolBox, "captureView")
+        self.capture_view: QTabWidget = self.findChild(QTabWidget, "captureView")
         self.rtiPage: QWidget = self.findChild(QWidget, "rtiPage")
         self.previewPage: QWidget = self.findChild(QWidget, "previewPage")
         self.preview_viewer: ViewerWidget = self.findChild(ViewerWidget, "previewViewer")
@@ -410,13 +410,6 @@ class RTICaptureMainWindow(QMainWindow):
                          and self.session.images_dir_loaded
         capture_mode = self.capture_mode
 
-        # configure UI according to the capture mode
-        for item_index in range(self.capture_view.count()):
-            if item_index == self.capture_mode.value:
-                self.capture_view.setItemIcon(item_index, QIcon(get_ui_path("ui/chevron_down.svg")))
-            else:
-                self.capture_view.setItemIcon(item_index, QIcon(get_ui_path("ui/chevron_right.svg")))
-
 
 
 
@@ -458,8 +451,8 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_controls.setEnabled(False)
                 self.camera_config_controls.setEnabled(False)
                 self.capture_button.setText(self.tr("Nicht verbunden"))
-                self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
-                self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.Preview.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.Found():
                 pass
@@ -477,8 +470,8 @@ class RTICaptureMainWindow(QMainWindow):
                 self.autofocus_button.setEnabled(False)
 
 
-                self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
-                self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.Preview.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.Connecting():
                 self.camera_state_label.setText(self.tr("Verbinde... <br><b>%s</b>") % camera_state.camera_name)
@@ -509,8 +502,8 @@ class RTICaptureMainWindow(QMainWindow):
                     self.capture_button.setText(self.tr("Vorschaubild aufnehmen"))
                 else:
                     self.capture_button.setText(self.tr("RTI-Aufnahme starten"))
-                self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
-                self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.Preview.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.Disconnecting():
                 self.camera_state_label.setText(self.tr("Trenne Kamera..."))
@@ -572,9 +565,9 @@ class RTICaptureMainWindow(QMainWindow):
                 self.camera_config_controls.setEnabled(False)
 
                 if self.capture_mode == CaptureMode.Preview:
-                    self.capture_view.setItemEnabled(CaptureMode.RTI.value, False)
+                    self.capture_view.setTabEnabled(CaptureMode.RTI.value, False)
                 else:
-                    self.capture_view.setItemEnabled(CaptureMode.Preview.value, False)
+                    self.capture_view.setTabEnabled(CaptureMode.Preview.value, False)
 
                 self.capture_progress_bar.setMaximum(camera_state.capture_request.num_images)
                 self.capture_progress_bar.setValue(camera_state.num_captured)
@@ -592,8 +585,8 @@ class RTICaptureMainWindow(QMainWindow):
                 self.session_controls.setEnabled(True)
                 self.cancel_capture_button.setVisible(False)
                 self.capture_button.setVisible(True)
-                self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
-                self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.Preview.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.CaptureError():
                 self.capture_status_label.setText(self.tr("Fehler: %s" % str(camera_state.error)))
@@ -602,8 +595,8 @@ class RTICaptureMainWindow(QMainWindow):
                 self.session_controls.setEnabled(True)
                 self.cancel_capture_button.setVisible(False)
                 self.capture_button.setVisible(True)
-                self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
-                self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.Preview.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.RTI.value, True)
 
             case CameraStates.CaptureFinished():
                 self.capture_status_label.setText(self.tr("Fertig in %ss!") % str(camera_state.elapsed_time / 1000))
@@ -611,8 +604,8 @@ class RTICaptureMainWindow(QMainWindow):
                 self.session_controls.setEnabled(True)
                 self.cancel_capture_button.setVisible(False)
                 self.capture_button.setVisible(True)
-                self.capture_view.setItemEnabled(CaptureMode.Preview.value, True)
-                self.capture_view.setItemEnabled(CaptureMode.RTI.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.Preview.value, True)
+                self.capture_view.setTabEnabled(CaptureMode.RTI.value, True)
 
         # Show the zoom controls only over a static photo — never during live
         # view, never when empty (keeps them in step with every state change).
@@ -675,7 +668,7 @@ class RTICaptureMainWindow(QMainWindow):
             # The RTI-series page has no live view — make sure it's off (so the
             # RTI zoom controls, gated on "not live", can appear).
             self.toggle_live_view_button.setChecked(False)
-        # The viewer on a QToolBox page is laid out at zero size while that page
+        # The viewer on a QTabWidget page is laid out at zero size while that page
         # is hidden, so an image it decoded then fit against an empty viewport
         # (shows tiny). Re-fit the now-visible page's viewer once layout settles.
         viewer = self.preview_viewer if self.capture_mode == CaptureMode.Preview else self.rti_viewer
