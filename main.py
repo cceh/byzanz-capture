@@ -896,27 +896,66 @@ class RTICaptureMainWindow(QMainWindow):
         file from settings, or the bundled cceh-dome-template.lp when unset."""
         return QSettings().value("lpTemplatePath", "") or get_ui_path("cceh-dome-template.lp")
 
+    @staticmethod
+    def parse_lp_template(path: str) -> list[str]:
+        """The light directions from an LP template, one "x y z" string per
+        light. Accepts both a bare coordinate template (one "x y z" per line,
+        like the bundled cceh-dome-template.lp) and a full LP file (count
+        header + "filename x y z" lines, e.g. one produced by an earlier
+        capture): an integer-only first line is skipped, and only the last
+        three tokens of each line are used. Raises ValueError for a line that
+        doesn't end in three numbers; OSError if the file can't be read."""
+        with open(path, 'r') as f:
+            lines = [line.strip() for line in f if line.strip()]
+        if lines and lines[0].isdigit():
+            lines = lines[1:]
+        coords = []
+        for line_number, line in enumerate(lines, start=1):
+            tokens = line.split()
+            if len(tokens) >= 3:
+                x, y, z = tokens[-3:]
+                try:
+                    float(x), float(y), float(z)
+                except ValueError:
+                    raise ValueError(f"line {line_number}: expected a line ending "
+                                     f"in three numbers, got: {line!r}")
+            else:
+                raise ValueError(f"line {line_number}: expected a line ending "
+                                 f"in three numbers, got: {line!r}")
+            coords.append(f"{x} {y} {z}")
+        return coords
+
     def write_lp(self):
         file_names = [os.path.basename(file_path) for file_path in self.rti_filmstrip.files()]
         num_files = len(file_names)
 
         lp_template_path = self.resolved_lp_template_path()
-        if not os.path.isfile(lp_template_path):
-            # Checked before capture start, but the file can vanish while the
-            # capture runs. The images exist — only the LP file is missing.
-            logging.error("LP template vanished, not writing LP file: " + lp_template_path)
+        # Validated before capture start, but the file can vanish or change
+        # while the capture runs. The images exist — only the LP file fails.
+        try:
+            coords = self.parse_lp_template(lp_template_path)
+        except (OSError, ValueError) as e:
+            logging.error(f"Not writing LP file, template unusable ({lp_template_path}): {e}")
             QMessageBox.critical(
-                self, self.tr("LP-Datei nicht gefunden"),
+                self, self.tr("LP-Datei nicht geschrieben"),
                 self.tr("Die LP-Datei konnte nicht geschrieben werden, da die "
-                        "LP-Vorlagendatei fehlt:\n{0}").format(lp_template_path))
+                        "LP-Vorlagendatei fehlt oder ungültig ist:\n{0}\n\n"
+                        "{1}").format(lp_template_path, str(e)))
+            return
+        if len(coords) < num_files:
+            logging.error(f"Not writing LP file: template has {len(coords)} "
+                          f"light positions, but {num_files} images exist")
+            QMessageBox.critical(
+                self, self.tr("LP-Datei nicht geschrieben"),
+                self.tr("Die LP-Vorlagendatei enthält {0} Lichtpositionen, es "
+                        "wurden aber {1} Bilder aufgenommen.").format(len(coords), num_files))
             return
         lp_output_path = os.path.join(self.session.images_dir, self.session.name + ".lp")
-        with open(lp_template_path, 'r') as lp_template_file, open(lp_output_path, 'w') as lp_output_file:
-            logging.info("Writing LP file: " + lp_output_path)
+        logging.info("Writing LP file: " + lp_output_path)
+        with open(lp_output_path, 'w') as lp_output_file:
             lp_output_file.write(str(num_files) + "\n")
-            for i, input_line in enumerate(lp_template_file):
-                output_line = file_names[i] + " " + input_line
-                lp_output_file.write(output_line)
+            for file_name, coord in zip(file_names, coords):
+                lp_output_file.write(file_name + " " + coord + "\n")
 
     def check_and_write_lp(self, expected_count: int, attempts_remaining: int = 20):
         """
@@ -1088,15 +1127,27 @@ class RTICaptureMainWindow(QMainWindow):
 
             # The LP file is written from this template after the capture —
             # refuse up front (before deleting existing captures) if it is
-            # gone, e.g. a chosen file on a removed drive.
+            # gone (e.g. a chosen file on a removed drive), unparseable, or
+            # doesn't match the dome's light count.
             lp_template_path = self.resolved_lp_template_path()
-            if not os.path.isfile(lp_template_path):
+            try:
+                lp_coords = self.parse_lp_template(lp_template_path)
+            except (OSError, ValueError) as e:
                 QMessageBox.critical(
-                    self, self.tr("LP-Datei nicht gefunden"),
-                    self.tr("Die gewählte LP-Vorlagendatei existiert nicht "
-                            "mehr:\n{0}\n\nDie Aufnahme wurde nicht gestartet. "
-                            "Wähle in den allgemeinen Einstellungen eine andere "
-                            "LP-Datei.").format(lp_template_path))
+                    self, self.tr("LP-Datei nicht verwendbar"),
+                    self.tr("Die gewählte LP-Vorlagendatei fehlt oder ist "
+                            "ungültig:\n{0}\n\n{1}\n\nDie Aufnahme wurde nicht "
+                            "gestartet. Wähle in den allgemeinen Einstellungen "
+                            "eine andere LP-Datei.").format(lp_template_path, str(e)))
+                return
+            if len(lp_coords) != self.dome.num_positions:
+                QMessageBox.critical(
+                    self, self.tr("LP-Datei passt nicht zum Dom"),
+                    self.tr("Die gewählte LP-Vorlagendatei enthält {0} "
+                            "Lichtpositionen, der Dom ist aber auf {1} "
+                            "eingestellt:\n{2}\n\nDie Aufnahme wurde nicht "
+                            "gestartet.").format(len(lp_coords), self.dome.num_positions,
+                                                 lp_template_path))
                 return
 
             if self.rti_filmstrip.num_files() > 0:

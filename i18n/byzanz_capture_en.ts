@@ -360,188 +360,222 @@ hr { height: 1px; border-width: 0; }
         <translation>Secondary Screen</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="430" />
+        <location filename="..\main.py" line="423" />
         <source>Sitzung beenden</source>
         <translation>End session</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="430" />
+        <location filename="..\main.py" line="423" />
         <source>Laden abbrechen...</source>
         <translation>Cancel loading...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="444" />
+        <location filename="..\main.py" line="437" />
         <source>Suche Kamera...</source>
         <translation>Finding camera...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="525" />
-        <location filename="..\main.py" line="460" />
+        <location filename="..\main.py" line="518" />
+        <location filename="..\main.py" line="453" />
         <source>Nicht verbunden</source>
         <translation>Not connected</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="468" />
+        <location filename="..\main.py" line="461" />
         <source>Kamera getrennt&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
         <translation>Camera disconnected&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="484" />
+        <location filename="..\main.py" line="477" />
         <source>Verbinde... &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
         <translation>Connecting... &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="492" />
+        <location filename="..\main.py" line="485" />
         <source>Kamera verbunden&lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</source>
         <translation>Camera connected &lt;br&gt;&lt;b&gt;%s&lt;/b&gt;</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="509" />
+        <location filename="..\main.py" line="502" />
         <source>Vorschaubild aufnehmen</source>
         <translation>Take preview photo</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="511" />
+        <location filename="..\main.py" line="504" />
         <source>RTI-Aufnahme starten</source>
         <translation>Start RTI capture</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="516" />
+        <location filename="..\main.py" line="509" />
         <source>Trenne Kamera...</source>
         <translation>Disconnecting camera...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="543" />
+        <location filename="..\main.py" line="536" />
         <source>Konnte nicht fokussieren. Zu dunkel?</source>
         <translation>Could not focus. Too dark?</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="589" />
+        <location filename="..\main.py" line="582" />
         <source>Aufnahme abgebrochen!</source>
         <translation>Capture canceled!</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="609" />
+        <location filename="..\main.py" line="602" />
         <source>Fertig in %ss!</source>
         <translation>Finished in %ss!</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="631" />
+        <location filename="..\main.py" line="624" />
         <source>Bluetooth-Verbindung zum Controller getrennt</source>
         <translation>Bluetooth disconnected from controller</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="635" />
+        <location filename="..\main.py" line="628" />
         <source>Bluetooth-Verbindung zum Controller wird aufgebaut...</source>
         <translation>Connecting to controller via Bluetooth...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="640" />
+        <location filename="..\main.py" line="633" />
         <source>Bluetooth-Verbindung zum Controller aktiv</source>
         <translation>Connected to controller via Bluetooth</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="644" />
+        <location filename="..\main.py" line="637" />
         <source>Bluetooth-Verbindung zum Controller wird getrennt...</source>
         <translation>Disconnecting Bluetooth connection to controller...</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="720" />
+        <location filename="..\main.py" line="713" />
         <source>Capture in progress</source>
         <translation>Capture in progress</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="721" />
+        <location filename="..\main.py" line="714" />
         <source>The camera profile was not changed because a capture is running. Change it again once the capture has finished.</source>
         <translation>The camera profile was not changed because a capture is running. Change it again once the capture has finished.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="881" />
-        <location filename="..\main.py" line="820" />
+        <location filename="..\main.py" line="874" />
+        <location filename="..\main.py" line="813" />
         <source>Fehler</source>
         <translation>Error</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="821" />
+        <location filename="..\main.py" line="814" />
         <source>Sitzung %s existiert bereits. Soll sie erneut geöffnet werden?</source>
         <translation>Session %s already exists. Do you want to open it again?</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="874" />
+        <location filename="..\main.py" line="867" />
         <source>Aktuelle Sitzung umbenennen</source>
         <translation>Rename currenct session</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="874" />
+        <location filename="..\main.py" line="867" />
         <source>Neuer Name</source>
         <translation>New name</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="881" />
+        <location filename="..\main.py" line="874" />
         <source>Sitzung %s existiert bereits.</source>
         <translation>Session %s already exists.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1102" />
-        <location filename="..\main.py" line="916" />
-        <source>LP-Datei nicht gefunden</source>
-        <translation>LP file not found</translation>
+        <location filename="..\main.py" line="949" />
+        <location filename="..\main.py" line="940" />
+        <source>LP-Datei nicht geschrieben</source>
+        <translation>LP file not written</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="917" />
-        <source>Die LP-Datei konnte nicht geschrieben werden, da die LP-Vorlagendatei fehlt:
-{0}</source>
-        <translation>The LP file could not be written because the LP template file is missing:
-{0}</translation>
+        <location filename="..\main.py" line="941" />
+        <source>Die LP-Datei konnte nicht geschrieben werden, da die LP-Vorlagendatei fehlt oder ungültig ist:
+{0}
+
+{1}</source>
+        <translation>The LP file could not be written because the LP template file is missing or invalid:
+{0}
+
+{1}</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1089" />
+        <location filename="..\main.py" line="950" />
+        <source>Die LP-Vorlagendatei enthält {0} Lichtpositionen, es wurden aber {1} Bilder aufgenommen.</source>
+        <translation>The LP template file contains {0} light positions, but {1} images were captured.</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="1121" />
         <source>Aufnahmemodus passt nicht zur Kamera</source>
         <translation>Capture mode does not match the camera</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1090" />
+        <location filename="..\main.py" line="1122" />
         <source>Der Dom-Aufnahmemodus ist „Kamera-Burst“, aber diese Kamera unterstützt das nicht. Stelle in den Einstellungen den Aufnahmemodus auf „Extern getriggert“ oder „Einzelbild per App“.</source>
         <translation>The dome capture mode is “Camera burst”, but this camera does not support it. In the settings, set the capture mode to “Externally triggered” or “Single shot via app”.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1103" />
-        <source>Die gewählte LP-Vorlagendatei existiert nicht mehr:
+        <location filename="..\main.py" line="1137" />
+        <source>LP-Datei nicht verwendbar</source>
+        <translation>LP file not usable</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="1138" />
+        <source>Die gewählte LP-Vorlagendatei fehlt oder ist ungültig:
 {0}
 
+{1}
+
 Die Aufnahme wurde nicht gestartet. Wähle in den allgemeinen Einstellungen eine andere LP-Datei.</source>
-        <translation>The chosen LP template file no longer exists:
+        <translation>The chosen LP template file is missing or invalid:
 {0}
+
+{1}
 
 The capture was not started. Choose a different LP file in the general settings.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1110" />
+        <location filename="..\main.py" line="1145" />
+        <source>LP-Datei passt nicht zum Dom</source>
+        <translation>LP file does not match the dome</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="1146" />
+        <source>Die gewählte LP-Vorlagendatei enthält {0} Lichtpositionen, der Dom ist aber auf {1} eingestellt:
+{2}
+
+Die Aufnahme wurde nicht gestartet.</source>
+        <translation>The chosen LP template file contains {0} light positions, but the dome is set to {1}:
+{2}
+
+The capture was not started.</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="1154" />
         <source>RTI-Serie aufnehmen</source>
         <translation>Capture RTI series</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1111" />
+        <location filename="..\main.py" line="1155" />
         <source>Vorhandene Aufnahmen werden gelöscht.</source>
         <translation>Existing captures will be deleted.</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1113" />
+        <location filename="..\main.py" line="1157" />
         <source>Abbrechen</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1116" />
+        <location filename="..\main.py" line="1160" />
         <source>Fortfahren</source>
         <translation>Continue</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1127" />
+        <location filename="..\main.py" line="1171" />
         <source>Löschen fehlgeschlagen</source>
         <translation>Deletion failed</translation>
     </message>
     <message>
-        <location filename="..\main.py" line="1128" />
+        <location filename="..\main.py" line="1172" />
         <source>Die vorhandenen Aufnahmen konnten nicht in den Papierkorb verschoben werden:
 {0}
 
@@ -550,6 +584,26 @@ Die Aufnahme wurde nicht gestartet.</source>
 {0}
 
 The capture was not started.</translation>
+    </message>
+    <message>
+        <source>LP-Datei nicht gefunden</source>
+        <translation type="vanished">LP file not found</translation>
+    </message>
+    <message>
+        <source>Die LP-Datei konnte nicht geschrieben werden, da die LP-Vorlagendatei fehlt:
+{0}</source>
+        <translation type="vanished">The LP file could not be written because the LP template file is missing:
+{0}</translation>
+    </message>
+    <message>
+        <source>Die gewählte LP-Vorlagendatei existiert nicht mehr:
+{0}
+
+Die Aufnahme wurde nicht gestartet. Wähle in den allgemeinen Einstellungen eine andere LP-Datei.</source>
+        <translation type="vanished">The chosen LP template file no longer exists:
+{0}
+
+The capture was not started. Choose a different LP file in the general settings.</translation>
     </message>
     <message>
         <source>Voll</source>
