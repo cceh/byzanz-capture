@@ -32,7 +32,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QFrame, QListView, QListWidget, QListWidgetItem, QMenu,
-    QStyle, QStyleOptionViewItem, QStyledItemDelegate, QVBoxLayout, QWidget,
+    QSizePolicy, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
 from .load_image_worker import (
@@ -133,16 +133,36 @@ class CaptionDelegate(QStyledItemDelegate):
             painter.restore()
         painter.restore()
 
+    def sizeHint(self, option, index) -> QSize:
+        """Size each item to the FULL grid cell. Without this, Qt sizes the
+        item to ~iconSize and hugs it top-left, so all the gridSize>iconSize
+        slack lands on the right/bottom — a thumb visibly left-shifted in the
+        vertical rail. Filling the cell lets IconMode center the icon
+        (horizontally) within the cell. No-op for the horizontal strip, whose
+        cell height equals the icon height."""
+        view = self.parent()
+        lst = getattr(view, "image_file_list", None)
+        grid = lst.gridSize() if lst is not None else QSize()
+        return grid if grid.isValid() else super().sizeHint(option, index)
+
     @staticmethod
     def _thumb_rect(option: QStyleOptionViewItem) -> QRect:
-        """Where the thumbnail lives inside the cell. gridSize is wider
-        than iconSize (to create the inter-thumb gap), so we center
-        decorationSize within option.rect to track wherever Qt actually
-        paints the icon."""
+        """Where the icon actually lands in the cell, so the caption/overlays
+        computed off this rect sit on the thumb. This mirrors how IconMode
+        paints the icon: horizontally centered, top-anchored.
+
+        VORLÄUFIG: in the vertical rail the taller cell (gridSize.h > iconSize.h)
+        leaves vertical slack that IconMode drops below the thumb, so the thumb
+        is horizontally centered but NOT vertically centered. sizeHint() (fill
+        the cell) fixes the horizontal centering; vertical centering is still
+        open — an in-app attempt to hand-paint the thumb centered showed no
+        visible change and was removed. Likely next tweak: paint the icon
+        ourselves at a both-axes-centered rect (needs HasDecoration cleared in
+        initStyleOption) and set y back to the centered value below."""
         cell = option.rect
         icon = option.decorationSize
         x = cell.x() + (cell.width() - icon.width()) // 2
-        y = cell.y() + (cell.height() - icon.height()) // 2
+        y = cell.y()  # top-anchored, matching IconMode (see VORLÄUFIG above)
         return QRect(x, y, icon.width(), icon.height())
 
     @staticmethod
@@ -287,9 +307,9 @@ class FilmstripWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(
-            STRIP_MARGIN, STRIP_MARGIN, STRIP_MARGIN, STRIP_MARGIN
-        )
+        self._strip_layout = layout
+        # contentsMargins are orientation-dependent (the vertical rail uses a
+        # larger margin) — set in _configure_orientation().
 
         self.image_file_list = QListWidget(self)
         # IconMode + gridSize: cells are exactly gridSize, items flow
@@ -305,17 +325,9 @@ class FilmstripWidget(QWidget):
         # items edge-to-edge across the viewport, silently zeroing the
         # inter-thumb gap from gridSize.
         self.image_file_list.setItemAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.image_file_list.setFlow(QListView.Flow.LeftToRight)
         self.image_file_list.setWrapping(False)
-        self.image_file_list.setHorizontalScrollMode(
-            QListView.ScrollMode.ScrollPerPixel
-        )
-        self.image_file_list.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
-        self.image_file_list.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        # Flow, scroll axis and scrollbar policies depend on the orientation
+        # and are applied in _configure_orientation() (below).
         # Inter-thumb gap is manufactured via gridSize > iconSize: each
         # cell has THUMB_GAP/2 of empty space around the centered icon,
         # and adjacent cells abut, so two adjacent thumbs are THUMB_GAP
@@ -324,7 +336,8 @@ class FilmstripWidget(QWidget):
         # it vertically — and it does so by shrinking option.rect.height
         # to viewport.height - 2*spacing, which clips the icon.
         self.image_file_list.setIconSize(QSize(THUMB_WIDTH, THUMB_HEIGHT))
-        self.image_file_list.setGridSize(QSize(CELL_WIDTH, CELL_HEIGHT))
+        # gridSize (the inter-thumb gap) is orientation-dependent — set in
+        # _configure_orientation().
         self.image_file_list.setSpacing(0)
         self.image_file_list.setFrameShape(QFrame.Shape.NoFrame)
         # Transparent so STRIP_BG_COLOR shows through the contentsMargins
@@ -349,10 +362,11 @@ class FilmstripWidget(QWidget):
         self._scrollbar_extent = self.style().pixelMetric(
             QStyle.PixelMetric.PM_ScrollBarExtent
         )
-        self._apply_strip_height(scrollbar_visible=False)
-        self.image_file_list.horizontalScrollBar().rangeChanged.connect(
-            self._on_hscroll_range_changed
-        )
+        # Orientation is configurable (default horizontal = a bottom strip,
+        # unchanged for existing callers incl. papyri's CaptureFilmstrip). The
+        # RTI app switches to vertical for a side rail via set_orientation().
+        self._orientation = Qt.Orientation.Horizontal
+        self._configure_orientation()
 
         # Directory binding state
         self.__currentPath: str | None = None
@@ -568,7 +582,9 @@ class FilmstripWidget(QWidget):
         `scrollToBottom` on a horizontal-flow list isn't reliable
         across Qt versions, so we drive the scrollbar directly."""
         def _scroll():
-            bar = self.image_file_list.horizontalScrollBar()
+            bar = (self.image_file_list.verticalScrollBar()
+                   if self._orientation == Qt.Orientation.Vertical
+                   else self.image_file_list.horizontalScrollBar())
             bar.setValue(bar.maximum())
         QTimer.singleShot(0, _scroll)
 
@@ -661,20 +677,78 @@ class FilmstripWidget(QWidget):
         affecting decoration changes, e.g. chosen-take swap)."""
         self.image_file_list.viewport().update()
 
-    # ---- scrollbar-aware height ---------------------------------------
+    # ---- orientation + scrollbar-aware cross-axis size ----------------
 
-    def _apply_strip_height(self, *, scrollbar_visible: bool) -> None:
-        """Resize the strip so the visible bottom margin stays at
-        STRIP_MARGIN regardless of horizontal-scrollbar visibility. When
-        the scrollbar appears, the FilmstripWidget grows by its pixel
-        extent; when it hides, the widget shrinks back."""
+    def set_orientation(self, orientation: Qt.Orientation) -> None:
+        """Lay the strip out horizontally (default — a bottom strip) or
+        vertically (a side rail). Lives in the base so either app can pick
+        either; the default is horizontal so existing callers (incl. papyri's
+        CaptureFilmstrip) are unaffected."""
+        if orientation == self._orientation:
+            return
+        self._orientation = orientation
+        self._configure_orientation()
+
+    def _configure_orientation(self) -> None:
+        """Apply the flow, scroll axis and cross-axis size that depend on the
+        orientation. Called from __init__ and set_orientation."""
+        lst = self.image_file_list
+        vertical = self._orientation == Qt.Orientation.Vertical
+        # Vertical rail: NO outer margin so the strip sits flush with the viewer
+        # (top/bottom/left); horizontal strip keeps STRIP_MARGIN (unchanged for
+        # papyri).
+        self._strip_margin = 0 if vertical else STRIP_MARGIN
+        self._strip_layout.setContentsMargins(
+            self._strip_margin, self._strip_margin,
+            self._strip_margin, self._strip_margin)
+        # Gap around each thumbnail (cell padding beyond the icon): doubled for
+        # the vertical rail. The gap is the stacking-axis component of
+        # gridSize − iconSize, so a taller cell = more space between stacked
+        # thumbs; a wider cell = more side padding.
+        gap = 2 * THUMB_GAP if vertical else THUMB_GAP
+        self._cell_w = THUMB_WIDTH + gap
+        self._cell_h = THUMB_HEIGHT + (gap if vertical else 0)
+        lst.setGridSize(QSize(self._cell_w, self._cell_h))
+        lst.setFlow(QListView.Flow.TopToBottom if vertical
+                    else QListView.Flow.LeftToRight)
+        if vertical:
+            lst.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
+            lst.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            lst.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        else:
+            lst.setHorizontalScrollMode(QListView.ScrollMode.ScrollPerPixel)
+            lst.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            lst.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # (Re)wire the scroll-axis rangeChanged → cross-axis resize; drop any
+        # previous connection first so a re-orient can't double-fire.
+        for bar in (lst.horizontalScrollBar(), lst.verticalScrollBar()):
+            try:
+                bar.rangeChanged.disconnect(self._on_scroll_range_changed)
+            except TypeError:
+                pass
+        active_bar = lst.verticalScrollBar() if vertical else lst.horizontalScrollBar()
+        active_bar.rangeChanged.connect(self._on_scroll_range_changed)
+        self._apply_strip_extent(scrollbar_visible=False)
+
+    def _apply_strip_extent(self, *, scrollbar_visible: bool) -> None:
+        """Pin the strip's CROSS axis to one thumbnail cell + margins, growing
+        by the scrollbar's extent when it shows so the visible margin stays at
+        STRIP_MARGIN. Horizontal → fixed height (bottom strip); vertical →
+        fixed width (side rail; height is free so it fills its column)."""
         extra = self._scrollbar_extent if scrollbar_visible else 0
-        self.setFixedHeight(STRIP_MARGIN + CELL_HEIGHT + extra + STRIP_MARGIN)
+        m = self._strip_margin
+        if self._orientation == Qt.Orientation.Vertical:
+            self.setFixedWidth(m + self._cell_w + extra + m)
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX — let the rail fill its column
+            self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        else:
+            self.setFixedHeight(m + self._cell_h + extra + m)
 
-    def _on_hscroll_range_changed(self, minimum: int, maximum: int) -> None:
-        """Range == (0, 0) ⇔ no horizontal scrolling needed ⇔ scrollbar
-        hidden under AsNeeded policy. Anything else ⇒ scrollbar visible."""
-        self._apply_strip_height(scrollbar_visible=(maximum > minimum))
+    def _on_scroll_range_changed(self, minimum: int, maximum: int) -> None:
+        """Range == (0, 0) ⇔ no scrolling needed ⇔ scrollbar hidden under the
+        AsNeeded policy. Anything else ⇒ scrollbar visible ⇒ grow the strip."""
+        self._apply_strip_extent(scrollbar_visible=(maximum > minimum))
 
     # ---- reset contract -----------------------------------------------
 

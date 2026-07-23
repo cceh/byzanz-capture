@@ -146,6 +146,11 @@ class RTICaptureMainWindow(QMainWindow):
         self.rti_zoom_bar: ZoomControlBar = self.findChild(ZoomControlBar, "rtiZoomBar")
         self.rti_viewer.attach_zoom_bar(self.rti_zoom_bar)
 
+        # Both filmstrips are side rails (vertical) next to the viewer — the .ui
+        # places them left of the viewer; the widget lays them out top-to-bottom.
+        self.preview_filmstrip.set_orientation(Qt.Orientation.Vertical)
+        self.rti_filmstrip.set_orientation(Qt.Orientation.Vertical)
+
         # Filmstrip → viewer wiring (per mode). The filmstrip handles all
         # the directory/async-thumb work and emits a decoded pixmap when
         # the user clicks a thumb (or when a fresh capture lands); the

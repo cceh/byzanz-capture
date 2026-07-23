@@ -720,17 +720,36 @@
          </widget>
         </item>
         <item>
-         <widget class="ViewerWidget" name="previewViewer" native="true">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
+         <layout class="QHBoxLayout" name="previewViewerRow">
+          <property name="spacing">
+           <number>8</number>
           </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="FilmstripWidget" name="previewFilmstrip" native="true"/>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="FilmstripWidget" name="previewFilmstrip" native="true"/>
+          </item>
+          <item>
+           <widget class="ViewerWidget" name="previewViewer" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>1</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
        </layout>
       </widget>
@@ -783,17 +802,36 @@
          </layout>
         </item>
         <item>
-         <widget class="ViewerWidget" name="rtiViewer" native="true">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
+         <layout class="QHBoxLayout" name="rtiViewerRow">
+          <property name="spacing">
+           <number>8</number>
           </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="FilmstripWidget" name="rtiFilmstrip" native="true"/>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="FilmstripWidget" name="rtiFilmstrip" native="true"/>
+          </item>
+          <item>
+           <widget class="ViewerWidget" name="rtiViewer" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>1</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
        </layout>
       </widget>
