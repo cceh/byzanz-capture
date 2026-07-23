@@ -204,10 +204,10 @@ class RTICaptureMainWindow(QMainWindow):
         self.settings_button: QPushButton = self.findChild(QPushButton, "settingsButton")
 
         self.session_menu = QMenu(self)
-        self.open_session_action = QAction('Vorherige Sitzung öffnen...', self)
+        self.open_session_action = QAction(self.tr('Vorherige Sitzung öffnen...'), self)
         self.open_session_action.triggered.connect(self.open_existing_session_directory)
         self.open_session_action.setIcon(QIcon(get_ui_path("ui/open.svg")))
-        self.rename_session_action = QAction('Sitzung umbenennen...', self)
+        self.rename_session_action = QAction(self.tr('Sitzung umbenennen...'), self)
         self.rename_session_action.triggered.connect(self.rename_current_session)
         self.rename_session_action.setIcon(QIcon(get_ui_path("ui/rename.svg")))
         self.session_menu.addActions([self.open_session_action, self.rename_session_action])

@@ -335,6 +335,16 @@ hr { height: 1px; border-width: 0; }
 </context><context>
     <name>RTICaptureMainWindow</name>
     <message>
+        <location filename="..\main.py" line="207" />
+        <source>Vorherige Sitzung öffnen...</source>
+        <translation>Open previous session...</translation>
+    </message>
+    <message>
+        <location filename="..\main.py" line="210" />
+        <source>Sitzung umbenennen...</source>
+        <translation>Rename session...</translation>
+    </message>
+    <message>
         <location filename="..\main.py" line="216" />
         <source>Allgemeine Einstellungen</source>
         <translation>General settings</translation>
