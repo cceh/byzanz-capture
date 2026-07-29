@@ -67,11 +67,12 @@ class CalibrationBar(QFrame):
         self._stack.addWidget(self._idle_page)
 
     def set_can_enter(self, enabled: bool) -> None:
-        """Enable/disable the Calibrate button. Calibration is always for a
-        specific object's height, so it's only offered with an object open."""
+        """Enable/disable the Calibrate button. Calibration runs are filed
+        under the open box, so a box is the only requirement — an open
+        object is not (without one the run is for the current rig height)."""
         self._enter_btn.setEnabled(enabled)
         self._enter_btn.setToolTip(
-            "" if enabled else "Open an object first — calibration is for its height.")
+            "" if enabled else "Open a box first — calibration is stored inside it.")
 
     # ---- active page ---------------------------------------------------
 
@@ -85,8 +86,10 @@ class CalibrationBar(QFrame):
         self._mode_label.setObjectName("calibrationModeLabel")
         row.addWidget(self._mode_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # The height this run calibrates for — comes from the open object, is
-        # fixed for the whole run, and reads prominently so it can't be missed.
+        # The height this run currently files under — starts from the open
+        # object's (or the current rig height when none is open), follows
+        # the height combo mid-run, and reads prominently so it can't be
+        # missed.
         self._cal_height = QLabel("")
         self._cal_height.setObjectName("calibrationHeight")
         row.addWidget(self._cal_height, 0, Qt.AlignmentFlag.AlignVCenter)

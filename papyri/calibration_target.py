@@ -66,11 +66,15 @@ class CalibrationTarget(QObject):
 
     def discard_if_empty(self) -> None:
         """Remove this run's folder if nothing was captured into it — so a
-        Calibrate → Back with no shot leaves no empty run behind."""
-        self.refresh()
-        if self.total_count() == 0:
-            import shutil
-            shutil.rmtree(self.dir, ignore_errors=True)
+        Calibrate → Back with no shot leaves no empty run behind. Walks the
+        whole run folder on disk (NOT the scanned buckets, which only cover
+        the current heights) so shots filed under a since-changed height are
+        never discarded."""
+        for _root, _dirs, files in os.walk(self.dir):
+            if any(not is_hidden_file(f) for f in files):
+                return
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
 
     # --- paths ----------------------------------------------------------
 
@@ -142,6 +146,42 @@ class CalibrationTarget(QObject):
         if not paths:
             return
         trash(paths)
+        self.refresh()
+
+    def move_height(self, spectrum: str, old_height: str, new_height: str) -> None:
+        """Re-file this run's captures for `spectrum` from `old_height` to
+        `new_height` (per-height targets only — the others carry no height).
+        A mid-run height pick is a correction — "these shots were really
+        taken at height X" — so the files move to the new height's subfolder
+        and are re-stemmed (the height is part of the filename), continuing
+        the destination's index sequence."""
+        if not old_height or old_height == new_height:
+            return
+        for slot, sp in CALIBRATION_BUCKETS:
+            if sp != spectrum or not is_per_height(slot):
+                continue
+            base = os.path.join(self.dir, sp, folder_for_slot(slot))
+            old_dir = os.path.join(base, old_height)
+            captures = self._scan(old_dir)
+            if not captures:
+                continue
+            new_dir = os.path.join(base, new_height)
+            os.makedirs(new_dir, exist_ok=True)
+            prefix = (f"{folder_for_slot(slot)}_{SPECTRUM_INFIX[spectrum]}"
+                      f"_{new_height}")
+            n = self._max_index_for(new_dir, prefix)
+            for cap in captures:            # _scan returns index-sorted
+                n += 1
+                stem = f"{prefix}_{n:03d}"
+                for src in (cap.jpg_path, cap.raw_path):
+                    if src is None:
+                        continue
+                    ext = os.path.splitext(src)[1]
+                    os.replace(src, os.path.join(new_dir, f"{stem}{ext}"))
+            try:
+                os.rmdir(old_dir)   # gone unless non-capture files remain
+            except OSError:
+                pass
         self.refresh()
 
     def import_files(self, slot: str, spectrum: str, sources: list) -> list[Path]:

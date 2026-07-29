@@ -645,6 +645,10 @@ class PapyriMainWindow(QMainWindow):
         self._cal_target: "CalibrationTarget | None" = None
         self._object_before_calibration = None
         self._bucket_before_calibration: tuple[str, str] | None = None
+        # The VIS height the current calibration run files under. Seeded at
+        # enter (object's height, or the rig height), changeable mid-run via
+        # the height combo.
+        self._cal_vis_height: str = ""
 
         self._bind_widgets()
         self._wire_actions()
@@ -1179,9 +1183,6 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
         s.current_object_changed.connect(self._refresh_no_object_lockout)
         s.current_object_changed.connect(self._refresh_capture_button_label)
-        # Enable "Calibrate ▸" only with an object open (calibration is for its
-        # height).
-        s.current_object_changed.connect(self._refresh_calibration_bar)
         s.current_object_changed.connect(self._refresh_stitch_toggle)
         # Object switch → the combo follows the now-open object's height.
         s.current_object_changed.connect(self._populate_height_select)
@@ -1399,14 +1400,18 @@ class PapyriMainWindow(QMainWindow):
         spectrum = self.session.active_spectrum
         choices = height_choices_for(self.q_settings, spectrum)
         if self._calibration_active:
-            # Calibration is FOR the stashed object's height and can't be
-            # changed here — show it locked, mirroring the "for height X" banner.
-            current = self._object_height(self._object_before_calibration, spectrum)
-            enabled = False
+            # The height the current run files under (mirrored by the "for
+            # height X" banner): starts from the object's height at enter,
+            # changeable mid-run — a pick re-files the run's shots under
+            # the new height (a correction, not a second sub-run).
+            current = (self._cal_vis_height
+                       if spectrum == SPECTRUM_VISIBLE
+                       else self._object_height_seed(spectrum))
         else:
             current = self._current_object_height(spectrum)
-            # A single choice is not adjustable — fixed height, no special case.
-            enabled = len(choices) > 1
+        # A single choice is not adjustable — fixed height, no special case
+        # (this is what keeps IR's single fixed value locked everywhere).
+        enabled = len(choices) > 1
         self.height_select.blockSignals(True)
         self.height_select.clear()
         self.height_select.addItems(choices)
@@ -1435,10 +1440,26 @@ class PapyriMainWindow(QMainWindow):
         programmatic combo sync). Height belongs to the OPEN OBJECT and spans
         all its VIS captures (both sides). Changing it on an already-captured
         object re-labels those shots, so confirm first. Either way the value
-        becomes the seed new objects inherit."""
+        becomes the seed new objects inherit. While calibrating, the pick
+        instead re-targets the current run's filing height."""
         if not text:
             return
         spectrum = self.session.active_spectrum
+        if self._calibration_active:
+            # Mid-run switch = a correction: the run's existing shots for
+            # this camera move to the new height too (only VIS is switchable
+            # — IR's single choice keeps its combo disabled). The stashed
+            # object's own height is untouched; the seed follows, like the
+            # no-object path below.
+            if spectrum == SPECTRUM_VISIBLE:
+                if self._cal_target is not None:
+                    self._cal_target.move_height(
+                        SPECTRUM_VISIBLE, self._cal_vis_height, text)
+                self._cal_vis_height = text
+            set_current_height(self.q_settings, spectrum, text)
+            self._refresh_calibration_banner()
+            self._refresh_after_height_change()
+            return
         obj = self.session.current_object
         # No object (or a non-papyri target): the pick is just the seed.
         if not isinstance(obj, Object):
@@ -1479,6 +1500,9 @@ class PapyriMainWindow(QMainWindow):
         calibrating, the active folder is per height, so rebind the filmstrip
         to the new height's shots and re-evaluate due-status."""
         if self._calibration_active and self._cal_target is not None:
+            # The new height's subfolder may not exist yet — the filmstrip's
+            # FS watcher needs it on disk to catch tethered captures.
+            self._cal_target.ensure_dir()
             self._cal_target.refresh()
             self._refresh_filmstrip_binding()
         if self.calibration is not None:
@@ -2697,6 +2721,10 @@ class PapyriMainWindow(QMainWindow):
         self.close_object()
         self.q_settings.setValue("workingDirectory", "")
         self._activate_box("")
+        # The Calibrate button gates on an open box — repoint + repaint.
+        if self.calibration is not None:
+            self.calibration.set_working_dir("")
+            self._refresh_calibration_bar()
 
     def _on_object_state_changed(self):
         """Single sink for any change in the current object's derived state.
@@ -2775,10 +2803,11 @@ class PapyriMainWindow(QMainWindow):
             spectra.append(SPECTRUM_INFRARED)
         level, text = self.calibration.summary(spectra)
         self.calibration_bar.set_idle(text, level)
-        # Calibration is for the open object's height, so it's only offered
-        # with an object open.
+        # Calibration runs are filed under the open box (`_calibration/`), so
+        # a box is the only requirement — no object needed (without one the
+        # run is simply for the current rig height).
         self.calibration_bar.set_can_enter(
-            isinstance(self.session.current_object, Object))
+            bool(self.q_settings.value("workingDirectory", "")))
 
     # ---- calibration sub-mode enter / exit ----------------------------
 
@@ -2791,10 +2820,6 @@ class PapyriMainWindow(QMainWindow):
             return
         wd = self.q_settings.value("workingDirectory", "")
         if not wd:
-            return
-        # Calibration is always FOR an object's height (shown big, not editable
-        # in this sub-mode). No object → nothing to calibrate for.
-        if not isinstance(self.session.current_object, Object):
             return
         # Pick a valid opening bucket: a target slot for the active camera,
         # falling back to VIS if the active camera has none configured.
@@ -2812,18 +2837,20 @@ class PapyriMainWindow(QMainWindow):
             self.session.active_side, self.session.active_spectrum)
 
         self._calibration_active = True
+        # The VIS height this run starts filing under: the open object's own
+        # height, or the current rig height when no object is open (IR stays
+        # the fixed global). Changeable mid-run via the height combo — set
+        # BEFORE any chrome repaint so the combo never sees an empty value.
+        self._cal_vis_height = self._object_height(
+            self._object_before_calibration, SPECTRUM_VISIBLE)
         self._apply_mode_chrome(CALIBRATION_MODE)
         # Each Calibrate click is its own timestamped run, so a mid-day
         # setup change just starts fresh. ensure_dir so the filmstrip's
         # watcher catches tethered captures; an unused run is pruned on exit.
         run_id = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        # The height this run calibrates for: the object's own VIS height (IR
-        # stays the fixed global). Captured once at enter — fixed for the run.
-        cal_vis_height = self._object_height(
-            self._object_before_calibration, SPECTRUM_VISIBLE)
         self._cal_target = CalibrationTarget(
             wd, run_id,
-            height_for=lambda spectrum: cal_vis_height
+            height_for=lambda spectrum: self._cal_vis_height
                 if spectrum == SPECTRUM_VISIBLE
                 else current_height_for(self.q_settings, spectrum))
         self._cal_target.ensure_dir()
@@ -2844,8 +2871,7 @@ class PapyriMainWindow(QMainWindow):
         calibration run is filed under, for the active camera."""
         spectrum = self.session.active_spectrum
         if spectrum == SPECTRUM_VISIBLE:
-            height = self._object_height(
-                self._object_before_calibration, SPECTRUM_VISIBLE)
+            height = self._cal_vis_height
         else:
             height = current_height_for(self.q_settings, SPECTRUM_INFRARED)
         return f"for height {height} cm"
@@ -2876,6 +2902,7 @@ class PapyriMainWindow(QMainWindow):
         self._cal_target = None
         self._object_before_calibration = None
         self._bucket_before_calibration = None
+        self._cal_vis_height = ""
         self.calibration.refresh()
         self._refresh_calibration_bar()
 
