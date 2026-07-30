@@ -2904,6 +2904,15 @@ class PapyriMainWindow(QMainWindow):
         # BEFORE any chrome repaint so the combo never sees an empty value.
         self._cal_vis_height = self._object_height(
             self._object_before_calibration, SPECTRUM_VISIBLE)
+        # Sync the seed to the filing height. The seed (`currentHeight`)
+        # only follows explicit height edits, so entering with an object
+        # whose stamped height differs would otherwise file the shots into
+        # a folder the due-tracker never scans — fresh flatfields, chip
+        # stuck on "due" (scan- vs filing-height gap). Mid-run picks
+        # already keep the two in step (_on_height_changed); this closes
+        # the enter moment. Side effect, deliberate: calibrating for
+        # height X means the rig IS at X, so new objects inherit X.
+        set_current_height(self.q_settings, SPECTRUM_VISIBLE, self._cal_vis_height)
         self._calibration_mode = calibration_mode_for(
             enabled_step_ids(self.q_settings))
         self._apply_mode_chrome(self._calibration_mode)
