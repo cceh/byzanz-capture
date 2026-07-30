@@ -292,3 +292,4 @@ cython_debug/
 vendor/build/
 vendor/libgphoto2/build/
 
+vcamera-sources/local/

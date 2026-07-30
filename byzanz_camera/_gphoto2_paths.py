@@ -124,9 +124,12 @@ def apply_vcamera_source_dirs() -> None:
 
       1. An env var that is already set wins (explicit user choice —
          shell, PyCharm run config).
-      2. Otherwise `<repo>/vcamera-sources/<subdir>` is used when that
-         directory exists.
-      3. Otherwise the var stays unset and the driver serves its
+      2. Otherwise `<repo>/vcamera-sources/local/<subdir>` — the
+         gitignored per-machine override written by scripts/seed_vcam.py
+         (seed any RAW/JPEG as that camera's current material).
+      3. Otherwise `<repo>/vcamera-sources/<subdir>` — the committed
+         sample material.
+      4. Otherwise the var stays unset and the driver serves its
          compiled-in seed.
 
     Deliberately deployment-relative — no machine-specific absolute
@@ -141,10 +144,15 @@ def apply_vcamera_source_dirs() -> None:
         if preset:
             _logger.info("vcamera sources: %s=%s (from environment)", var, preset)
             continue
-        candidate = repo_root / "vcamera-sources" / subdir
-        if candidate.is_dir():
-            os.environ[var] = str(candidate)
-            _logger.info("vcamera sources: %s=%s", var, candidate)
+        for base, origin in (
+            (repo_root / "vcamera-sources" / "local", "local override"),
+            (repo_root / "vcamera-sources", "committed samples"),
+        ):
+            candidate = base / subdir
+            if candidate.is_dir():
+                os.environ[var] = str(candidate)
+                _logger.info("vcamera sources: %s=%s (%s)", var, candidate, origin)
+                break
 
 
 def _resolve_vendor_paths() -> tuple[str, str] | None:
