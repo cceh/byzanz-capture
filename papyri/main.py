@@ -1457,10 +1457,22 @@ class PapyriMainWindow(QMainWindow):
         if self._calibration_active:
             # Mid-run switch = a correction: the run's existing shots for
             # this camera move to the new height too (only VIS is switchable
-            # — IR's single choice keeps its combo disabled). The stashed
-            # object's own height is untouched; the seed follows, like the
-            # no-object path below.
+            # — IR's single choice keeps its combo disabled). The seed
+            # follows, like the no-object path below.
             if spectrum == SPECTRUM_VISIBLE:
+                # The stashed object follows the pick as well: calibrating
+                # "for height X" with an object open means that object IS
+                # at height X now — same code path as a normal-mode height
+                # edit, including the confirm on an already-captured
+                # object. A decline reverts the whole pick (run re-filing
+                # included), so run and object never drift apart.
+                stashed = self._object_before_calibration
+                if isinstance(stashed, Object) and not \
+                        self._apply_object_height_change(stashed, spectrum, text):
+                    self.height_select.blockSignals(True)
+                    self.height_select.setCurrentText(self._cal_vis_height)
+                    self.height_select.blockSignals(False)
+                    return
                 if self._cal_target is not None:
                     self._cal_target.move_height(
                         SPECTRUM_VISIBLE, self._cal_vis_height, text)
@@ -1475,18 +1487,32 @@ class PapyriMainWindow(QMainWindow):
             set_current_height(self.q_settings, spectrum, text)
             self._refresh_after_height_change()
             return
-        old = self._current_object_height(spectrum)
-        if text == old:
+        if text == self._current_object_height(spectrum):
             return
-        captured = obj.count(SIDE_A, spectrum) + obj.count(SIDE_B, spectrum) > 0
-        if captured and not self._confirm_height_change(obj, old, text):
+        if not self._apply_object_height_change(obj, spectrum, text):
             self.height_select.blockSignals(True)      # user kept the old height
-            self.height_select.setCurrentText(old)
+            self.height_select.setCurrentText(self._current_object_height(spectrum))
             self.height_select.blockSignals(False)
             return
-        update_meta(obj.meta_path, {MetaKey.HEIGHT_VIS: text})
         set_current_height(self.q_settings, spectrum, text)   # seed follows the last edit
         self._refresh_after_height_change()
+
+    def _apply_object_height_change(self, obj: "Object", spectrum: str,
+                                    text: str) -> bool:
+        """Stamp `text` as `obj`'s height — the object half of a height
+        pick, shared by the normal-mode path and the calibrate path (which
+        applies it to the stashed object). No-op when the height already
+        matches. When the object already has VIS captures, asks first
+        (pure re-label — files stay untouched); returns False if the user
+        kept the old height, True otherwise."""
+        old = self._object_height(obj, spectrum)
+        if text == old:
+            return True
+        captured = obj.count(SIDE_A, spectrum) + obj.count(SIDE_B, spectrum) > 0
+        if captured and not self._confirm_height_change(obj, old, text):
+            return False
+        update_meta(obj.meta_path, {MetaKey.HEIGHT_VIS: text})
+        return True
 
     def _confirm_height_change(self, obj: "Object", old: str, new: str) -> bool:
         """Ask before re-labelling an already-captured object's height. Returns
