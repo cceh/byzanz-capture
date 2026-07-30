@@ -18,7 +18,7 @@ Simple mode: spectrum only (VIS/IR) as a plain camera selector, flat
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from papyri.capture_vocab import (
     SIDE_A, SIDE_B, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
@@ -169,15 +169,18 @@ _CAL_PALETTE = {
 }
 
 
-def _calibration_groups() -> tuple[WorkflowGroup, ...]:
+def _calibration_groups(enabled: set[str] | None = None) -> tuple[WorkflowGroup, ...]:
     """VIS / IR groups whose steps are the calibration targets for that
     camera — built from CALIBRATION_TARGETS, so editing that list is all
-    it takes to add/remove a target (asymmetry between cameras is fine)."""
+    it takes to add/remove a target (asymmetry between cameras is fine).
+    `enabled` filters to the given step ids (None = all) — the user can
+    hide tabs via the `calibrationTabs/*` setting (see papyri.calibration)."""
     groups = []
     for spectrum in (SPECTRUM_VISIBLE, SPECTRUM_INFRARED):
-        specs = specs_for(spectrum)
+        specs = [s for s in specs_for(spectrum)
+                 if enabled is None or cal_step_id(s.slot, s.spectrum) in enabled]
         if not specs:
-            continue                     # camera with no calibration targets
+            continue                     # camera with no (visible) targets
         p = _CAL_PALETTE[spectrum]
         groups.append(WorkflowGroup(
             label=p["label"], short_label=p["short"], base_color=p["base"],
@@ -211,6 +214,15 @@ CALIBRATION_MODE = CaptureMode(
     whole_folder_filmstrip=True,   # delete-only menu; per-bucket dir display
     show_calibration=True,         # the bar stays — it carries "← Back"
 )
+
+
+def calibration_mode_for(enabled_step_ids: set[str]) -> CaptureMode:
+    """CALIBRATION_MODE with its tabs filtered to `enabled_step_ids` (the
+    `calibrationTabs/*` setting, resolved by `calibration.enabled_step_ids`).
+    `step_id_by_bucket` stays complete on purpose: hidden buckets are never
+    activated, and the bucket selector ignores step ids it has no tab for."""
+    return replace(CALIBRATION_MODE, groups=_calibration_groups(enabled_step_ids))
+
 
 MODES = {m.key: m for m in (PAPYRI_MODE, SIMPLE_MODE)}
 

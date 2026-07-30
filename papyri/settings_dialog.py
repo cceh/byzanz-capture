@@ -4,6 +4,10 @@ Adds an IR camera profile slot (`irProfile` key) on top of the visible-camera
 profile. Drops the Bluetooth and max-burst fields the byzanz dialog has —
 neither applies to the papyri workflow.
 
+The per-camera calibration-tab checkboxes are NOT in the .ui — they are
+generated from `CALIBRATION_TARGETS` so the layout list stays the single
+source of truth for which targets exist.
+
 API mirrors the byzanz dialog: `exec()` returns truthy on save,
 `self.settings` holds the dict of changed values for the caller to apply.
 """
@@ -12,12 +16,16 @@ from typing import Any
 
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QLineEdit, QSpinBox,
+    QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QSpinBox,
+    QWidget,
 )
 from PyQt6.uic import loadUi
 
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.profiles.base import Profile
+from papyri.calibration import is_tab_enabled, tab_setting_key
+from papyri.calibration_layout import CalSpec, specs_for
+from papyri.capture_vocab import SPECTRA, SPECTRUM_INFIX
 from papyri.focus_audio import AUDIO_AVAILABLE
 
 
@@ -40,6 +48,7 @@ class PapyriSettingsDialog(QDialog):
         self.settings: dict[str, Any] = {}
 
         self._bind_widgets()
+        self._build_calibration_tab_rows()
         self._populate_profiles()
         self._wire_actions()
         self._load_current()
@@ -87,6 +96,36 @@ class PapyriSettingsDialog(QDialog):
         self.rotated_sample_nudge_interval_input: QSpinBox = self.findChild(
             QSpinBox, "rotatedSampleNudgeIntervalInput"
         )
+
+    def _build_calibration_tab_rows(self) -> None:
+        """One form row per camera with a checkbox per calibration target,
+        generated from CALIBRATION_TARGETS and inserted below the
+        calibration-interval row. Unchecking hides that target's tab in
+        calibration mode and drops it from the due reminder."""
+        self._cal_tab_checkboxes: dict[CalSpec, QCheckBox] = {}
+        row, _role = self.formLayout.getWidgetPosition(
+            self.calibration_interval_input)
+        insert_at = row + 1
+        for spectrum in SPECTRA:
+            specs = specs_for(spectrum)
+            if not specs:
+                continue
+            holder = QWidget()
+            box_row = QHBoxLayout(holder)
+            box_row.setContentsMargins(0, 0, 0, 0)
+            for spec in specs:
+                box = QCheckBox(spec.label)
+                box.setToolTip(
+                    "Uncheck to hide this target's tab in calibration mode. "
+                    "Hidden targets are also excluded from the calibration "
+                    "reminder.")
+                self._cal_tab_checkboxes[spec] = box
+                box_row.addWidget(box)
+            box_row.addStretch(1)
+            label = QLabel(
+                f"Calibration tabs {SPECTRUM_INFIX[spectrum].upper()}:")
+            self.formLayout.insertRow(insert_at, label, holder)
+            insert_at += 1
 
     def _populate_profiles(self) -> None:
         # Visible: required, all profiles available.
@@ -144,6 +183,11 @@ class PapyriSettingsDialog(QDialog):
         self.calibration_interval_input.valueChanged.connect(
             lambda v: self._set("calibrationIntervalMinutes", v)
         )
+        for spec, box in self._cal_tab_checkboxes.items():
+            box.stateChanged.connect(
+                lambda _state, k=tab_setting_key(spec), b=box:
+                    self._set(k, b.isChecked())
+            )
         self.capture_heights_input.textChanged.connect(
             lambda t: self._set("captureHeightChoices", t)
         )
@@ -206,6 +250,9 @@ class PapyriSettingsDialog(QDialog):
         # findData/setCurrentIndex above won't fire the changed-handler when
         # the value already maps to index 0, so set the dependent enable here.
         self.calibration_interval_input.setEnabled(trigger == "time")
+
+        for spec, box in self._cal_tab_checkboxes.items():
+            box.setChecked(is_tab_enabled(self._q_settings, spec))
 
         self.capture_heights_input.setText(
             self._q_settings.value("captureHeightChoices", "30,45,60,75,90")

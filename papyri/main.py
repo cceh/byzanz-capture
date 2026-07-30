@@ -72,6 +72,7 @@ from papyri.capture_vocab import (
     RAW_EXTENSIONS,
     SIDE_A,
     SIDE_B,
+    SPECTRA,
     SPECTRUM_INFIX,
     SPECTRUM_INFRARED,
     SPECTRUM_VISIBLE,
@@ -103,11 +104,13 @@ from papyri.session_state import SessionState
 from byzanz_camera.profiles import PROFILES, Profile
 from byzanz_camera.settings_migration import migrate_papyri_settings
 from papyri.bucket_selector import BucketSelector, FusingPanel
-from papyri.calibration import CalibrationController
+from papyri.calibration import (
+    CalibrationController, enabled_specs_for, enabled_step_ids,
+)
 from papyri.calibration_bar import CalibrationBar
-from papyri.calibration_layout import first_slot_for, label_for_slot
+from papyri.calibration_layout import label_for_slot
 from papyri.calibration_target import CalibrationTarget
-from papyri.capture_mode import CALIBRATION_MODE, get_mode
+from papyri.capture_mode import CALIBRATION_MODE, calibration_mode_for, get_mode
 from papyri._metadata import (
     current_height_for,
     height_choices_for,
@@ -640,6 +643,9 @@ class PapyriMainWindow(QMainWindow):
         # `effective_mode`, which the chrome receivers read instead of the
         # fixed startup `self.mode`.
         self._calibration_active: bool = False
+        # The CALIBRATION_MODE variant currently in force — rebuilt on every
+        # enter with the tabs filtered by the calibrationTabs setting.
+        self._calibration_mode = CALIBRATION_MODE
         # Calibration sub-mode state: the open per-camera target and the
         # object+bucket stashed for "← Back".
         self._cal_target: "CalibrationTarget | None" = None
@@ -938,7 +944,7 @@ class PapyriMainWindow(QMainWindow):
         sub-mode is active (entered from papyri mode). Chrome receivers read
         THIS, not `self.mode`, so calibration borrows the simple-mode look
         without forking the window."""
-        return CALIBRATION_MODE if self._calibration_active else self.mode
+        return self._calibration_mode if self._calibration_active else self.mode
 
     def _apply_mode_chrome(self, mode) -> None:
         """Apply every mode-dependent widget setting in one place. Called
@@ -1186,6 +1192,9 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._refresh_stitch_toggle)
         # Object switch → the combo follows the now-open object's height.
         s.current_object_changed.connect(self._populate_height_select)
+        # Live view gates on an open object (see _sync_live_view's rule) —
+        # the reconciler must re-run when one opens or closes.
+        s.current_object_changed.connect(self._sync_live_view)
         self._refresh_metadata_pane_binding()
         self._refresh_title_bar_binding()
         self._refresh_objects_sidebar_active()
@@ -1847,10 +1856,11 @@ class PapyriMainWindow(QMainWindow):
 
     def _sync_live_view(self, *_) -> None:
         """Single owner of the live-view rule: stream on the active camera
-        iff not paused, the profile supports it, and the camera is in a
-        startable state. Connected to every input that can change the
-        outcome (active bucket, camera state, pause intent); stale or
-        duplicate commands are refused worker-side, so this stays stateless."""
+        iff an object is open, not paused, the profile supports it, and
+        the camera is in a startable state. Connected to every input that
+        can change the outcome (active bucket, camera state, pause intent,
+        current object); stale or duplicate commands are refused
+        worker-side, so this stays stateless."""
         for spectrum, worker, profile in (
             (SPECTRUM_VISIBLE, self.visible_worker, self.profile),
             (SPECTRUM_INFRARED, self.ir_worker, self.ir_profile),
@@ -1859,6 +1869,12 @@ class PapyriMainWindow(QMainWindow):
                 continue
             desired = (
                 spectrum == self.session.active_spectrum
+                # No object, no stream: with nothing open the viewer shows
+                # the no-object overlay, and the stream would run invisibly
+                # behind it (on a real body: mirror up + sensor live for
+                # nothing). Calibrate is unaffected — the CalibrationTarget
+                # IS the current object while the sub-mode is active.
+                and self.session.current_object is not None
                 and not self.session.live_view_paused
                 and profile.supports_live_view()
             )
@@ -2019,6 +2035,12 @@ class PapyriMainWindow(QMainWindow):
         # whatever's displayed (preview thumbnail, last-paused frame).
         if self.session.live_view_paused:
             return
+        # Same in-flight window when the object just closed: the reconciler
+        # has stopped the stream (no-object gate), but a straggler frame
+        # would still land here and flip view_mode back to "live" over the
+        # no-object overlay right after the close set it to "empty".
+        if self.session.current_object is None:
+            return
         # Overlap coach: feed every live frame (it samples + gates
         # internally, and no-ops unless a stitch-bucket anchor is set).
         # Pre-rotation frame on purpose — rotation is display-only and the
@@ -2093,12 +2115,16 @@ class PapyriMainWindow(QMainWindow):
 
         # ---- live view + autofocus + capture (bottom row)
         camera_ready = self._active_camera_ready()
-        # Gate on live-view support too: a no-live-view camera (the vusb
-        # virtual one) has no stream to pause, and toggling it would leave
-        # the button (pause intent) and badge (frame arrival) permanently
-        # out of sync — no frame ever comes to flip view_mode back to live.
+        # Gate on live-view support too: a no-live-view camera has no
+        # stream to pause, and toggling it would leave the button (pause
+        # intent) and badge (frame arrival) permanently out of sync — no
+        # frame ever comes to flip view_mode back to live. (No shipped
+        # profile returns False today — the vusb virtual camera streams
+        # via the vendor build's liveview emulation — but the gate stays
+        # for the next such camera.) And on an open object, matching
+        # _sync_live_view's rule: without one there is no stream to pause.
         self.pause_live_view_button.setEnabled(
-            camera_ready and self._live_view_supported())
+            camera_ready and has_object and self._live_view_supported())
         self.capture_button.setEnabled(camera_ready and object_loaded)
         # (Calibration shoots via this same Capture button — the
         # CalibrationTarget is the current object while the sub-mode is
@@ -2805,9 +2831,16 @@ class PapyriMainWindow(QMainWindow):
         self.calibration_bar.set_idle(text, level)
         # Calibration runs are filed under the open box (`_calibration/`), so
         # a box is the only requirement — no object needed (without one the
-        # run is simply for the current rig height).
-        self.calibration_bar.set_can_enter(
-            bool(self.q_settings.value("workingDirectory", "")))
+        # run is simply for the current rig height). On top of that, at
+        # least one tab must be left visible by the calibrationTabs setting.
+        if not any(enabled_specs_for(self.q_settings, sp) for sp in SPECTRA):
+            self.calibration_bar.set_can_enter(
+                False,
+                "All calibration tabs are hidden — re-enable one in Settings.")
+        else:
+            self.calibration_bar.set_can_enter(
+                bool(self.q_settings.value("workingDirectory", "")),
+                "Open a box first — calibration is stored inside it.")
 
     # ---- calibration sub-mode enter / exit ----------------------------
 
@@ -2821,15 +2854,17 @@ class PapyriMainWindow(QMainWindow):
         wd = self.q_settings.value("workingDirectory", "")
         if not wd:
             return
-        # Pick a valid opening bucket: a target slot for the active camera,
-        # falling back to VIS if the active camera has none configured.
-        spectrum = self.session.active_spectrum
-        slot = first_slot_for(spectrum)
+        # Pick a valid opening bucket: the first *enabled* tab (the
+        # calibrationTabs setting can hide targets), preferring the active
+        # camera, else any camera that still has one.
+        slot = None
+        for spectrum in (self.session.active_spectrum, *SPECTRA):
+            specs = enabled_specs_for(self.q_settings, spectrum)
+            if specs:
+                slot = specs[0].slot
+                break
         if slot is None:
-            spectrum = SPECTRUM_VISIBLE
-            slot = first_slot_for(spectrum)
-        if slot is None:
-            return                        # no calibration targets at all
+            return          # every tab hidden — the button is disabled then
 
         # Remember where we were so "← Back" restores it exactly.
         self._object_before_calibration = self.session.current_object
@@ -2843,7 +2878,9 @@ class PapyriMainWindow(QMainWindow):
         # BEFORE any chrome repaint so the combo never sees an empty value.
         self._cal_vis_height = self._object_height(
             self._object_before_calibration, SPECTRUM_VISIBLE)
-        self._apply_mode_chrome(CALIBRATION_MODE)
+        self._calibration_mode = calibration_mode_for(
+            enabled_step_ids(self.q_settings))
+        self._apply_mode_chrome(self._calibration_mode)
         # Each Calibrate click is its own timestamped run, so a mid-day
         # setup change just starts fresh. ensure_dir so the filmstrip's
         # watcher catches tethered captures; an unused run is pruned on exit.
@@ -2861,6 +2898,11 @@ class PapyriMainWindow(QMainWindow):
         self.session.set_current_object(None)
         self.session.set_active_bucket(slot, spectrum)
         self.session.set_current_object(self._cal_target)
+        # The bucket switch above ran mid-swap (no target bound yet), so the
+        # canonical review-vs-live decision was skipped. Re-assert it now
+        # that the calibration target is current — live view starts/pauses
+        # exactly as if this bucket were entered with an object open.
+        self._on_active_bucket_changed_live_view(slot, spectrum)
         self._refresh_workflow_stepper_active()
         self.calibration_bar.set_active(self._back_label())
         self._refresh_calibration_banner()
@@ -2898,6 +2940,10 @@ class PapyriMainWindow(QMainWindow):
             self._cal_target.discard_if_empty()
         self.session.set_active_bucket(side, spectrum)
         self.session.set_current_object(self._object_before_calibration)
+        # Same re-assert as on enter (the bucket switch ran while no target
+        # was bound): restore the review-vs-live decision for the object
+        # bucket we're returning to.
+        self._on_active_bucket_changed_live_view(side, spectrum)
         self._refresh_workflow_stepper_active()
         self._cal_target = None
         self._object_before_calibration = None
@@ -2986,6 +3032,11 @@ class PapyriMainWindow(QMainWindow):
         # IR worker spawn/teardown happens only in _wire_camera.
         previous_ir_profile = self.q_settings.value("irProfile")
         ir_hot_switched = False
+        # Snapshot so the calibrationTabs branch below reacts only to a REAL
+        # change: the dialog re-records stored-off checkboxes on load (its
+        # wire-then-load pattern), and that echo must not kick the user out
+        # of a running calibration.
+        previous_cal_tabs = enabled_step_ids(self.q_settings)
 
         dialog = PapyriSettingsDialog(self.q_settings, PROFILES, self)
         if not dialog.exec():
@@ -3051,6 +3102,16 @@ class PapyriMainWindow(QMainWindow):
                 if self.calibration is not None:
                     self.calibration.refresh()
                     self._refresh_calibration_bar()
+            elif name.startswith("calibrationTabs/"):
+                # Tab visibility changed — leave the sub-mode if it's showing
+                # (its bucket bar was built from the old tab set; the next
+                # enter rebuilds it), then re-evaluate the due chip.
+                if enabled_step_ids(self.q_settings) != previous_cal_tabs:
+                    if self._calibration_active:
+                        self._exit_calibration()
+                    elif self.calibration is not None:
+                        self.calibration.refresh()
+                        self._refresh_calibration_bar()
             elif name in ("captureHeightChoices", "irCaptureHeight"):
                 # VIS presets or the fixed IR height changed → rebuild the
                 # combo for whichever camera is active.

@@ -25,6 +25,12 @@ To add/remove a target it is enough to edit `CALIBRATION_TARGETS`:
   - drop a target → delete its line
 Asymmetry between cameras is fine (e.g. IR has no ColorChecker here).
 
+The list is the full contract; on top of it, the user can *hide* individual
+targets per camera (settings dialog, `calibrationTabs/*` keys — read via
+`papyri.calibration.is_tab_enabled` and friends, since this module stays
+QSettings-free). A hidden target keeps its on-disk layout but drops out of
+the tabs and the due-tracking.
+
 Axes:
   slot     — an opaque token for the first bucket axis. Objects use the
              physical side (SIDE_A/SIDE_B); calibration uses its own
@@ -110,9 +116,3 @@ def specs_for(spectrum: str) -> list[CalSpec]:
 
 def required_specs_for(spectrum: str) -> list[CalSpec]:
     return [s for s in CALIBRATION_TARGETS if s.spectrum == spectrum and s.required]
-
-
-def first_slot_for(spectrum: str) -> str | None:
-    """The default slot to open when entering calibration for a camera."""
-    specs = specs_for(spectrum)
-    return specs[0].slot if specs else None

@@ -66,13 +66,12 @@ class CalibrationBar(QFrame):
 
         self._stack.addWidget(self._idle_page)
 
-    def set_can_enter(self, enabled: bool) -> None:
-        """Enable/disable the Calibrate button. Calibration runs are filed
-        under the open box, so a box is the only requirement — an open
-        object is not (without one the run is for the current rig height)."""
+    def set_can_enter(self, enabled: bool, reason: str = "") -> None:
+        """Enable/disable the Calibrate button. `reason` is the tooltip shown
+        while disabled — why calibration is unavailable (no box open, or
+        every calibration tab hidden in Settings)."""
         self._enter_btn.setEnabled(enabled)
-        self._enter_btn.setToolTip(
-            "" if enabled else "Open a box first — calibration is stored inside it.")
+        self._enter_btn.setToolTip("" if enabled else reason)
 
     # ---- active page ---------------------------------------------------
 

@@ -16,6 +16,12 @@ Trigger model (persisted setting `calibrationTrigger`):
     "time"    — due when a required target's newest shot is older than the
                 configured interval (`calibrationIntervalMinutes`).
     "session" — due when a required target's newest shot is not from today.
+
+This module is also the canonical reader of the `calibrationTabs/<step_id>`
+settings (per-target visibility, written by the settings dialog):
+`is_tab_enabled` / `enabled_specs_for` / `enabled_step_ids`. A hidden tab
+disappears from calibration mode AND from due-tracking here — it can't be
+shot, so it must not nag.
 """
 from __future__ import annotations
 
@@ -26,7 +32,8 @@ from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from papyri._metadata import current_height_for
 from papyri.calibration_layout import (
-    CALIBRATION_DIRNAME, CALIBRATION_TARGETS, is_per_height, required_specs_for,
+    CALIBRATION_DIRNAME, CALIBRATION_TARGETS, CalSpec, cal_step_id,
+    is_per_height, required_specs_for, specs_for,
 )
 from papyri.capture_vocab import (
     CAPTURE_EXTENSIONS, SPECTRUM_INFRARED, SPECTRUM_VISIBLE, is_hidden_file,
@@ -39,6 +46,31 @@ TRIGGER_SESSION = "session"
 
 _SPECTRUM_SHORT = {SPECTRUM_VISIBLE: "VIS", SPECTRUM_INFRARED: "IR"}
 _LEVEL_RANK = {"ok": 0, "due": 1, "overdue": 2}     # worst wins
+
+
+# ---- tab visibility (`calibrationTabs/<step_id>` settings) -------------
+# One boolean per calibration target, written by the settings dialog; a
+# missing key means shown. Hiding a tab removes it from calibration mode
+# (capture_mode.calibration_mode_for) and from due-tracking below.
+
+def tab_setting_key(spec: CalSpec) -> str:
+    """QSettings key for one target's visibility, e.g. 'calibrationTabs/cal_cc_vis'."""
+    return f"calibrationTabs/{cal_step_id(spec.slot, spec.spectrum)}"
+
+
+def is_tab_enabled(q_settings, spec: CalSpec) -> bool:
+    return q_settings.value(tab_setting_key(spec), True, type=bool)
+
+
+def enabled_specs_for(q_settings, spectrum: str) -> list[CalSpec]:
+    """The visible calibration targets for one camera, in tab order."""
+    return [s for s in specs_for(spectrum) if is_tab_enabled(q_settings, s)]
+
+
+def enabled_step_ids(q_settings) -> set[str]:
+    """Step ids of every visible tab — feeds `capture_mode.calibration_mode_for`."""
+    return {cal_step_id(s.slot, s.spectrum) for s in CALIBRATION_TARGETS
+            if is_tab_enabled(q_settings, s)}
 
 
 def _age_text(t: datetime | None, now: datetime) -> str:
@@ -108,12 +140,16 @@ class CalibrationController(QObject):
         oldest: datetime | None = None
         parts: list[str] = []
         for sp in spectra:
+            if not enabled_specs_for(self._q, sp):
+                continue      # every tab of this camera hidden — nothing to track
             level, sp_oldest = self._spectrum_level(sp, trigger, now, interval)
             overall = overall if _LEVEL_RANK[overall] >= _LEVEL_RANK[level] else level
             parts.append(f"{_SPECTRUM_SHORT.get(sp, '?')} "
                          f"{'ok' if level == 'ok' else 'due'}")
             if sp_oldest is not None and (oldest is None or sp_oldest < oldest):
                 oldest = sp_oldest
+        if not parts:
+            return ("off", "No calibration tabs enabled")
         if overall == "ok":
             return ("ok", f"Calibration up to date · {_age_text(oldest, now)}")
         return (overall, " · ".join(parts))
@@ -127,7 +163,7 @@ class CalibrationController(QObject):
             (s.slot, s.spectrum,
              self._age_bucket(self._newest(s.spectrum, self._subpath(s, s.spectrum)),
                               now, interval))
-            for s in CALIBRATION_TARGETS
+            for s in CALIBRATION_TARGETS if is_tab_enabled(self._q, s)
         ))
         if sig != self._sig:
             self._sig = sig
@@ -153,6 +189,8 @@ class CalibrationController(QObject):
         overdue = False
         oldest: datetime | None = None
         for s in required_specs_for(spectrum):
+            if not is_tab_enabled(self._q, s):
+                continue          # hidden tab — can't be shot, mustn't nag
             t = self._newest(spectrum, self._subpath(s, spectrum))
             if self._is_open(t, trigger, now, interval):
                 open_any = True

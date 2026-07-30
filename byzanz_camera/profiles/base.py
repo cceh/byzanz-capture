@@ -43,11 +43,12 @@ class Profile(ABC):
 
     def supports_live_view(self) -> bool:
         """Whether the camera can stream a live preview via
-        capture_preview(). Default True — every real body here does. Return
-        False for cameras without live view (e.g. the vusb virtual camera,
-        whose capture_preview() returns "[-6] Unsupported operation"); the
-        worker then never enters the preview loop, which would otherwise
-        error out on the first frame and tear down the connection."""
+        capture_preview(). Default True — every body here does, including
+        the vusb virtual camera (whose liveview is emulated in the vendor
+        build, see vendor/patches/0005). Return False for cameras without
+        live view; the worker then never enters the preview loop, which
+        would otherwise error out on the first frame and tear down the
+        connection."""
         return True
 
     def focus_magnify_property_name(self) -> str | None:
