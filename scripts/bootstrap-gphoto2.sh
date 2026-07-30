@@ -103,8 +103,10 @@ ensure_submodule() {
 # configurable at runtime — VCAMERADIR_<port-suffix> (e.g. VCAMERADIR_2
 # for "vusb:2") > VCAMERADIR > compiled-in default, with seed images
 # re-stat'ed on every read so capture/liveview content can be swapped on
-# disk mid-session (patch 0006) — see the in-code comments in each patch
-# for the full rationale.
+# disk mid-session (patch 0006), and give the emulated ISO / f-number /
+# exposure-time properties realistic enum ladders so the apps' setting
+# dropdowns populate like a real body's (patch 0007) — see the in-code
+# comments in each patch for the full rationale.
 PATCH_DIR="$REPO_ROOT/vendor/patches"
 
 # Newline-separated list of patches that failed to apply (see

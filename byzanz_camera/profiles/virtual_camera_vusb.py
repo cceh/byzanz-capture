@@ -37,11 +37,17 @@ class VirtualCameraVusb(Profile):
         read: swapping capture/liveview images on disk mid-session (even
         with different file sizes) changes what the camera produces, no
         reconnect needed.
-      * It has no autofocus, no settable image format/quality, and its
-        exposure properties don't affect the duplicated JPEG. The settings
-        dicts are therefore empty: writes to absent config keys are
-        harmless (the worker's __try_set_config swallows them), but there's
-        nothing real to set.
+      * ISO / aperture / exposure time expose realistic enum ladders
+        (vendor/patches/0007: ExposureIndex 100..12800, f/2.8..f/22, and
+        the Nikon vendor exposure time 1/4000..30s + Time/Bulb in third
+        stops with real-Nikon fraction labels), so the capture-setting
+        dropdowns populate and behave like a real body's. The values are
+        stored on the emulated camera but do NOT affect the produced
+        images.
+      * It has no autofocus and no settable image format/quality. The
+        lifecycle settings dicts are empty: writes to absent config keys
+        are harmless (the worker's __try_set_config swallows them), but
+        there's nothing real to set.
     """
 
     def __init__(self, port: str = "vusb:", name: str = "Virtual Camera (vusb)"):
@@ -77,10 +83,11 @@ class VirtualCameraVusb(Profile):
         return False
 
     def has_settable_aperture(self) -> bool:
-        # The emulated f-number is cosmetic — it doesn't change the produced
-        # image. Leave the aperture combo disabled rather than offer a
-        # control that silently does nothing.
-        return False
+        # The emulator answers the FNumber property with a realistic
+        # f/2.8..f/22 enum (vendor patch 0007) and stores writes, so the
+        # aperture dropdown populates and round-trips like a real body's —
+        # cosmetic for the image, but it exercises the full UI plumbing.
+        return True
 
     def burstnumber_property_name(self):
         # Unused: the emulator emits a clean per-trigger CAPTURE_COMPLETE and
@@ -91,7 +98,12 @@ class VirtualCameraVusb(Profile):
         return "iso"
 
     def shutterspeed_property_name(self):
-        return "shutterspeed"
+        # "shutterspeed2" is the Nikon vendor exposure time (0xD100,
+        # vendor patch 0007) with the fraction labels real Nikons show
+        # ("1/250", "4/10", "2") — same widget the D800E/D90 profiles
+        # bind. The generic "shutterspeed" widget (decimal "0.0100s"
+        # labels) also exists but nothing binds it.
+        return "shutterspeed2"
 
     def f_number_property_name(self):
         return "f-number"
