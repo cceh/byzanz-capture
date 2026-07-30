@@ -26,6 +26,12 @@ The caller MUST capture pre-import env vars BEFORE `import gphoto2`,
 since the import wipes them — then pass the captured values to
 `apply_paths`. See the dance at the top of `papyri/main.py` and
 `main.py`.
+
+`apply_paths` also resolves the vusb virtual cameras' source
+directories (`VCAMERADIR` / `VCAMERADIR_2`, vendor patch 0006) from
+repo-local `vcamera-sources/` folders — see apply_vcamera_source_dirs.
+Unlike CAMLIBS/IOLIBS these vars survive the gphoto2 import untouched,
+so no pre-import capture is needed for them.
 """
 from __future__ import annotations
 
@@ -48,6 +54,12 @@ def apply_paths(pre_camlibs: str | None, pre_iolibs: str | None) -> None:
     Logs a single INFO line naming which source won, so a failed
     autodetect later in the run can be triaged against the resolved
     path."""
+
+    # Independent of the CAMLIBS/IOLIBS precedence below (which is why
+    # this runs before the early-return chain): point the vusb virtual
+    # cameras at repo-local source material, if any is present. Real
+    # cameras never read these vars, so this is a no-op in the lab.
+    apply_vcamera_source_dirs()
 
     # 0. Kill switch — skip everything.
     if os.environ.get(_KILL_SWITCH_VAR) == "1":
@@ -93,6 +105,46 @@ def apply_paths(pre_camlibs: str | None, pre_iolibs: str | None) -> None:
     io = os.environ.get("IOLIBS")
     _logger.info("gphoto2 paths: bundled fallback (CAMLIBS=%s, IOLIBS=%s)",
                  cam, io)
+
+
+# (env var, subdir of vcamera-sources/) — mirrors the vusb driver's
+# per-port lookup chain (vendor patch 0006): VCAMERADIR_2 feeds the
+# camera on port "vusb:2" (papyri: typically the IR slot), VCAMERADIR
+# feeds the "vusb:" camera AND is the shared fallback. An unset var
+# falls through to the compiled-in, bootstrap-seeded default.
+_VCAMERA_SOURCE_VARS = (
+    ("VCAMERADIR", "vusb"),
+    ("VCAMERADIR_2", "vusb2"),
+)
+
+
+def apply_vcamera_source_dirs() -> None:
+    """Point the vusb virtual cameras' source dirs at repo-local
+    folders, if present. Per (var, subdir) in _VCAMERA_SOURCE_VARS:
+
+      1. An env var that is already set wins (explicit user choice —
+         shell, PyCharm run config).
+      2. Otherwise `<repo>/vcamera-sources/<subdir>` is used when that
+         directory exists.
+      3. Otherwise the var stays unset and the driver serves its
+         compiled-in seed.
+
+    Deliberately deployment-relative — no machine-specific absolute
+    paths, so any checkout (Cologne dev machine, Berkeley) resolves its
+    own material. Drop JPEGs into the folder (plus an optional
+    `liveview/` frame sequence) to give that camera distinct test
+    content; files are re-stat'ed by the driver on every read, so
+    swapping them mid-session works without a reconnect."""
+    repo_root = Path(__file__).resolve().parents[1]
+    for var, subdir in _VCAMERA_SOURCE_VARS:
+        preset = os.environ.get(var)
+        if preset:
+            _logger.info("vcamera sources: %s=%s (from environment)", var, preset)
+            continue
+        candidate = repo_root / "vcamera-sources" / subdir
+        if candidate.is_dir():
+            os.environ[var] = str(candidate)
+            _logger.info("vcamera sources: %s=%s", var, candidate)
 
 
 def _resolve_vendor_paths() -> tuple[str, str] | None:
