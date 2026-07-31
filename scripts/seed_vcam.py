@@ -20,8 +20,11 @@ slot that is in papyri depends on the profile assignment in Settings).
 RAWs are not demosaiced — the (typically full-size) embedded JPEG
 preview is used, byte-identical, via the same helper the apps use
 (load_image_worker.read_embedded_jpeg). The live-view frames are a
-seamlessly looping drift crop with per-frame sensor-style grain, so the
-stream visibly "lives" even on uniform targets like flatfields.
+static view with per-frame sensor-style grain — the temporal noise
+alone makes the stream visibly "live", the image itself does not move.
+`--drift` adds a seamlessly looping position wobble on top (off by
+default; useful to exercise motion-driven tools like the overlap
+coach).
 
 Timing of effect: the live-view folder is rescanned by the emulator on
 every frame, and seed files are re-stat'ed on every read — so re-seeding
@@ -43,7 +46,8 @@ sys.path.insert(0, str(REPO_ROOT))
 CAMERAS = {"1": "vusb", "vusb": "vusb", "2": "vusb2", "vusb2": "vusb2"}
 
 
-def build_liveview_frames(src_img, lv_dir: Path, frames: int, grain: float) -> tuple[int, int]:
+def build_liveview_frames(src_img, lv_dir: Path, frames: int, grain: float,
+                          drift: float) -> tuple[int, int]:
     import numpy as np
     from PIL import Image, ImageDraw
 
@@ -51,13 +55,19 @@ def build_liveview_frames(src_img, lv_dir: Path, frames: int, grain: float) -> t
     scale = 1100 / src_img.width
     small = src_img.resize((1100, round(src_img.height * scale)), Image.LANCZOS)
     w, h = small.size
-    mx, my = int(w * 0.06), int(h * 0.06)   # drift amplitude
+    # Drift amplitude (fraction of each axis). 0 = static frame: the crop
+    # window sits centered and never moves — only the grain differs per
+    # frame, like real sensor noise on a fixed scene.
+    mx, my = int(w * drift), int(h * drift)
     for i in range(frames):
         t = i / frames
-        # Lissajous 1:2 — both axes complete whole cycles over the
-        # sequence, so the loop is seamless.
-        x = round(mx * (1 + math.sin(2 * math.pi * t)))
-        y = round(my * (1 + math.sin(4 * math.pi * t)))
+        if mx or my:
+            # Lissajous 1:2 — both axes complete whole cycles over the
+            # sequence, so the loop is seamless.
+            x = round(mx * (1 + math.sin(2 * math.pi * t)))
+            y = round(my * (1 + math.sin(4 * math.pi * t)))
+        else:
+            x = y = 0
         frame = small.crop((x, y, x + w - 2 * mx, y + h - 2 * my))
         if grain > 0:
             arr = np.asarray(frame, dtype=np.float32)
@@ -83,6 +93,10 @@ def main() -> int:
     parser.add_argument("--grain", type=float, default=5.0,
                         help="live-view grain strength, gaussian sigma in 8-bit levels "
                              "(default 5.0; 0 disables)")
+    parser.add_argument("--drift", type=float, default=0.0,
+                        help="live-view position wobble as a fraction of the frame "
+                             "(default 0 = static image; e.g. 0.06 for a gentle "
+                             "looping drift, useful for overlap-coach testing)")
     parser.add_argument("--reset", action="store_true",
                         help="remove this camera's local override (falls back to the "
                              "committed samples / compiled-in seed)")
@@ -123,7 +137,7 @@ def main() -> int:
     (target / "GPH_0001.JPG").write_bytes(jpeg)
 
     src = ImageOps.exif_transpose(Image.open(io.BytesIO(jpeg)).convert("RGB"))
-    fw, fh = build_liveview_frames(src, lv_dir, args.frames, args.grain)
+    fw, fh = build_liveview_frames(src, lv_dir, args.frames, args.grain, args.drift)
 
     print(f"seeded '{sub}' from {args.image.name}:")
     print(f"  capture seed: {target / 'GPH_0001.JPG'} ({len(jpeg) // 1024} KB, {src.size[0]}x{src.size[1]})")
