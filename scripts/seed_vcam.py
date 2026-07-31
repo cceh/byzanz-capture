@@ -97,6 +97,13 @@ def main() -> int:
                         help="live-view position wobble as a fraction of the frame "
                              "(default 0 = static image; e.g. 0.06 for a gentle "
                              "looping drift, useful for overlap-coach testing)")
+    parser.add_argument("--rotate", type=int, default=0, choices=(0, 90, 180, 270),
+                        help="rotate the image clockwise before seeding (capture seed "
+                             "AND live view). Replicates a physically rotated body — "
+                             "e.g. 180 for an upside-down-mounted IR camera, so the "
+                             "app's client-side rotation can be exercised like in "
+                             "production. Note: any rotation re-encodes the seed "
+                             "instead of keeping the embedded JPEG byte-identical.")
     parser.add_argument("--reset", action="store_true",
                         help="remove this camera's local override (falls back to the "
                              "committed samples / compiled-in seed)")
@@ -134,13 +141,25 @@ def main() -> int:
     lv_dir = target / "liveview"
     shutil.rmtree(lv_dir, ignore_errors=True)
     lv_dir.mkdir(parents=True)
-    (target / "GPH_0001.JPG").write_bytes(jpeg)
 
     src = ImageOps.exif_transpose(Image.open(io.BytesIO(jpeg)).convert("RGB"))
+    seed_path = target / "GPH_0001.JPG"
+    if args.rotate:
+        # PIL rotates counter-clockwise; the flag means clockwise like the
+        # app's rotation UI. Rotation re-encodes, so the plain case below
+        # keeps the camera's own bytes untouched.
+        src = src.rotate(-args.rotate, expand=True)
+        src.save(seed_path, "JPEG", quality=92)
+        seed_kb = seed_path.stat().st_size // 1024
+    else:
+        seed_path.write_bytes(jpeg)
+        seed_kb = len(jpeg) // 1024
+
     fw, fh = build_liveview_frames(src, lv_dir, args.frames, args.grain, args.drift)
 
+    rot_note = f", rotated {args.rotate}°" if args.rotate else ""
     print(f"seeded '{sub}' from {args.image.name}:")
-    print(f"  capture seed: {target / 'GPH_0001.JPG'} ({len(jpeg) // 1024} KB, {src.size[0]}x{src.size[1]})")
+    print(f"  capture seed: {seed_path} ({seed_kb} KB, {src.size[0]}x{src.size[1]}{rot_note})")
     print(f"  live view:    {args.frames} frames ({fw}x{fh}, grain sigma {args.grain})")
     if first_time:
         print("  NOTE: folder is new — restart the app so the resolver and the "
