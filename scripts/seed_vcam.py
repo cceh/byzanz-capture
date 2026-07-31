@@ -81,6 +81,43 @@ def build_liveview_frames(src_img, lv_dir: Path, frames: int, grain: float,
     return w - 2 * mx, h - 2 * my
 
 
+def build_zoom_frames(src_img, zoom_dir: Path, frames: int, grain: float,
+                      size: tuple[int, int]) -> float:
+    """The focus-magnifier sequence (liveview_zoom/, served by the
+    emulator while the Nikon zoom ratio is set): a center crop of the
+    FULL-RESOLUTION source at the stream's frame size — true 1:1 pixels,
+    like a real body sampling the sensor natively while magnifying.
+    Static by design (a real magnifier holds its position); only the
+    per-frame grain differs. Returns the effective magnification."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    rng = np.random.default_rng()
+    fw, fh = size
+    cx, cy = src_img.width // 2, src_img.height // 2
+    # Clamp for sources smaller than the frame (not the case for real
+    # camera material, but keep the crop math valid).
+    cw, ch = min(fw, src_img.width), min(fh, src_img.height)
+    box = (cx - cw // 2, cy - ch // 2, cx - cw // 2 + cw, cy - ch // 2 + ch)
+    base = src_img.crop(box)
+    if (cw, ch) != (fw, fh):
+        base = base.resize((fw, fh), Image.LANCZOS)
+    for i in range(frames):
+        frame = base
+        if grain > 0:
+            arr = np.asarray(frame, dtype=np.float32)
+            arr += rng.normal(0.0, grain, arr.shape).astype(np.float32)
+            frame = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+        else:
+            frame = frame.copy()
+        d = ImageDraw.Draw(frame)
+        text = f"live view zoom {i + 1:02d}/{frames}"
+        d.text((13, frame.height - 27), text, fill=(0, 0, 0))
+        d.text((12, frame.height - 28), text, fill=(235, 235, 235))
+        frame.save(zoom_dir / f"frame_{i:03d}.jpg", "JPEG", quality=72)
+    return src_img.width / 1100
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Seed a virtual camera with a RAW/JPEG (capture seed + live-view frames).")
@@ -139,8 +176,11 @@ def main() -> int:
 
     first_time = not target.is_dir()
     lv_dir = target / "liveview"
+    zoom_dir = target / "liveview_zoom"
     shutil.rmtree(lv_dir, ignore_errors=True)
+    shutil.rmtree(zoom_dir, ignore_errors=True)
     lv_dir.mkdir(parents=True)
+    zoom_dir.mkdir()
 
     src = ImageOps.exif_transpose(Image.open(io.BytesIO(jpeg)).convert("RGB"))
     seed_path = target / "GPH_0001.JPG"
@@ -156,11 +196,13 @@ def main() -> int:
         seed_kb = len(jpeg) // 1024
 
     fw, fh = build_liveview_frames(src, lv_dir, args.frames, args.grain, args.drift)
+    magnification = build_zoom_frames(src, zoom_dir, args.frames, args.grain, (fw, fh))
 
     rot_note = f", rotated {args.rotate}°" if args.rotate else ""
     print(f"seeded '{sub}' from {args.image.name}:")
     print(f"  capture seed: {seed_path} ({seed_kb} KB, {src.size[0]}x{src.size[1]}{rot_note})")
     print(f"  live view:    {args.frames} frames ({fw}x{fh}, grain sigma {args.grain})")
+    print(f"  magnifier:    {args.frames} frames, 1:1 center crop (~{magnification:.1f}x)")
     if first_time:
         print("  NOTE: folder is new — restart the app so the resolver and the "
               "emulator's object tree pick it up.")

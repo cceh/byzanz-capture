@@ -44,6 +44,12 @@ class VirtualCameraVusb(Profile):
         dropdowns populate and behave like a real body's. The values are
         stored on the emulated camera but do NOT affect the produced
         images.
+      * The focus magnifier works like on the production bodies: the
+        profile maps the magnify button onto the real Nikon
+        LiveViewImageZoomRatio property (vendor/patches/0009), and while
+        it is on the emulator streams the seeded 1:1 center-crop
+        sequence (liveview_zoom/, written by scripts/seed_vcam.py) —
+        true sensor-resolution detail, like a real body magnifying.
       * It has no autofocus and no settable image format/quality. The
         lifecycle settings dicts are empty: writes to absent config keys
         are harmless (the worker's __try_set_config swallows them), but
@@ -81,6 +87,18 @@ class VirtualCameraVusb(Profile):
 
     def supports_autofocus(self) -> bool:
         return False
+
+    def focus_magnify_property_name(self) -> str:
+        # The real Nikon liveview-zoom property (0xD1A3), emulated by the
+        # patched vusb driver (vendor/patches/0009); ptp2 exposes it as
+        # this widget. Mirrors how the Sony profile names "focusmagnifier".
+        return "liveviewimagezoomratio"
+
+    def focus_magnify_value(self, on: bool) -> str:
+        # Widget choice strings from ptp2's nikon_liveviewimagezoomratio
+        # table. Every ratio > 0 serves the same seeded zoom sequence —
+        # "100%" is the honest label for the 1:1 center crop.
+        return "100%" if on else "Entire Display"
 
     def has_settable_aperture(self) -> bool:
         # The emulator answers the FNumber property with a realistic

@@ -1,0 +1,143 @@
+diff --git a/libgphoto2_port/vusb/vcamera.c b/libgphoto2_port/vusb/vcamera.c
+index 6b7a723dd..a91082036 100644
+--- a/libgphoto2_port/vusb/vcamera.c
++++ b/libgphoto2_port/vusb/vcamera.c
+@@ -416,6 +416,9 @@ static int ptp_nikon_exposuretime_getvalue(vcamera*,PTPPropValue*);
+ static int ptp_nikon_exposuretime_setvalue(vcamera*,PTPPropValue*);
+ static int ptp_nikon_liveviewstatus_getdesc(vcamera*,PTPDevicePropDesc*);
+ static int ptp_nikon_liveviewstatus_getvalue(vcamera*,PTPPropValue*);
++static int ptp_nikon_liveviewzoom_getdesc(vcamera*,PTPDevicePropDesc*);
++static int ptp_nikon_liveviewzoom_getvalue(vcamera*,PTPPropValue*);
++static int ptp_nikon_liveviewzoom_setvalue(vcamera*,PTPPropValue*);
+ 
+ static struct ptp_property {
+ 	int	code;
+@@ -444,6 +447,14 @@ static struct ptp_property {
+ 	 * every preview frame. This table is not split by camera type, but
+ 	 * both vusb cameras are NIKON_D750 (see vusb.c), so that is fine. */
+ 	{0xd1a2,	ptp_nikon_liveviewstatus_getdesc, ptp_nikon_liveviewstatus_getvalue, NULL },
++	/* byzanz-capture (patch 0009): Nikon LiveViewImageZoomRatio — the
++	 * real Nikon liveview-zoom property. ptp2 maps it to the
++	 * "liveviewimagezoomratio" widget ("Entire Display"/"25%"/.../
++	 * "200%"), which the virtual profile names as its focus-magnifier —
++	 * mirroring how the Sony production profile names "focusmagnifier".
++	 * Any ratio > 0 switches the emulated stream to the seeded
++	 * liveview_zoom/ frame sequence (see read_liveview_frame). */
++	{0xd1a3,	ptp_nikon_liveviewzoom_getdesc, ptp_nikon_liveviewzoom_getvalue, ptp_nikon_liveviewzoom_setvalue },
+ };
+ 
+ struct ptp_dirent {
+@@ -622,6 +633,10 @@ ptp_nikon_startliveview_write(vcamera *cam, ptpcontainer *ptp) {
+ 
+ 	cam->liveview = 1;
+ 	cam->liveview_frame = 0;
++	/* patch 0009: a fresh liveview session starts unzoomed, like a real
++	 * body — papyri's magnify button resets its own state on the same
++	 * assumption ("the camera drops the zoom itself"). */
++	cam->liveview_zoom = 0;
+ 	ptp_response (cam, PTP_RC_OK, 0);
+ 	return 1;
+ }
+@@ -633,6 +648,7 @@ ptp_nikon_endliveview_write(vcamera *cam, ptpcontainer *ptp) {
+ 	CHECK_PARAM_COUNT(0);
+ 
+ 	cam->liveview = 0;
++	cam->liveview_zoom = 0;	/* patch 0009: zoom dies with the stream */
+ 	ptp_response (cam, PTP_RC_OK, 0);
+ 	return 1;
+ }
+@@ -696,7 +712,30 @@ read_liveview_frame(vcamera *cam, unsigned long *size) {
+ 		gp_log (GP_LOG_ERROR, __FUNCTION__, "no source dir resolved — camera not opened?");
+ 		return NULL;
+ 	}
+-	lvdir = aprintf("%s/liveview", cam->vcameradir);
++	/* byzanz-capture (patch 0009): with the zoom ratio set, serve the
++	 * seeded 1:1 center-crop sequence instead — the focus-magnifier
++	 * emulation. A missing liveview_zoom/ dir keeps the normal stream
++	 * (magnify visibly does nothing) and says so once, rather than
++	 * tearing the stream down. */
++	if (cam->liveview_zoom) {
++		char *zoomdir = aprintf("%s/liveview_zoom", cam->vcameradir);
++		gp_system_dir zd = gp_system_opendir(zoomdir);
++
++		if (zd) {
++			gp_system_closedir(zd);
++			lvdir = zoomdir;
++		} else {
++			if (!cam->liveview_zoom_warned) {
++				gp_log (GP_LOG_ERROR, __FUNCTION__,
++					"zoom ratio set but %s does not exist — serving the normal sequence (re-seed with scripts/seed_vcam.py)",
++					zoomdir);
++				cam->liveview_zoom_warned = 1;
++			}
++			free(zoomdir);
++			lvdir = aprintf("%s/liveview", cam->vcameradir);
++		}
++	} else
++		lvdir = aprintf("%s/liveview", cam->vcameradir);
+ 
+ 	dir = gp_system_opendir(lvdir);
+ 	if (dir) {
+@@ -1883,6 +1922,44 @@ ptp_nikon_liveviewstatus_getvalue (vcamera* cam, PTPPropValue *val) {
+ 	return 1;
+ }
+ 
++/* byzanz-capture (patch 0009): Nikon LiveViewImageZoomRatio (0xD1A3),
++ * Get/Set. The enum mirrors ptp2's nikon_liveviewimagezoomratio table
++ * (0 = Entire Display, 2 = 25%, 4 = 50%, 6 = 100%, 7 = 200%). The
++ * emulation only distinguishes zoomed vs not (every ratio > 0 serves
++ * the same liveview_zoom/ sequence); the chosen value is stored so a
++ * readback round-trips like on a real body. No DevicePropChanged
++ * injection — same reasoning as LiveViewStatus above. */
++static int
++ptp_nikon_liveviewzoom_getdesc (vcamera* cam, PTPDevicePropDesc *desc) {
++	static const uint8_t ratios[] = { 0, 2, 4, 6, 7 };
++	unsigned int i, n = sizeof(ratios)/sizeof(ratios[0]);
++
++	desc->DevicePropCode		= 0xD1A3;
++	desc->DataType			= 2;	/* uint8 */
++	desc->GetSet			= 1;	/* Get/Set */
++	desc->DefaultValue.u8		= 0;
++	desc->CurrentValue.u8		= cam->liveview_zoom;
++	desc->FormFlag			= 0x02; /* enum */
++	desc->FORM.Enum.NumberOfValues	= n;
++	desc->FORM.Enum.SupportedValue	= malloc(n*sizeof(desc->FORM.Enum.SupportedValue[0]));
++	for (i = 0; i < n; i++)
++		desc->FORM.Enum.SupportedValue[i].u8 = ratios[i];
++	return 1;
++}
++
++static int
++ptp_nikon_liveviewzoom_getvalue (vcamera* cam, PTPPropValue *val) {
++	val->u8 = cam->liveview_zoom;
++	return 1;
++}
++
++static int
++ptp_nikon_liveviewzoom_setvalue (vcamera* cam, PTPPropValue *val) {
++	gp_log (GP_LOG_DEBUG, __FUNCTION__, "got %d as value", val->u8);
++	cam->liveview_zoom = val->u8;
++	return 1;
++}
++
+ static int
+ ptp_imagesize_getdesc (vcamera* cam, PTPDevicePropDesc *desc) {
+ 	desc->DevicePropCode		= 0x5003;
+diff --git a/libgphoto2_port/vusb/vcamera.h b/libgphoto2_port/vusb/vcamera.h
+index 2e7e5735e..69be0445b 100644
+--- a/libgphoto2_port/vusb/vcamera.h
++++ b/libgphoto2_port/vusb/vcamera.h
+@@ -84,6 +84,13 @@ typedef struct vcamera {
+ 	 * the source dir's liveview/ subdir so the stream visibly moves. */
+ 	unsigned int	liveview;
+ 	unsigned int	liveview_frame;
++	/* byzanz-capture (patch 0009): Nikon LiveViewImageZoomRatio (0xD1A3).
++	 * Any value > 0 switches the frame source to the liveview_zoom/
++	 * subdir (the seeded 1:1 center-crop sequence) — the focus-magnifier
++	 * emulation. Reset when liveview starts or ends, like a real body
++	 * dropping the zoom. */
++	unsigned int	liveview_zoom;
++	unsigned int	liveview_zoom_warned;
+ 
+ 	/* byzanz-capture: per-camera source directory (patch 0006) — where
+ 	 * this camera's object tree (capture seed images) and its liveview/
