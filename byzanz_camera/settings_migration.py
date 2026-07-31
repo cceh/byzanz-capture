@@ -35,14 +35,15 @@ _ID_RENAME = {
 }
 
 # Old bundled "profile" id → the dome it implied:
-#   (preset display name, capture_strategy value, base light_controller).
+#   (preset display name, capture_strategy value, base light_controller,
+#   show_capture_instructions). Values mirror the presets in dome_presets/.
 # num_positions was always 60 (the old num_captures); max_burst carries over
 # from the old `maxBurstNumber` setting. Virtual cameras are not domes and are
 # absent here — they migrate to a camera id with no dome seed.
 _V1_DOME_SEED = {
-    "CCeHDomeNikonD800E":    ("Cologne (CCeH)", "camera_burst",      dome_config.LIGHT_CCEH_BLE),
-    "ParisDomeSonyIlce7RM5": ("Paris",          "external_per_shot", dome_config.LIGHT_NONE),
-    "MoritzA7III":           ("Manual",         "external_per_shot", dome_config.LIGHT_NONE),
+    "CCeHDomeNikonD800E":    ("Cologne (CCeH)", "camera_burst",      dome_config.LIGHT_CCEH_BLE, True),
+    "ParisDomeSonyIlce7RM5": ("Paris",          "external_per_shot", dome_config.LIGHT_NONE,     False),
+    "MoritzA7III":           ("Manual",         "external_per_shot", dome_config.LIGHT_NONE,     False),
 }
 
 
@@ -80,7 +81,7 @@ def _migrate_v1_unbundle_profile(qs: QSettings) -> None:
 
     seed = _V1_DOME_SEED.get(old_profile)
     if seed is not None:
-        name, strategy, base_light = seed
+        name, strategy, base_light, show_instructions = seed
         # Preserve the old BLE state: only keep cceh_ble if BT was enabled.
         enable_bt = qs.value("enableBluetooth", False, type=bool)
         light = base_light if (base_light != dome_config.LIGHT_CCEH_BLE or enable_bt) else dome_config.LIGHT_NONE
@@ -90,6 +91,7 @@ def _migrate_v1_unbundle_profile(qs: QSettings) -> None:
             capture_strategy=CaptureStrategy(strategy),
             max_burst=int(qs.value("maxBurstNumber", 60)),
             light_controller=light,
+            show_capture_instructions=show_instructions,
         )
         dome_config.apply_preset(qs, dome)
 
