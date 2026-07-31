@@ -12,7 +12,8 @@ Byzanz-capture is a PyQt6 camera capture application for RTI (Reflectance Transf
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-rti.txt   # RTI app (adds bleak + qasync on top of the core)
+# papyri-only deployments: pip install -r requirements.txt
 ```
 
 ### Running

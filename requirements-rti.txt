@@ -1,0 +1,7 @@
+# RTI app (main.py) on top of the shared core. bleak drives the CCeH dome's
+# BLE controller; qasync is the asyncio/Qt event loop that dispatches it.
+# The papyri app uses neither — papyri deployments install plain
+# requirements.txt so an unattended station has fewer moving parts.
+-r requirements.txt
+bleak~=3.0.2
+qasync~=0.27.1
