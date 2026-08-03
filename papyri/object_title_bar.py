@@ -23,7 +23,9 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QToolButton, QWidget,
 )
 
-from byzanz_camera.helpers import get_ui_path, set_themed_icon
+from byzanz_camera.helpers import (
+    get_ui_path, reveal_in_file_manager, set_themed_icon,
+)
 
 if TYPE_CHECKING:
     from papyri.main import Object
@@ -70,7 +72,9 @@ class ObjectTitleBar(QWidget):
         # override and a second row hosts the output-folder picker.
         self._simple = False
         self._folder_row: QHBoxLayout | None = None
+        self._save_to_label: QLabel | None = None
         self._folder_label: QLabel | None = None
+        self._folder_open_button: QPushButton | None = None
         self._folder_button: QPushButton | None = None
         self._simple_text_connected = False
         self._output_dir = ""
@@ -106,20 +110,25 @@ class ObjectTitleBar(QWidget):
         """Show/hide the simple-mode output-folder row (no-op until it has
         been created by _ensure_folder_row)."""
         if self._folder_label is not None:
+            # "SAVE TO" only makes sense with a folder to point at — the
+            # empty state carries its own full-sentence label.
+            self._save_to_label.setVisible(visible and bool(self._output_dir))
             self._folder_label.setVisible(visible)
+            self._folder_open_button.setVisible(visible)
             self._folder_button.setVisible(visible)
 
     def set_output_folder(self, path: str) -> None:
-        """Update the folder-row label to reflect the current output dir."""
+        """Update the folder row to reflect the current output dir."""
         self._output_dir = path or ""
         if self._folder_label is None:
             return
         if self._output_dir:
-            self._folder_label.setText(f"📁 {self._output_dir}")
-            self._folder_button.setText("Change folder…")
+            self._folder_label.setText(self._output_dir)
         else:
             self._folder_label.setText("No output folder selected")
-            self._folder_button.setText("Choose folder…")
+        self._save_to_label.setVisible(self._simple and bool(self._output_dir))
+        # Reveal is pointless without a folder.
+        self._folder_open_button.setEnabled(bool(self._output_dir))
         self._folder_label.setToolTip(self._output_dir)
 
     def current_name(self) -> str:
@@ -132,14 +141,39 @@ class ObjectTitleBar(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
+        # Right-aligned group: "SAVE TO  <path>  [Choose] [Open]". The
+        # muted small-caps prefix names what the path IS; the two compact
+        # icon+label buttons act on it (Choose = pick a different folder,
+        # Open = reveal in Finder). Both icons are Lucide folder glyphs
+        # so the whole group reads as one unit.
+        self._save_to_label = QLabel("SAVE TO")
+        self._save_to_label.setObjectName("simpleSaveToLabel")
         self._folder_label = QLabel()
         self._folder_label.setObjectName("simpleFolderLabel")
-        self._folder_button = QPushButton("Choose folder…")
+        self._folder_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._folder_button = QPushButton("Choose")
         self._folder_button.setObjectName("simpleFolderButton")
+        set_themed_icon(self._folder_button.setIcon,
+                        get_ui_path("ui/folder-input-lucide.svg"))
+        self._folder_button.setToolTip("Choose the output folder")
         self._folder_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._folder_button.clicked.connect(self.output_folder_requested.emit)
-        row.addWidget(self._folder_label, 1)
+        self._folder_open_button = QPushButton("Open")
+        self._folder_open_button.setObjectName("simpleFolderOpenButton")
+        set_themed_icon(self._folder_open_button.setIcon,
+                        get_ui_path("ui/folder-open-lucide.svg"))
+        self._folder_open_button.setToolTip("Open the output folder in Finder")
+        self._folder_open_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._folder_open_button.clicked.connect(
+            lambda: reveal_in_file_manager(self._output_dir))
+        row.addStretch(1)
+        row.addWidget(self._save_to_label, 0)
+        row.addSpacing(2)
+        row.addWidget(self._folder_label, 0)
+        row.addSpacing(4)
         row.addWidget(self._folder_button, 0)
+        row.addWidget(self._folder_open_button, 0)
         self.outerLayout.addLayout(row)
         self._folder_row = row
 

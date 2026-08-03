@@ -697,6 +697,7 @@ class PapyriMainWindow(QMainWindow):
             "irProfile": None,                              # set when IR camera is configured
             "captureMode": "papyri",                        # "papyri" | "simple"
             "simpleOutputDirectory": "",                    # simple mode output folder (chosen via picker)
+            "simpleCaptureFormat": "raw",                   # simple mode CaptureFormat value: "raw" | "jpeg_and_raw" | "jpeg"
             "calibrationTrigger": "time",                   # "off" | "time" | "session" (papyri calibration reminder)
             "calibrationIntervalMinutes": 60,               # "time" trigger: minutes before a calibration is due
             "captureHeightChoices": "30,45,60,75,90",       # VIS height presets (cm), comma-separated; shared by capture row + flatfield
@@ -774,6 +775,9 @@ class PapyriMainWindow(QMainWindow):
         # _apply_mode_state (re-runnable). Wire the picker once here.
         self.title_bar.output_folder_requested.connect(
             self._choose_simple_output_folder)
+        # Right-aligned "SIMPLE CAPTURE MODE" banner in the bucket-tabs row;
+        # visibility is mode chrome (_apply_mode_chrome).
+        self.simple_mode_title: QLabel = self.findChild(QLabel, "simpleModeTitle")
         self.viewer: ViewerWidget = self.findChild(ViewerWidget, "viewer")
         # The zoom bar lives in the panel's top toolbar (declared in the
         # .ui), not inside the viewer. Wire it to the viewer's
@@ -875,6 +879,24 @@ class PapyriMainWindow(QMainWindow):
         self.stitch_toggle: QPushButton = self.findChild(
             QPushButton, "stitchToggleButton")
         self.stitch_toggle.clicked.connect(self._on_stitch_toggled)
+        # Capture-format picker (simple mode only — papyri always shoots RAW).
+        # Sits with the other capture settings; the chosen CaptureFormat value
+        # ("raw" / "jpeg_and_raw" / "jpeg") persists as `simpleCaptureFormat`
+        # and is read by capture_image. An unknown stored value is a corrupted
+        # setting — fail loudly rather than capture the wrong format.
+        self.capture_format_select: QComboBox = self.findChild(
+            QComboBox, "captureFormatSelect")
+        for label, value in (("RAW", "raw"), ("JPEG + RAW", "jpeg_and_raw"),
+                             ("JPEG", "jpeg")):
+            self.capture_format_select.addItem(label, value)
+        stored_format = self.q_settings.value("simpleCaptureFormat", "raw")
+        format_idx = self.capture_format_select.findData(stored_format)
+        if format_idx < 0:
+            raise ValueError(f"unknown simpleCaptureFormat {stored_format!r}")
+        self.capture_format_select.setCurrentIndex(format_idx)
+        self.capture_format_select.currentIndexChanged.connect(
+            lambda _i: self.q_settings.setValue(
+                "simpleCaptureFormat", self.capture_format_select.currentData()))
         # Height-selector visibility is per-mode (papyri only) — set in
         # _apply_mode_state so a live switch updates it too.
         self._last_config: dict[str, object] = {}
@@ -897,6 +919,10 @@ class PapyriMainWindow(QMainWindow):
                           get_ui_path("ui/aperture.svg"))
         set_themed_pixmap(self.findChild(QLabel, "shutterSpeedLabel").setPixmap,
                           get_ui_path("ui/shutter_speed.svg"))
+        self.capture_format_label: QLabel = self.findChild(
+            QLabel, "captureFormatLabel")
+        set_themed_pixmap(self.capture_format_label.setPixmap,
+                          get_ui_path("ui/image.svg"))
 
         # Settings menu (popup off the "Settings" button)
         self.open_program_settings_action = self._action(
@@ -956,6 +982,7 @@ class PapyriMainWindow(QMainWindow):
         self.objects_sidebar.setVisible(mode.show_sidebar)
         self.metadata_pane.setVisible(mode.show_metadata)
         self.filmstrip.set_simple_mode(mode.whole_folder_filmstrip)
+        self.simple_mode_title.setVisible(mode.key == "simple")
         self.calibration_bar.setVisible(mode.show_calibration)
         # The calibration bar carries the kind toggle + back button, so the
         # object title bar is hidden in the calibration sub-mode.
@@ -972,9 +999,12 @@ class PapyriMainWindow(QMainWindow):
         # display (papyri). set_simple_mode is reversible.
         self.title_bar.set_simple_mode(
             simple, self.q_settings.value("simpleOutputDirectory", ""))
-        # Rig-height cluster and Stitch toggle are papyri-only.
+        # Rig-height cluster and Stitch toggle are papyri-only; the
+        # capture-format picker is simple-only (papyri always shoots RAW).
         self.rig_height_cluster.setVisible(not simple)
         self.stitch_toggle.setVisible(not simple)
+        self.capture_format_label.setVisible(simple)
+        self.capture_format_select.setVisible(simple)
         # The mode-toggle menu action names the OTHER mode.
         self.toggle_mode_action.setText(self._mode_toggle_label(mode))
 
@@ -2812,12 +2842,20 @@ class PapyriMainWindow(QMainWindow):
         # calibration/simple targets aren't papyri Objects).
         if isinstance(obj, Object):
             self._stamp_capture_metadata(obj)
+        # Papyri (and calibration) shoot RAW, always — the workflow depends
+        # on it. Simple mode captures whatever the title-bar format combo
+        # says (persisted; ValueError on a corrupted setting is deliberate).
+        if self.effective_mode.key == "simple":
+            image_quality = CaptureImagesRequest.CaptureFormat(
+                self.q_settings.value("simpleCaptureFormat", "raw"))
+        else:
+            image_quality = CaptureImagesRequest.CaptureFormat.RAW
         req = CaptureImagesRequest(
             file_path_template=obj.next_template(
                 self.session.active_side, self.session.active_spectrum
             ),
             num_images=1,
-            image_quality=CaptureImagesRequest.CaptureFormat.RAW,
+            image_quality=image_quality,
             capture_strategy=CaptureImagesRequest.CaptureStrategy.APP_PER_SHOT,
             # Bake this camera's fixed mount rotation into the captured file's
             # EXIF Orientation in the worker, before the file is made visible —

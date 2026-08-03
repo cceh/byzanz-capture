@@ -5,8 +5,8 @@ import re
 import sys
 from typing import Any
 
-from PyQt6.QtCore import QLocale, QSize, Qt
-from PyQt6.QtGui import QIcon, QImage, QPainter, QPixmap
+from PyQt6.QtCore import QLocale, QSize, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QIcon, QImage, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -39,6 +39,15 @@ def trash(paths) -> None:
 
 
 _FRACTION_RE = re.compile(r"(\d+)/(\d+)")
+
+def reveal_in_file_manager(path_: str | os.PathLike | None) -> None:
+    """Open a folder in the OS file manager (Finder / Explorer) — the single
+    entry point for reveal-a-folder actions. No-op if the path is missing or
+    not a directory: reveal is best-effort chrome, never worth an error
+    dialog."""
+    if path_ and os.path.isdir(path_):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.fspath(path_)))
+
 
 def format_exposure_time(value: str) -> str:
     """Display label for a camera-reported exposure time: values parseable as

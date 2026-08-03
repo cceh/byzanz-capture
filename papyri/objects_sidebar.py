@@ -29,14 +29,14 @@ import os
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from PyQt6.QtCore import QSize, Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QAction, QDesktopServices, QPainter, QPalette
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QPainter, QPalette
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMenu,
     QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
-from byzanz_camera.helpers import set_state
+from byzanz_camera.helpers import reveal_in_file_manager, set_state
 from papyri.capture_vocab import SIDES, SPECTRUM_INFRARED, SPECTRUM_VISIBLE
 from papyri.object_layout import (
     captured_sides_for_spectrum, is_spectrum_complete, is_stitching_object,
@@ -388,18 +388,11 @@ class ObjectsSidebar(QFrame):
     # ---- reveal-in-Finder --------------------------------------------
 
     def _reveal_box(self) -> None:
-        self._reveal_in_finder(self._working_dir)
+        reveal_in_file_manager(self._working_dir)
 
     def _reveal_object(self, name: str) -> None:
         if self._working_dir:
-            self._reveal_in_finder(os.path.join(self._working_dir, name))
-
-    @staticmethod
-    def _reveal_in_finder(path: str | None) -> None:
-        """Open a folder in the OS file manager (Finder / Explorer). No-op if
-        the path is missing — reveal is best-effort."""
-        if path and os.path.isdir(path):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            reveal_in_file_manager(os.path.join(self._working_dir, name))
 
     @staticmethod
     def _scan(working_dir: str | None) -> list[ObjectListEntry]:

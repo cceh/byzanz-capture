@@ -145,13 +145,32 @@
 }
 /* #sidebarNewButton uses native QPushButton styling. */
 
-/* Simple-mode title bar: output-folder row under the filename field.
-   Muted secondary chrome, matching the sidebar workdir treatment. */
-#simpleFolderLabel {
+/* Simple-mode title bar: output-folder row under the filename field —
+   "SAVE TO  <path>  [Choose] [Open]". The path is primary chrome (it
+   is where every capture lands); the small-caps prefix matches the
+   app's other micro-headers (sidebar, HEIGHT). */
+#simpleSaveToLabel {
     color: $ink_3;
+    font-weight: 700;
     font-size: 10pt;
+    letter-spacing: 1px;
 }
-/* #simpleFolderButton uses native QPushButton styling. */
+#simpleFolderLabel {
+    color: $ink_2;
+    font-size: 15pt;
+}
+/* #simpleFolderButton / #simpleFolderOpenButton use native QPushButton
+   styling. */
+
+/* Right-aligned mode banner in the bucket-tabs row — makes the active
+   simple mode unmissable. Same uppercase/letter-spacing treatment as
+   the bucket group headers, scaled up. */
+#simpleModeTitle {
+    color: $ink_3;
+    font-size: 19pt;
+    font-weight: 700;
+    letter-spacing: 2px;
+}
 
 
 /* Zoom control bar — uses native widget styling. The macOS accent
