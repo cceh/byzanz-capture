@@ -95,9 +95,14 @@ class PapyriFilmstrip(CaptureFilmstrip):
 
     def set_simple_mode(self, simple: bool) -> None:
         """Simple capture mode: the strip shows the whole output folder,
-        has no chosen ★ and no move-to-other-side entry (only delete).
-        Set once at startup, before any bind_object."""
+        has no chosen ★ and no move-to-other-side entry (only delete),
+        and is ordered chronologically (mtime) — the folder mixes two
+        cameras' native naming schemes, so the filename index isn't a
+        capture order there. Set before bind_object (a live mode switch
+        rebinds to a different directory, so the strip reloads with the
+        new order)."""
         self._simple = simple
+        self.set_sort_by_mtime(simple)
 
     def bind_object(
         self,

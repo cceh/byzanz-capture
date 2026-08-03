@@ -296,12 +296,21 @@ class ImageFileListItem(QListWidgetItem):
     delegates can read this back via `index.data(Qt.ItemDataRole.UserRole)`."""
 
     def __init__(self, path: str, thumbnail: QPixmap | QImage | None = None,
-                 *, is_placeholder: bool = False):
+                 *, is_placeholder: bool = False,
+                 sort_key: tuple | None = None):
         super().__init__()
         self.path: str = path
         self.file_name = Path(path).name
         self.index = get_file_index(self.file_name)
         self.is_placeholder: bool = is_placeholder
+        # Strip position (see FilmstripWidget._sort_key_for). Defaults to
+        # filename-index order; the widget passes an mtime-based key when
+        # sort-by-mtime is on. Must be comparable across all items of one
+        # list — never mix key shapes within a widget.
+        self.sort_key: tuple = (
+            sort_key if sort_key is not None
+            else (self.index if self.index is not None else 0, self.file_name)
+        )
         # EXIF display fields — set by FilmstripWidget after decode; kept
         # raw-ish so the caption/tooltip can re-format when the exposure
         # display setting changes (see set_exposure_time_formatter).
@@ -314,7 +323,7 @@ class ImageFileListItem(QListWidgetItem):
             self.setIcon(QIcon(pixmap))
 
     def __lt__(self, other):
-        return self.index < other.index
+        return self.sort_key < other.sort_key
 
     def data(self, role: Qt.ItemDataRole):
         if role == Qt.ItemDataRole.UserRole:
@@ -466,6 +475,13 @@ class FilmstripWidget(QWidget):
         # so the distinguishing tail stays visible. Opt-in via
         # set_caption_mode (papyri uses "name").
         self._caption_mode: str = "index"
+        # Strip order. False (default): by trailing filename index —
+        # right for fixed-sequence workflows where the number IS the
+        # capture order. True: by file mtime — for folders mixing two
+        # cameras' native naming schemes (papyri simple mode), where
+        # the numeric index isn't chronological but mtime is. Opt-in
+        # via set_sort_by_mtime, once before open_directory.
+        self._sort_by_mtime: bool = False
 
         # Optional EXIF line on the thumb overlay ("f/8 | 1/250 | ISO 100")
         # — opt-in via set_exif_captions (the RTI app enables it; papyri
@@ -533,6 +549,26 @@ class FilmstripWidget(QWidget):
         "name" (full filename, left-elided). Affects items added after
         this call — set it once before open_directory."""
         self._caption_mode = mode
+
+    def set_sort_by_mtime(self, enabled: bool) -> None:
+        """Order the strip by file modification time instead of the
+        trailing filename index. Affects items added after this call —
+        set it once before open_directory (mixing key shapes within one
+        loaded list would compare mtimes against indexes)."""
+        self._sort_by_mtime = enabled
+
+    def _sort_key_for(self, path: str) -> tuple:
+        """Ordering key for `path` (absolute) under the current sort mode.
+        A file that does not exist yet (placeholder seeded ahead of an
+        incoming copy) counts as newest so it lands at the end of the
+        strip — matching the scroll-to-end placeholder UX."""
+        name = Path(path).name
+        if not self._sort_by_mtime:
+            return (get_file_index(name) or 0, name)
+        try:
+            return (os.path.getmtime(path), name)
+        except OSError:
+            return (float("inf"), name)
 
     def set_exif_captions(self, enabled: bool) -> None:
         """Show an EXIF line ("f/8 | 1/250 | ISO 100") on the thumb
@@ -734,7 +770,8 @@ class FilmstripWidget(QWidget):
         spoke-spinner overlay is painted by the delegate; a QTimer
         drives viewport repaints while placeholders exist."""
         item = ImageFileListItem(path, self._placeholder_pixmap,
-                                 is_placeholder=True)
+                                 is_placeholder=True,
+                                 sort_key=self._sort_key_for(path))
         with QMutexLocker(self.__mutex):
             if not self.__currentPath:
                 return
@@ -946,7 +983,8 @@ class FilmstripWidget(QWidget):
         if not added:
             return
         both_targets = self.__pick_both_targets(added)
-        for f in sorted(added, key=lambda x: (get_file_index(x) or 0, x)):
+        for f in sorted(added, key=lambda x: self._sort_key_for(
+                os.path.join(self.__currentPath, x))):
             mode = ImageMode.FULL if f in both_targets else ImageMode.THUMB
             self.__load_image(f, self.__add_image_item, mode=mode)
 
@@ -990,8 +1028,10 @@ class FilmstripWidget(QWidget):
             chosen = jpegs[0] if jpegs else (matches[0] if matches else None)
             if chosen is not None:
                 return {chosen}
-        # Fallback: the file with the highest index (= newest capture).
-        ordered = sorted(added_files, key=lambda f: (get_file_index(f) or 0, f))
+        # Fallback: the last file in strip order (highest index, or the
+        # newest mtime under sort-by-mtime) — i.e. the newest capture.
+        ordered = sorted(added_files, key=lambda f: self._sort_key_for(
+            os.path.join(self.__currentPath, f)))
         return {ordered[-1]}
 
     def __load_image(
@@ -1090,7 +1130,9 @@ class FilmstripWidget(QWidget):
                 self.image_file_list.takeItem(
                     self.image_file_list.row(placeholder)
                 )
-            list_item = ImageFileListItem(result.path, pixmap)
+            list_item = ImageFileListItem(
+                result.path, pixmap,
+                sort_key=self._sort_key_for(result.path))
             list_item.setText(caption)
             list_item.exposure_fraction = _exposure_fraction(
                 result.exif.get("ExposureTime"))
