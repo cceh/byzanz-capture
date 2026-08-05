@@ -22,6 +22,9 @@ settings (per-target visibility, written by the settings dialog):
 `is_tab_enabled` / `enabled_specs_for` / `enabled_step_ids`. A hidden tab
 disappears from calibration mode AND from due-tracking here — it can't be
 shot, so it must not nag.
+
+It is likewise the canonical reader of `flatfieldShotCount` (how many frames
+one Capture press shoots on a multi-shot target): `shot_count_for`.
 """
 from __future__ import annotations
 
@@ -33,7 +36,7 @@ from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from papyri._metadata import current_height_for
 from papyri.calibration_layout import (
     CALIBRATION_DIRNAME, CALIBRATION_TARGETS, CalSpec, cal_step_id,
-    is_per_height, required_specs_for, specs_for,
+    is_multi_shot, is_per_height, required_specs_for, specs_for,
 )
 from papyri.capture_vocab import (
     CAPTURE_EXTENSIONS, SPECTRUM_INFRARED, SPECTRUM_VISIBLE, is_hidden_file,
@@ -71,6 +74,30 @@ def enabled_step_ids(q_settings) -> set[str]:
     """Step ids of every visible tab — feeds `capture_mode.calibration_mode_for`."""
     return {cal_step_id(s.slot, s.spectrum) for s in CALIBRATION_TARGETS
             if is_tab_enabled(q_settings, s)}
+
+
+# ---- shots per Capture press (`flatfieldShotCount` setting) ------------
+# Multi-shot targets (Flatfield) fire a series per press; everything else
+# fires exactly one frame. This is the single reader of the setting — the
+# main window asks it, nobody reads the key inline.
+
+SHOT_COUNT_KEY = "flatfieldShotCount"
+_MIN_SHOT_COUNT = 1
+_MAX_SHOT_COUNT = 50
+
+
+def shot_count_for(q_settings, slot: str) -> int:
+    """How many frames ONE Capture press shoots on calibration target `slot`.
+    1 for single-shot targets; for multi-shot ones (Flatfield) the user's
+    `flatfieldShotCount`, clamped to a sane range so a corrupted or hand-
+    edited setting can't stall the station in an endless series."""
+    if not is_multi_shot(slot):
+        return 1
+    try:
+        count = int(q_settings.value(SHOT_COUNT_KEY, _MIN_SHOT_COUNT))
+    except (TypeError, ValueError):
+        return _MIN_SHOT_COUNT
+    return max(_MIN_SHOT_COUNT, min(_MAX_SHOT_COUNT, count))
 
 
 def _age_text(t: datetime | None, now: datetime) -> str:

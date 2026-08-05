@@ -159,13 +159,36 @@
        </widget>
       </item>
       <item row="7" column="0">
+       <widget class="QLabel" name="flatfieldShotCountLabel">
+        <property name="text">
+         <string>Flatfield shots:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="7" column="1">
+       <widget class="QSpinBox" name="flatfieldShotCountInput">
+        <property name="toolTip">
+         <string>How many frames one Capture press shoots on a Flatfield calibration tab. Several frames are averaged downstream; other calibration targets always shoot one.</string>
+        </property>
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>50</number>
+        </property>
+        <property name="suffix">
+         <string> shots</string>
+        </property>
+       </widget>
+      </item>
+      <item row="8" column="0">
        <widget class="QLabel" name="captureHeightsLabel">
         <property name="text">
          <string>Camera heights VIS (cm):</string>
         </property>
        </widget>
       </item>
-      <item row="7" column="1">
+      <item row="8" column="1">
        <widget class="QLineEdit" name="captureHeightsInput">
         <property name="toolTip">
          <string>Comma-separated VIS camera-height presets, e.g. 30, 45, 60. Used by the capture-row Height control and per-height Flatfield calibration.</string>
@@ -175,14 +198,14 @@
         </property>
        </widget>
       </item>
-      <item row="8" column="0">
+      <item row="9" column="0">
        <widget class="QLabel" name="irCaptureHeightLabel">
         <property name="text">
          <string>Camera height IR (cm):</string>
         </property>
        </widget>
       </item>
-      <item row="8" column="1">
+      <item row="9" column="1">
        <widget class="QLineEdit" name="irCaptureHeightInput">
         <property name="toolTip">
          <string>The single fixed IR camera height (IR uses one height).</string>
@@ -193,7 +216,7 @@
        </widget>
       </item>
       <!-- rotated-sample nudge: remove these two rows to drop the settings UI -->
-      <item row="9" column="1">
+      <item row="10" column="1">
        <widget class="QCheckBox" name="rotatedSampleNudgeEnabledCheckbox">
         <property name="toolTip">
          <string>Show a reminder to capture a 90°-rotated twin object (same inventory number + _rotiert) of every Nth piece, for the ML light-angle sample.</string>
@@ -203,14 +226,14 @@
         </property>
        </widget>
       </item>
-      <item row="10" column="0">
+      <item row="11" column="0">
        <widget class="QLabel" name="rotatedSampleNudgeIntervalLabel">
         <property name="text">
          <string>Rotated-sample interval:</string>
         </property>
        </widget>
       </item>
-      <item row="10" column="1">
+      <item row="11" column="1">
        <widget class="QSpinBox" name="rotatedSampleNudgeIntervalInput">
         <property name="minimum">
          <number>1</number>

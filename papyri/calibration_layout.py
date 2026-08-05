@@ -65,6 +65,11 @@ class CalSpec:
                               # shared capture-row setting, NOT from here.
     required: bool = True     # counts toward the camera's "calibration done"
                               # (the timer nudge). ColorChecker is optional.
+    multi_shot: bool = False  # one Capture press shoots a configurable SERIES
+                              # (flatfields are averaged downstream, so several
+                              # frames per press). The count itself is the
+                              # user setting read by
+                              # `papyri.calibration.shot_count_for`, NOT here.
 
 
 # The layout. Edit this to change what calibration offers.
@@ -74,11 +79,11 @@ class CalSpec:
 #   - Flatfield is the per-height core for both cameras.
 CALIBRATION_TARGETS: tuple[CalSpec, ...] = (
     CalSpec("cal_ff", SPECTRUM_VISIBLE,  "flatfield",    "Flatfield",
-            per_height=True, required=True),
+            per_height=True, required=True, multi_shot=True),
     CalSpec("cal_cc", SPECTRUM_VISIBLE,  "colorchecker", "ColorChecker",
             per_height=False, required=False),
     CalSpec("cal_ff", SPECTRUM_INFRARED, "flatfield",    "Flatfield",
-            per_height=True, required=True),
+            per_height=True, required=True, multi_shot=True),
 )
 
 # Derived once — every consumer reads these instead of re-deriving.
@@ -88,6 +93,7 @@ CALIBRATION_BUCKETS: tuple[tuple[str, str], ...] = tuple(
 _FOLDER_FOR_SLOT = {s.slot: s.folder for s in CALIBRATION_TARGETS}
 _LABEL_FOR_SLOT = {s.slot: s.label for s in CALIBRATION_TARGETS}
 _PER_HEIGHT_SLOTS = {s.slot for s in CALIBRATION_TARGETS if s.per_height}
+_MULTI_SHOT_SLOTS = {s.slot for s in CALIBRATION_TARGETS if s.multi_shot}
 
 
 def cal_step_id(slot: str, spectrum: str) -> str:
@@ -104,6 +110,13 @@ def is_per_height(slot: str) -> bool:
     (Flatfield). The height value itself is the shared `currentHeight`
     setting, supplied by MainWindow — not stored here."""
     return slot in _PER_HEIGHT_SLOTS
+
+
+def is_multi_shot(slot: str) -> bool:
+    """True if one Capture press on this target shoots a series (Flatfield).
+    How MANY frames is the user setting — read via
+    `papyri.calibration.shot_count_for`, since this module stays QSettings-free."""
+    return slot in _MULTI_SHOT_SLOTS
 
 
 def label_for_slot(slot: str) -> str:

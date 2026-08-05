@@ -23,7 +23,7 @@ from PyQt6.uic import loadUi
 
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.profiles.base import Profile
-from papyri.calibration import is_tab_enabled, tab_setting_key
+from papyri.calibration import SHOT_COUNT_KEY, is_tab_enabled, tab_setting_key
 from papyri.calibration_layout import CalSpec, specs_for
 from papyri.capture_vocab import SPECTRA, SPECTRUM_INFIX
 from papyri.focus_audio import AUDIO_AVAILABLE
@@ -82,6 +82,9 @@ class PapyriSettingsDialog(QDialog):
         )
         self.calibration_interval_input: QSpinBox = self.findChild(
             QSpinBox, "calibrationIntervalInput"
+        )
+        self.flatfield_shot_count_input: QSpinBox = self.findChild(
+            QSpinBox, "flatfieldShotCountInput"
         )
         self.capture_heights_input: QLineEdit = self.findChild(
             QLineEdit, "captureHeightsInput"
@@ -183,6 +186,9 @@ class PapyriSettingsDialog(QDialog):
         self.calibration_interval_input.valueChanged.connect(
             lambda v: self._set("calibrationIntervalMinutes", v)
         )
+        self.flatfield_shot_count_input.valueChanged.connect(
+            lambda v: self._set(SHOT_COUNT_KEY, v)
+        )
         for spec, box in self._cal_tab_checkboxes.items():
             box.stateChanged.connect(
                 lambda _state, k=tab_setting_key(spec), b=box:
@@ -250,6 +256,9 @@ class PapyriSettingsDialog(QDialog):
         # findData/setCurrentIndex above won't fire the changed-handler when
         # the value already maps to index 0, so set the dependent enable here.
         self.calibration_interval_input.setEnabled(trigger == "time")
+        self.flatfield_shot_count_input.setValue(
+            int(self._q_settings.value(SHOT_COUNT_KEY, 1))
+        )
 
         for spec, box in self._cal_tab_checkboxes.items():
             box.setChecked(is_tab_enabled(self._q_settings, spec))

@@ -105,7 +105,7 @@ from byzanz_camera.profiles import PROFILES, Profile
 from byzanz_camera.settings_migration import migrate_papyri_settings
 from papyri.bucket_selector import BucketSelector, FusingPanel
 from papyri.calibration import (
-    CalibrationController, enabled_specs_for, enabled_step_ids,
+    CalibrationController, enabled_specs_for, enabled_step_ids, shot_count_for,
 )
 from papyri.calibration_bar import CalibrationBar
 from papyri.calibration_layout import label_for_slot
@@ -646,6 +646,15 @@ class PapyriMainWindow(QMainWindow):
         # The CALIBRATION_MODE variant currently in force — rebuilt on every
         # enter with the tabs filtered by the calibrationTabs setting.
         self._calibration_mode = CALIBRATION_MODE
+        # Multi-shot capture series: one Capture press on a Flatfield tab
+        # shoots `flatfieldShotCount` frames, fired one after another as each
+        # CaptureFinished lands (the worker names one file per request, so a
+        # series is N requests, not one request with num_images=N). Everywhere
+        # else this is a trivial 1-shot "series". See capture_image /
+        # _advance_capture_series.
+        self._series_total: int = 0
+        self._series_done: int = 0
+        self._series_bucket: tuple[str, str] | None = None
         # Calibration sub-mode state: the open per-camera target and the
         # object+bucket stashed for "← Back".
         self._cal_target: "CalibrationTarget | None" = None
@@ -700,6 +709,7 @@ class PapyriMainWindow(QMainWindow):
             "simpleCaptureFormat": "raw",                   # simple mode CaptureFormat value: "raw" | "jpeg_and_raw" | "jpeg"
             "calibrationTrigger": "time",                   # "off" | "time" | "session" (papyri calibration reminder)
             "calibrationIntervalMinutes": 60,               # "time" trigger: minutes before a calibration is due
+            "flatfieldShotCount": 1,                        # frames per Capture press on a Flatfield tab (see calibration.shot_count_for)
             "captureHeightChoices": "30,45,60,75,90",       # VIS height presets (cm), comma-separated; shared by capture row + flatfield
             "currentHeight": "45",                          # sticky current VIS rig height (stamped onto objects, tags flatfield)
             "irCaptureHeight": "45",                        # IR fixed camera height (single)
@@ -2066,12 +2076,21 @@ class PapyriMainWindow(QMainWindow):
                 # CaptureError is deliberately NOT paused: a failed shot
                 # resumes live view on its Ready so the user can retry.
                 self.session.set_live_view_paused(True)
+                # Multi-shot series (Flatfield): fire the next frame. Runs
+                # before _refresh_camera_dependent_ui (wiring order in
+                # _wire_session), so the button state below already reflects
+                # whether the series is finished.
+                self._advance_capture_series()
             case CameraStates.ConnectionError(error=err):
                 self.logger.error("Connection error: %s", err)
                 # No live frames possible — clear stale "live" pill.
                 self.session.set_view_mode("empty")
+                self._end_capture_series()
             case CameraStates.CaptureError(error=err):
                 self.logger.error("Capture error: %s", err)
+                self._end_capture_series()
+            case CameraStates.CaptureCanceled():
+                self._end_capture_series()
             case CameraStates.Disconnected():
                 # Active camera is gone — clear the live indicator so the
                 # viewer doesn't show stale "live" pill / border with no
@@ -2079,6 +2098,7 @@ class PapyriMainWindow(QMainWindow):
                 # live view at the next Ready, and the first preview frame
                 # sets view_mode back to "live" in _on_preview_image.
                 self.session.set_view_mode("empty")
+                self._end_capture_series()
 
     def _on_preview_image(self, spectrum: str, image):
         # Drop frames from the inactive spectrum — keeps the photo viewer
@@ -2181,7 +2201,11 @@ class PapyriMainWindow(QMainWindow):
         # _sync_live_view's rule: without one there is no stream to pause.
         self.pause_live_view_button.setEnabled(
             camera_ready and has_object and self._live_view_supported())
-        self.capture_button.setEnabled(camera_ready and object_loaded)
+        # `not _series_active` closes the gap between one shot of a multi-shot
+        # series settling (CaptureFinished — a "ready" state) and the next
+        # shot's CaptureInProgress arriving from the worker.
+        self.capture_button.setEnabled(
+            camera_ready and object_loaded and not self._series_active)
         # (Calibration shoots via this same Capture button — the
         # CalibrationTarget is the current object while the sub-mode is
         # active — so no separate gating is needed here.)
@@ -2255,7 +2279,11 @@ class PapyriMainWindow(QMainWindow):
 
             case CameraStates.CaptureInProgress():
                 self.autofocus_button.setEnabled(False)
-                self.capture_status_label.setText("Capturing…")
+                # Name the position in a multi-shot series, so a Flatfield run
+                # of 10 doesn't look like a stuck single capture.
+                self.capture_status_label.setText(
+                    f"Capturing {self._series_done + 1} of {self._series_total}…"
+                    if self._series_total > 1 else "Capturing…")
                 set_state(self.capture_status_label, "state", None)
 
             case CameraStates.CaptureFinished(file_paths=paths):
@@ -2266,9 +2294,12 @@ class PapyriMainWindow(QMainWindow):
                 # races an un-rotated file.
                 if paths:
                     names = ", ".join(os.path.basename(p) for p in paths)
-                    self.capture_status_label.setText(f"Captured: {names}")
+                    text = f"Captured: {names}"
                 else:
-                    self.capture_status_label.setText("Captured.")
+                    text = "Captured."
+                if self._series_total > 1:
+                    text += f" · {self._series_done} of {self._series_total}"
+                self.capture_status_label.setText(text)
                 set_state(self.capture_status_label, "state", "done")
                 # A settled capture may have been a calibration shot — keep
                 # the per-camera due chip current (no-op for object captures).
@@ -2842,6 +2873,29 @@ class PapyriMainWindow(QMainWindow):
         # calibration/simple targets aren't papyri Objects).
         if isinstance(obj, Object):
             self._stamp_capture_metadata(obj)
+        # Open a capture series for this press. Length is 1 everywhere except
+        # the multi-shot calibration targets (Flatfield), where the user's
+        # `flatfieldShotCount` decides — see calibration.shot_count_for. The
+        # remaining frames are fired by _advance_capture_series as each shot
+        # settles; the bucket is remembered so switching tabs mid-series stops
+        # it instead of dumping the rest into the new bucket.
+        self._series_total = shot_count_for(
+            self.q_settings, self.session.active_side)
+        self._series_done = 0
+        self._series_bucket = (
+            self.session.active_side, self.session.active_spectrum)
+        self._emit_capture()
+        # The button gates on `_series_active` — repaint it now, otherwise it
+        # stays clickable until the worker's CaptureInProgress arrives.
+        self._refresh_camera_dependent_ui()
+
+    def _emit_capture(self) -> None:
+        """Send ONE shot of the open series to the active camera. The file
+        name is resolved per shot (`next_template` re-scans the bucket), so a
+        series numbers straight on: _001, _002, _003."""
+        obj = self.session.current_object
+        if obj is None:
+            return
         # Papyri (and calibration) shoot RAW, always — the workflow depends
         # on it. Simple mode captures whatever the title-bar format combo
         # says (persisted; ValueError on a corrupted setting is deliberate).
@@ -2863,6 +2917,42 @@ class PapyriMainWindow(QMainWindow):
             orientation=self._lv_rotation[self.session.active_spectrum],
         )
         self.active_worker.commands.capture_images.emit(req)
+
+    @property
+    def _series_active(self) -> bool:
+        """True while a capture series still owes frames — the Capture button
+        gates on this so the gap between one shot's CaptureFinished and the
+        next shot's CaptureInProgress isn't a window for a second press."""
+        return self._series_done < self._series_total
+
+    def _end_capture_series(self) -> None:
+        """Abandon the open series (capture failed, canceled, or the camera
+        went away). Deliberately NOT silent about the shortfall — a flatfield
+        set that lost frames must not look complete."""
+        if self._series_active and self._series_total > 1:
+            self.logger.warning(
+                "Capture series aborted after %d of %d shots.",
+                self._series_done, self._series_total)
+        self._series_total = self._series_done = 0
+        self._series_bucket = None
+
+    def _advance_capture_series(self) -> None:
+        """One shot settled → fire the next one, if the series owes any.
+        Stops if the user switched bucket mid-series (the remaining frames
+        belong to the bucket that was aimed at, not the new one)."""
+        self._series_done += 1
+        if not self._series_active:
+            self._series_bucket = None
+            return
+        bucket = (self.session.active_side, self.session.active_spectrum)
+        if bucket != self._series_bucket:
+            self.logger.warning(
+                "Capture series stopped after %d of %d shots — bucket changed.",
+                self._series_done, self._series_total)
+            self._series_total = self._series_done = 0
+            self._series_bucket = None
+            return
+        self._emit_capture()
 
     # ---------------------------------------------------------- calibration
 
