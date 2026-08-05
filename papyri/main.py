@@ -647,14 +647,17 @@ class PapyriMainWindow(QMainWindow):
         # enter with the tabs filtered by the calibrationTabs setting.
         self._calibration_mode = CALIBRATION_MODE
         # Multi-shot capture series: one Capture press on a Flatfield tab
-        # shoots `flatfieldShotCount` frames, fired one after another as each
-        # CaptureFinished lands (the worker names one file per request, so a
-        # series is N requests, not one request with num_images=N). Everywhere
-        # else this is a trivial 1-shot "series". See capture_image /
-        # _advance_capture_series.
+        # shoots `flatfieldShotCount` frames, fired one after another (the
+        # worker names one file per request, so a series is N requests, not
+        # one request with num_images=N). Everywhere else this is a trivial
+        # 1-shot "series". See capture_image / _resume_capture_series.
         self._series_total: int = 0
         self._series_done: int = 0
         self._series_bucket: tuple[str, str] | None = None
+        # A shot settled and the series owes more — waiting for the worker's
+        # Ready to fire the next one. See _resume_capture_series for why the
+        # follow-up must NOT be sent on CaptureFinished.
+        self._series_awaiting_ready: bool = False
         # Calibration sub-mode state: the open per-camera target and the
         # object+bucket stashed for "← Back".
         self._cal_target: "CalibrationTarget | None" = None
@@ -2076,11 +2079,16 @@ class PapyriMainWindow(QMainWindow):
                 # CaptureError is deliberately NOT paused: a failed shot
                 # resumes live view on its Ready so the user can retry.
                 self.session.set_live_view_paused(True)
-                # Multi-shot series (Flatfield): fire the next frame. Runs
-                # before _refresh_camera_dependent_ui (wiring order in
-                # _wire_session), so the button state below already reflects
-                # whether the series is finished.
-                self._advance_capture_series()
+                # Multi-shot series (Flatfield): count the shot and arm the
+                # next one — which is sent on Ready, not here. Runs before
+                # _refresh_camera_dependent_ui (wiring order in _wire_session),
+                # so the button state below already reflects whether the
+                # series is finished.
+                self._note_capture_settled()
+            case CameraStates.Ready():
+                # Worker is idle again — the safe moment to send the series'
+                # next shot (no-op unless one is armed).
+                self._resume_capture_series()
             case CameraStates.ConnectionError(error=err):
                 self.logger.error("Connection error: %s", err)
                 # No live frames possible — clear stale "live" pill.
@@ -2876,14 +2884,16 @@ class PapyriMainWindow(QMainWindow):
         # Open a capture series for this press. Length is 1 everywhere except
         # the multi-shot calibration targets (Flatfield), where the user's
         # `flatfieldShotCount` decides — see calibration.shot_count_for. The
-        # remaining frames are fired by _advance_capture_series as each shot
-        # settles; the bucket is remembered so switching tabs mid-series stops
-        # it instead of dumping the rest into the new bucket.
+        # remaining frames are fired by _resume_capture_series as the worker
+        # goes Ready after each shot; the bucket is remembered so switching
+        # tabs mid-series stops it instead of dumping the rest into the new
+        # bucket.
         self._series_total = shot_count_for(
             self.q_settings, self.session.active_side)
         self._series_done = 0
         self._series_bucket = (
             self.session.active_side, self.session.active_spectrum)
+        self._series_awaiting_ready = False
         self._emit_capture()
         # The button gates on `_series_active` — repaint it now, otherwise it
         # stays clickable until the worker's CaptureInProgress arrives.
@@ -2935,15 +2945,35 @@ class PapyriMainWindow(QMainWindow):
                 self._series_done, self._series_total)
         self._series_total = self._series_done = 0
         self._series_bucket = None
+        self._series_awaiting_ready = False
 
-    def _advance_capture_series(self) -> None:
-        """One shot settled → fire the next one, if the series owes any.
-        Stops if the user switched bucket mid-series (the remaining frames
-        belong to the bucket that was aimed at, not the new one)."""
+    def _note_capture_settled(self) -> None:
+        """One shot landed. Only ARMS the follow-up — see
+        _resume_capture_series for why it isn't sent from here."""
         self._series_done += 1
+        self._series_awaiting_ready = self._series_active
         if not self._series_active:
             self._series_bucket = None
+
+    def _resume_capture_series(self) -> None:
+        """The worker went Ready → fire the series' next shot.
+
+        Ready, not CaptureFinished, is the safe moment. CameraWorker emits
+        CaptureFinished from inside captureImages and then keeps working in
+        its `finally` (restore settings, drain events) — and the drain calls
+        QApplication.processEvents(), which dispatches queued commands. A
+        capture request sent on CaptureFinished therefore RE-ENTERS
+        captureImages while the previous call is still unwinding, and the two
+        share `filesCounter`; shots then settle against each other's files
+        until one waits for a file that was already consumed. Ready is set at
+        the very end of that `finally`, so by the time it reaches us the
+        worker is genuinely idle.
+
+        Stops if the user switched bucket mid-series (the remaining frames
+        belong to the bucket that was aimed at, not the new one)."""
+        if not self._series_awaiting_ready:
             return
+        self._series_awaiting_ready = False
         bucket = (self.session.active_side, self.session.active_spectrum)
         if bucket != self._series_bucket:
             self.logger.warning(
