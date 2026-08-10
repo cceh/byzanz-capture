@@ -66,7 +66,7 @@ class Profile(ABC):
         """Whether the camera can stream a live preview via
         capture_preview(). Default True — every body here does, including
         the vusb virtual camera (whose liveview is emulated in the vendor
-        build, see vendor/patches/0005). Return False for cameras without
+        build, fork patch 0005). Return False for cameras without
         live view; the worker then never enters the preview loop, which
         would otherwise error out on the first frame and tear down the
         connection."""
