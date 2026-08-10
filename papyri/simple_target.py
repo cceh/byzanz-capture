@@ -30,6 +30,7 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QThreadPool, pyqtSignal
 
 from byzanz_camera.filmstrip_widget import get_file_index
+from byzanz_camera.helpers import trash
 from papyri.capture_model import Capture, _CopyRunner
 from papyri.capture_vocab import (
     JPG_EXTENSIONS, RAW_EXTENSIONS, SPECTRUM_INFIX, is_hidden_file,
@@ -129,7 +130,6 @@ class SimpleTarget(QObject):
 
     def delete(self, side: str, spectrum: str, stem: str) -> None:
         """Trash both jpg/raw paths of the given stem, then refresh."""
-        from byzanz_camera.helpers import trash
         cap = next((c for c in self._captures if c.stem == stem), None)
         if cap is None:
             return

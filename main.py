@@ -2,6 +2,7 @@ import asyncio.exceptions
 import json
 import logging
 import os
+import signal
 import sys
 from enum import Enum
 from pathlib import Path
@@ -1408,7 +1409,6 @@ if __name__ == "__main__":
     # debugging where the filmstrip needs real captures to render.
     auto_open = os.environ.get("BYZANZ_AUTO_OPEN_SESSION")
     if auto_open:
-        from PyQt6.QtCore import QTimer
         _session_name = os.path.basename(os.path.normpath(auto_open))
         _working_dir = os.path.dirname(os.path.normpath(auto_open))
         QTimer.singleShot(500, lambda: win.set_session(Session(_session_name, _working_dir)))
@@ -1420,7 +1420,6 @@ if __name__ == "__main__":
     # inclusion: a missing module / plugin / data file crashes at startup with a
     # non-zero exit here, instead of only in front of a user.
     if os.environ.get("BYZANZ_SMOKE_TEST"):
-        from PyQt6.QtCore import QTimer
         logging.info("Smoke-test mode: quitting ~5s after startup.")
         QTimer.singleShot(5000, app.quit)
 
@@ -1450,8 +1449,6 @@ if __name__ == "__main__":
 
         # Set up signal handlers
 
-
-    import signal
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)

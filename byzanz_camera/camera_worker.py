@@ -621,6 +621,8 @@ class CameraWorker(QObject):
                 "attempting macOS USB recovery (attempt %d/2)",
                 self.__macos_recovery_attempts,
             )
+            # Local import on purpose: macOS-only recovery path, loaded
+            # only when a claim error actually occurs there.
             from .macos_usb_recovery import attempt as _macos_recovery_attempt
             result = _macos_recovery_attempt(
                 lambda: self.camera.init(), self.__logger,

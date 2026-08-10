@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThreadPool, pyqtSignal
 
 from byzanz_camera.filmstrip_widget import get_file_index
+from byzanz_camera.helpers import trash
 from papyri.calibration_layout import (
     CALIBRATION_BUCKETS, CALIBRATION_DIRNAME, folder_for_slot, is_per_height,
 )
@@ -73,7 +75,6 @@ class CalibrationTarget(QObject):
         for _root, _dirs, files in os.walk(self.dir):
             if any(not is_hidden_file(f) for f in files):
                 return
-        import shutil
         shutil.rmtree(self.dir, ignore_errors=True)
 
     # --- paths ----------------------------------------------------------
@@ -137,7 +138,6 @@ class CalibrationTarget(QObject):
         return
 
     def delete(self, slot: str, spectrum: str, stem: str) -> None:
-        from byzanz_camera.helpers import trash
         cap = next((c for c in self._captures.get((slot, spectrum), [])
                     if c.stem == stem), None)
         if cap is None:

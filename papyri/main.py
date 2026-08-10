@@ -42,7 +42,7 @@ from pathlib import Path
 from PIL import Image
 from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import (
-    QObject, QSettings, QSize, Qt, QThread, QThreadPool, pyqtSignal,
+    QObject, QSettings, QSize, Qt, QThread, QThreadPool, QTimer, pyqtSignal,
 )
 from PyQt6.QtGui import QAction, QCloseEvent, QIcon, QPixmap, QPixmapCache
 from PyQt6.QtWidgets import (
@@ -57,6 +57,7 @@ from byzanz_camera.camera_worker import (
 from byzanz_camera.filmstrip_widget import get_file_index
 from byzanz_camera.load_image_worker import (
     ImageMode, LoadImageWorker, compute_sharpness,
+    set_sharpness_enabled,
 )
 from byzanz_camera.orientation import read_orientation, write_orientation
 from byzanz_camera.helpers import (
@@ -94,6 +95,7 @@ from papyri.object_layout import (
     write_meta,
 )
 from papyri.build_info import describe as describe_build
+from papyri.styles import install_app_stylesheet
 from papyri.camera_state_widget import CameraStateWidget
 from papyri.papyri_filmstrip import PapyriFilmstrip
 from papyri.metadata_pane import MetadataPane
@@ -729,7 +731,6 @@ class PapyriMainWindow(QMainWindow):
                 self.q_settings.setValue(key, value)
         # Apply the sharpness-check toggle to the worker module-global
         # so workers spawned anywhere in the app see it.
-        from byzanz_camera.load_image_worker import set_sharpness_enabled
         set_sharpness_enabled(self.q_settings.value(
             "sharpnessCheckEnabled", True, type=bool,
         ))
@@ -3282,7 +3283,6 @@ class PapyriMainWindow(QMainWindow):
             elif name == "maxPixmapCache":
                 QPixmapCache.setCacheLimit(int(value) * 1024)
             elif name == "sharpnessCheckEnabled":
-                from byzanz_camera.load_image_worker import set_sharpness_enabled
                 set_sharpness_enabled(bool(value))
             elif name == "liveViewSharpnessEnabled":
                 self._live_sharpness_enabled = bool(value)
@@ -3433,7 +3433,6 @@ def main():
     app.setWindowIcon(get_app_icon())
     # Centralised stylesheet + hot-reload on file change.
     # See papyri/styles.py + papyri/ui/app.qss.
-    from papyri.styles import install_app_stylesheet
     install_app_stylesheet(app)
     win = PapyriMainWindow()
     win.show()
@@ -3442,7 +3441,6 @@ def main():
     # filmstrip needs real captures to render.
     auto_open = os.environ.get("PAPYRI_AUTO_OPEN")
     if auto_open:
-        from PyQt6.QtCore import QTimer
         QTimer.singleShot(500, lambda: win._on_sidebar_object_selected(auto_open))
     sys.exit(app.exec())
 

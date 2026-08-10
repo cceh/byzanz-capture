@@ -165,6 +165,9 @@ def _install_error_bridge() -> None:
     # current thread; the main OS thread later becomes the GUI thread).
     global _error_bridge
     try:
+        # Local import on purpose: logging_setup must stay importable
+        # before/without Qt (install() runs first thing at app startup
+        # and the module also serves headless scripts).
         from PyQt6.QtCore import QObject, Qt, pyqtSignal
 
         class _ErrorBridge(QObject):
@@ -177,6 +180,8 @@ def _install_error_bridge() -> None:
                 )
 
             def _show(self, message: str) -> None:
+                # Deferred until a dialog is actually shown — QtWidgets
+                # may not be loaded in headless use.
                 from PyQt6.QtWidgets import QApplication, QMessageBox
                 if QApplication.instance() is None:
                     return

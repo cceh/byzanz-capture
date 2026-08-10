@@ -9,6 +9,7 @@ from PyQt6.QtCore import QLocale, QSize, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon, QImage, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication, QWidget
+from send2trash import send2trash
 
 def get_ui_path(file: str):
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -26,7 +27,6 @@ def trash(paths) -> None:
     QStandardPaths) and MSYS2's MinGW Python (os.sep == '/') produce exactly
     those — so normalize to backslashes first. Accepts a single path or a
     list; str or PathLike."""
-    from send2trash import send2trash
     if isinstance(paths, (str, os.PathLike)):
         paths = [paths]
     if sys.platform == "win32":

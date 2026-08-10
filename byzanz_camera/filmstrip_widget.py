@@ -18,6 +18,7 @@ Subclasses extend behavior via:
 from __future__ import annotations
 
 import os
+import re
 import time
 from os import listdir
 from pathlib import Path
@@ -280,7 +281,6 @@ class CaptionDelegate(QStyledItemDelegate):
 def get_file_index(file_path: str) -> Optional[int]:
     """Extract the trailing integer in a filename's stem (e.g. `..._001`
     → 1). Returns None if no digits found — those files are skipped."""
-    import re
     basename = os.path.splitext(file_path)[0]
     numbers_in_basename = re.findall(r'\d+', basename)
     return int(numbers_in_basename[-1]) if numbers_in_basename else None

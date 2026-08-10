@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 # accent for that group's tab cards + the fusing-panel border when
 # one of its tabs is active (so VIS-active draws blue chrome, IR-
 # active draws orange) — matches the camera-state pill colours.
+from papyri.styles import current_palette
 from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
 
 
@@ -46,7 +47,6 @@ def _palette_qcolor(key: str) -> QColor:
     """Read a color from the active app palette at paint time so the
     cards / fusing panel track dark-mode switches automatically. See
     `papyri.styles.current_palette()`."""
-    from papyri.styles import current_palette
     return QColor(current_palette()[key])
 
 CARD_W   = 168
