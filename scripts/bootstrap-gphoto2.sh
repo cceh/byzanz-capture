@@ -91,10 +91,13 @@ ensure_submodule() {
 
 # ---- local patches --------------------------------------------------
 
-# Patches in vendor/patches/ are local modifications to the pinned
-# libgphoto2 submodule. They live as .patch files rather than as a
-# committed submodule fork so the submodule keeps tracking upstream;
-# bootstrap re-applies them on top of every checkout. Currently they
+# Patches in vendor/patches/ are our local modifications to libgphoto2,
+# kept in two places: the submodule pins the CCeH fork (branch
+# vusb-local), where established patches live as regular commits, and
+# the same changes are kept here as .patch files. apply_patches below
+# applies any patch not yet present in the submodule tree (idempotent
+# reverse-check), so a new patch takes effect on every machine before
+# it has been committed to the fork. Currently they
 # make the `vusb` virtual-camera driver coexist with the real libusb1
 # driver in one process (real VIS body + simulated IR camera, patches
 # 0001-0004), add Nikon liveview emulation so capture_preview() streams
@@ -106,7 +109,10 @@ ensure_submodule() {
 # disk mid-session (patch 0006), and give the emulated ISO / f-number /
 # exposure-time properties realistic enum ladders so the apps' setting
 # dropdowns populate like a real body's (patch 0007) — see the in-code
-# comments in each patch for the full rationale.
+# comments in each patch for the full rationale. Patch 0010 is unrelated
+# to vusb: it names the Sony property 0xD288 (RAW File Compression Type,
+# i.e. the A7R V's "RAW File Type" menu) so it is settable as
+# `rawcompression` instead of the raw `d288` fallback widget.
 PATCH_DIR="$REPO_ROOT/vendor/patches"
 
 # Newline-separated list of patches that failed to apply (see
