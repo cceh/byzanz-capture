@@ -32,7 +32,7 @@ from byzanz_camera.gphoto2_safe import widget_text_value
 _gphoto2_set_setting("ptp2", "start_timeout", "3000")
 from gphoto2 import CameraWidget
 
-from .profiles.base import Profile
+from .profiles.base import FocusSignal, Profile
 from .orientation import write_orientation
 
 # libgphoto2 is per-camera-thread-safe but its global operations
@@ -114,9 +114,6 @@ class PseudoConfig:
 class SonyPTPId:
     AF_WITH_SHUTTER = "d1ad"
 
-class NikonPTPError(Enum):
-    OutOfFocus = "0xa002"
-
 # char*-valued widget types. Their value can be a NULL pointer (e.g. Sony's
 # raw '/main/other/dXXXX' PTP properties in some states), which
 # python-gphoto2's get_value converts with PyUnicode_FromString(NULL) →
@@ -124,6 +121,18 @@ class NikonPTPError(Enum):
 # which checks the pointer via ctypes and returns None for NULL. RANGE/TOGGLE/
 # DATE store int/float inline and can't NULL-segfault, so use get_value.
 _CHAR_WIDGET_TYPES = (gp.GP_WIDGET_TEXT, gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU)
+
+# libgphoto2's PTP error paths (C_PTP / C_PTP_REP / usb.c) log the vendor
+# response code as a "(0xNNNN)" suffix on their GP_LOG_ERROR lines.
+_PTP_ERROR_SUFFIX_RE = re.compile(r"\((0x[0-9a-f]{4})\)$")
+
+
+def widget_value(widget: gp.CameraWidget):
+    """Leaf-widget value, NULL-safe for char*-valued types (see
+    _CHAR_WIDGET_TYPES). None for a NULL char* value."""
+    if widget.get_type() in _CHAR_WIDGET_TYPES:
+        return widget_text_value(widget)
+    return widget.get_value()
 
 
 def widget_to_dict(widget: gp.CameraWidget, logger: logging.Logger = None) -> dict:
@@ -141,11 +150,9 @@ def widget_to_dict(widget: gp.CameraWidget, logger: logging.Logger = None) -> di
         for i in range(widget.count_children()):
             child = widget.get_child(i)
             result[child.get_name()] = widget_to_dict(child, logger)
-    elif widget_type in _CHAR_WIDGET_TYPES:
-        result['value'] = widget_text_value(widget)
     else:
         try:
-            result['value'] = widget.get_value()
+            result['value'] = widget_value(widget)
         except gp.GPhoto2Error as err:
             if err.code == -2 and logger:
                 logger.warning("Could not get config value for %s (%s).",
@@ -412,7 +419,10 @@ class CameraWorker(QObject):
         self.__macos_recovery_attempts: int = 0
         self.__last_macos_recovery: float = 0.0
 
-        self.__last_ptp_error: NikonPTPError = None
+        # Most recent vendor PTP response code (e.g. "0xa002"), recovered
+        # from libgphoto2's error log — the Python exception only carries
+        # a generic error. See __extract_gp2_error_from_log.
+        self.__last_ptp_error: str | None = None
         self.__last_config_poll = 0.0
 
         self.profile = None
@@ -454,12 +464,10 @@ class CameraWorker(QObject):
             gp.gp_log_add_func(gp.GP_LOG_ERROR, self.__extract_gp2_error_from_log))
 
     def __extract_gp2_error_from_log(self, _level: int, domain: bytes, string: bytes, _data=None):
-        error_str = string
-        for ptp_error in NikonPTPError:
-            error_suffix = "(%s)" % ptp_error.value
-            if error_str.endswith(error_suffix):
-                self.__last_ptp_error = ptp_error
-                self.__logger.debug("PTP Error: {} {}".format(ptp_error, error_suffix))
+        match = _PTP_ERROR_SUFFIX_RE.search(string)
+        if match:
+            self.__last_ptp_error = match.group(1)
+            self.__logger.debug("PTP error code: %s", match.group(1))
 
     def __set_state(self, state: CameraStates.StateType):
         self.__state = state
@@ -714,6 +722,13 @@ class CameraWorker(QObject):
         with self.__open_config("read") as cfg:
             req.signal.got_config.emit(cfg)
 
+    def __read_config_value(self, name: str) -> str | None:
+        """Live value of one config widget as a string, via the cheap
+        single-widget read (no full config tree). None for a NULL char*
+        value."""
+        value = widget_value(self.camera.get_single_config(name))
+        return None if value is None else str(value)
+
     @__handle_camera_error
     def __emit_current_config(self, config_names: list[str] = None):
        if config_names is not None:
@@ -936,23 +951,81 @@ class CameraWorker(QObject):
 
     @__handle_camera_error
     def __trigger_autofocus(self):
-        lightmeter = None
+        signal = self.profile.focus_signal()
+        self.__last_ptp_error = None   # only accept codes from THIS attempt
         self.__set_state(CameraStates.FocusStarted())
         try:
             self.__apply_settings(self.profile.start_autofocus_settings())
-            # with self.__open_config("write") as cfg:
-            #     # lightmeter = cfg.get_child_by_name("lightmeter").get_value()
-            self.__set_state(CameraStates.FocusFinished(success=True))
+            success = self.__await_focus(signal)
+            self.__set_state(CameraStates.FocusFinished(success=success))
         except gp.GPhoto2Error:
-            if self.__last_ptp_error == NikonPTPError.OutOfFocus:
-                # self.__logger.warning("Could not get focus (light: %s)." % lightmeter)
+            if signal.failure_ptp_error and self.__last_ptp_error == signal.failure_ptp_error:
                 self.__set_state(CameraStates.FocusFinished(success=False))
             else:
                 raise
         finally:
+            # Release the AF trigger first, THEN lock: Sony bodies reject
+            # a focusmode write while the half-press is held with focus
+            # locked (the write reports success but does nothing).
             self.__apply_settings(self.profile.stop_autofocus_settings())
+            self.__lock_focus()
             self.__set_state(CameraStates.LiveViewActive())
-            # TODO handle general camera error
+
+    def __await_focus(self, signal: FocusSignal) -> bool:
+        """Wait until autofocus has terminated, per the profile's
+        FocusSignal. Returns whether focus was achieved."""
+        if signal.widget is None:
+            if signal.fixed_wait_s > 0:
+                self.__logger.info("Waiting %.1f s for autofocus (no focus signal)",
+                                   signal.fixed_wait_s)
+                sleep(signal.fixed_wait_s)
+            return True
+        start = time.monotonic()
+        read_error_logged = False
+        while time.monotonic() - start < signal.timeout_s:
+            try:
+                value = self.__read_config_value(signal.widget)
+            except gp.GPhoto2Error as err:
+                if not read_error_logged:
+                    self.__logger.warning("Cannot read %s while waiting for focus: %s",
+                                          signal.widget, err)
+                    read_error_logged = True
+                value = None
+            if value in signal.success_values:
+                self.__logger.info("Focus locked after %.2f s (%s=%s)",
+                                   time.monotonic() - start, signal.widget, value)
+                return True
+            if value in signal.failure_values:
+                self.__logger.warning("Autofocus failed (%s=%s)", signal.widget, value)
+                return False
+            sleep(0.15)
+        self.__logger.warning("Autofocus wait timed out after %.1f s", signal.timeout_s)
+        return False
+
+    def __lock_focus(self):
+        lock = self.profile.lock_focus_settings()
+        if not lock:
+            return
+        self.__apply_settings(lock)
+        # Verification only, deliberately no retry: if "Focus lock REFUSED"
+        # never shows up in field logs, the read-back can be dropped; if it
+        # does, add a single ~300 ms retry (the body may still be settling
+        # after the AF-trigger release).
+        if not self.__confirm_settings(lock):
+            self.__logger.error("Focus lock REFUSED: camera did not accept %s "
+                                "— focus is not pinned until the next capture", lock)
+
+    def __confirm_settings(self, settings: dict) -> bool:
+        """Read back each key and compare against the written value."""
+        for name, value in settings.items():
+            try:
+                read_back = self.__read_config_value(name)
+            except gp.GPhoto2Error as err:
+                self.__logger.warning("Cannot read back %s: %s", name, err)
+                return False
+            if read_back != str(value):
+                return False
+        return True
 
     def captureImages(self, capture_req: CaptureImagesRequest):
         # Stop live view inline (apply settings, no state transition). Going

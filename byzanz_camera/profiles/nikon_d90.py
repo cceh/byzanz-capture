@@ -1,4 +1,5 @@
-from .base import Profile
+from .base import FocusSignal, Profile
+from .nikon_ptp_errors import NikonPTPError
 
 
 class NikonD90(Profile):
@@ -79,6 +80,9 @@ class NikonD90(Profile):
         return {
             "autofocusdrive": 0,
         }
+
+    def focus_signal(self):
+        return FocusSignal(failure_ptp_error=NikonPTPError.OutOfFocus)
 
     def start_live_view_settings(self):
         # The D90 cannot start live view by writing viewfinder=1 — the driver

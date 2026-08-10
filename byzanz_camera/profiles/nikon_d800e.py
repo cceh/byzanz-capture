@@ -1,4 +1,5 @@
-from .base import Profile
+from .base import FocusSignal, Profile
+from .nikon_ptp_errors import NikonPTPError
 
 
 class NikonD800E(Profile):
@@ -49,6 +50,11 @@ class NikonD800E(Profile):
         return {
             "autofocusdrive": 0,
         }
+
+    def focus_signal(self):
+        # autofocusdrive blocks until AF completes; failure surfaces as a
+        # PTP error, not through a status widget.
+        return FocusSignal(failure_ptp_error=NikonPTPError.OutOfFocus)
 
     def start_live_view_settings(self):
         return {

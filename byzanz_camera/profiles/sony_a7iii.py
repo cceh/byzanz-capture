@@ -1,4 +1,4 @@
-from .base import Profile
+from .base import FocusSignal, Profile
 
 
 class SonyA7III(Profile):
@@ -65,14 +65,25 @@ class SonyA7III(Profile):
         }
 
     def stop_autofocus_settings(self):
+        # Release the S1 half-press only — see SonyA7RM5 for why the
+        # Manual lock must come separately, after this.
         return {
-            # Lock focus by dropping to Manual once the AF button's focus
-            # completes: the lens holds its current position and the camera
-            # can't refocus. start_autofocus switches back to AF-S for the
-            # next AF button press.
-            "focusmode": "Manual",
             "autofocus": 0
         }
+
+    def lock_focus_settings(self):
+        return {
+            "focusmode": "Manual"
+        }
+
+    def focus_signal(self):
+        # Same d213 semantics as the A7R V, but not yet verified on this
+        # body. If AF reports failure despite the lens visibly locking,
+        # suspect this signal first.
+        return FocusSignal(widget="d213",
+                           success_values=frozenset({"2"}),
+                           failure_values=frozenset({"3"}),
+                           timeout_s=4.0)
 
     def start_live_view_settings(self):
         return {

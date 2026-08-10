@@ -1,4 +1,4 @@
-from .base import Profile
+from .base import FocusSignal, Profile
 
 
 class SonyA7RM5(Profile):
@@ -79,14 +79,31 @@ class SonyA7RM5(Profile):
         }
 
     def stop_autofocus_settings(self):
+        # Release the S1 half-press only. The Manual lock must NOT be in
+        # this dict: while S1 is held with focus locked, the body silently
+        # rejects a focusmode write (reports success, read-back stays
+        # Automatic). AF-S holds the lens position across the release.
         return {
-            # Lock focus by dropping to Manual once the AF button's focus
-            # completes: the lens holds its current position and the camera
-            # can't refocus. start_autofocus switches back to AF-S for the
-            # next AF button press.
-            "focusmode": "Manual",
             "autofocus": 0
         }
+
+    def lock_focus_settings(self):
+        # Freeze focus after the S1 release: the lens holds its position
+        # and the camera can't refocus. start_autofocus switches back to
+        # AF-S for the next AF button press.
+        return {
+            "focusmode": "Manual"
+        }
+
+    def focus_signal(self):
+        # Raw PTP 0xD213 (FocusFound). Raw values instead of the
+        # `focusindication` widget: its labels are gettext-localized.
+        # Measured lock latency on this body after a full-travel defocus:
+        # 1.29-1.62 s.
+        return FocusSignal(widget="d213",
+                           success_values=frozenset({"2"}),   # Focus Locked
+                           failure_values=frozenset({"3"}),   # No Focus - Low Contrast
+                           timeout_s=4.0)
 
     def start_live_view_settings(self):
         return {

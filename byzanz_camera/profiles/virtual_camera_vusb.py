@@ -1,4 +1,4 @@
-from .base import Profile
+from .base import FocusSignal, Profile
 
 
 class VirtualCameraVusb(Profile):
@@ -144,6 +144,11 @@ class VirtualCameraVusb(Profile):
 
     def stop_autofocus_settings(self):
         return {}
+
+    def focus_signal(self):
+        # The emulator has no AF; the (empty) start settings return
+        # instantly and that already counts as focused.
+        return FocusSignal()
 
     def start_live_view_settings(self):
         return {}

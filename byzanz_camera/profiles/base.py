@@ -1,4 +1,25 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class FocusSignal:
+    """How a camera reports that autofocus has finished.
+
+    Three camera classes, all declarative:
+    - AF call blocks until done (Nikon autofocusdrive): all defaults.
+      AF failure surfaces as a PTP error -> set `failure_ptp_error`.
+    - Camera exposes a status widget (Sony d213): set `widget` and the
+      value sets; the worker polls until success/failure/timeout.
+    - Fire-and-forget without any signal: set `fixed_wait_s` as a blind
+      grace period.
+    """
+    widget: str | None = None
+    success_values: frozenset[str] = frozenset()
+    failure_values: frozenset[str] = frozenset()
+    failure_ptp_error: str | None = None
+    fixed_wait_s: float = 0.0
+    timeout_s: float = 4.0
 
 
 class Profile(ABC):
@@ -105,7 +126,22 @@ class Profile(ABC):
 
     @abstractmethod
     def stop_autofocus_settings(self):
+        """Settings that release the AF trigger (e.g. Sony S1 half-press,
+        Nikon autofocusdrive). Must NOT contain the focus lock — that goes
+        in lock_focus_settings, which the worker applies afterwards."""
         pass
+
+    @abstractmethod
+    def focus_signal(self) -> FocusSignal:
+        """How this camera reports AF completion — see FocusSignal."""
+        pass
+
+    def lock_focus_settings(self) -> dict:
+        """Settings that freeze focus after the AF trigger is released
+        (e.g. Sony `focusmode: Manual`). Applied as a separate write after
+        stop_autofocus_settings and confirmed by read-back; empty = no
+        lock step."""
+        return {}
 
     @abstractmethod
     def start_live_view_settings(self):
