@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from byzanz_camera.helpers import get_ui_path
 from papyri._metadata import DEFAULT_SCHEMA, FieldSchema
+from papyri.build_info import describe as describe_build
 from papyri.object_layout import read_meta, write_meta
 
 if TYPE_CHECKING:
@@ -182,6 +183,13 @@ class MetadataPane(QFrame):
             form.addRow(label, widget)
 
         outer.addStretch(1)
+
+        # Which checkout is running (commit hash + date).
+        # Styled via app.qss (#versionLabel).
+        # "hash date" → two lines; "unknown" has no space and stays one.
+        version = QLabel(describe_build().replace(" ", "\n"))
+        version.setObjectName("versionLabel")
+        outer.addWidget(version)
 
     def _create_widget(self, schema: FieldSchema) -> QWidget:
         if schema.type == "string":

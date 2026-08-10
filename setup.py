@@ -7,8 +7,20 @@ freezes nothing):
 
 Produces dist/CCeH Crocodile Capture.app. See scripts/make-macos-launcher.sh
 for the wrapper that builds it and drops it on the Desktop.
+
+CROC_APP_SUFFIX (env, optional): short token like "ALT". Appended to the
+bundle name and identifier ("CCeH Crocodile Capture (ALT)",
+info.cceh.crocodile-capture.alt) so a second launcher pointing at the
+pinned fallback worktree can coexist with the regular one. Set by
+make-macos-launcher.sh's second argument — keep both in sync.
 """
+import os
+
 from setuptools import setup
+
+_suffix = os.environ.get("CROC_APP_SUFFIX", "")
+_app_name = "CCeH Crocodile Capture" + (f" ({_suffix})" if _suffix else "")
+_bundle_id = "info.cceh.crocodile-capture" + (f".{_suffix.lower()}" if _suffix else "")
 
 setup(
     app=["run_papyri.py"],
@@ -16,9 +28,9 @@ setup(
         "py2app": {
             "iconfile": "ui/icon/app_icon.icns",
             "plist": {
-                "CFBundleName": "CCeH Crocodile Capture",
-                "CFBundleDisplayName": "CCeH Crocodile Capture",
-                "CFBundleIdentifier": "info.cceh.crocodile-capture",
+                "CFBundleName": _app_name,
+                "CFBundleDisplayName": _app_name,
+                "CFBundleIdentifier": _bundle_id,
                 "CFBundleVersion": "1.0",
                 "CFBundleShortVersionString": "1.0",
                 "NSHighResolutionCapable": True,

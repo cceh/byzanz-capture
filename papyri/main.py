@@ -93,6 +93,7 @@ from papyri.object_layout import (
     update_meta,
     write_meta,
 )
+from papyri.build_info import describe as describe_build
 from papyri.camera_state_widget import CameraStateWidget
 from papyri.papyri_filmstrip import PapyriFilmstrip
 from papyri.metadata_pane import MetadataPane
@@ -3417,6 +3418,9 @@ class PapyriMainWindow(QMainWindow):
 
 
 def main():
+    # Which checkout is this (regular vs. "(ALT)" fallback launcher)?
+    # Same string the metadata pane shows — log/screenshot parity.
+    logging.getLogger("papyri").info("build: %s", describe_build())
     app = QApplication(sys.argv)
     app.setOrganizationName("CCeH")
     app.setApplicationName("Crocodile Capture")

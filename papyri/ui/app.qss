@@ -32,6 +32,11 @@
     font-size: 12pt;
 }
 
+#versionLabel {
+    color: $ink_3;
+    font-size: 9pt;
+}
+
 
 /* ===== Objects sidebar ============================================ */
 
