@@ -908,11 +908,13 @@ class FilmstripWidget(QWidget):
 
         Pre-existing entries:
             - filmstrip items (image_file_list)
-            - shared decoded-pixmap cache (cleared so next directory's
-              clicks don't get cached results from the previous one)
+
+        Decoded pixmaps deliberately survive directory changes. QPixmapCache
+        is process-global, keyed by exact paths, and already enforces the
+        configured memory limit; clearing it here evicts unrelated widgets
+        and makes back-navigation decode the same full image again.
         """
         self.image_file_list.clear()
-        QPixmapCache.clear()
 
     def __stop_watching(self) -> None:
         """No-op when nothing was being watched — Qt's removePath emits
