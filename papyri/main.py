@@ -3417,7 +3417,7 @@ class PapyriMainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def main():
+def main(app_icon: str = "app_icon"):
     # Which checkout is this (regular vs. "(ALT)" fallback launcher)?
     # Same string the metadata pane shows — log/screenshot parity.
     logging.getLogger("papyri").info("build: %s", describe_build())
@@ -3430,7 +3430,7 @@ def main():
     # Multi-resolution icon for dock / taskbar / alt-tab / window
     # decorations. Set on the QApplication so every window inherits
     # it, on every platform.
-    app.setWindowIcon(get_app_icon())
+    app.setWindowIcon(get_app_icon(app_icon))
     # Centralised stylesheet + hot-reload on file change.
     # See papyri/styles.py + papyri/ui/app.qss.
     install_app_stylesheet(app)

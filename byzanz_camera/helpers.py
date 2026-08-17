@@ -187,7 +187,7 @@ def themed_icon(svg_path: str, render_size: int = 64) -> QIcon:
     return QIcon(themed_pixmap(svg_path, render_size))
 
 
-def get_app_icon():
+def get_app_icon(icon_name: str = "app_icon"):
     """Multi-resolution QIcon for the application window.
 
     Cross-platform best practice: hand Qt every standard size and let
@@ -209,7 +209,7 @@ def get_app_icon():
     icon = QIcon()
     for size in _APP_ICON_SIZES:
         icon.addFile(
-            get_ui_path(f"ui/icon/app_icon_{size}.png"),
+            get_ui_path(f"ui/icon/{icon_name}_{size}.png"),
             QSize(size, size),
         )
     return icon

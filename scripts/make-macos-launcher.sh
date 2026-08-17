@@ -9,8 +9,8 @@
 # tile (not a separate "Python" process like a shell/applet wrapper would).
 #
 # Usage:
-#   scripts/make-macos-launcher.sh [destination-dir] [name-suffix]
-#   (defaults: ~/Desktop, no suffix)
+#   scripts/make-macos-launcher.sh [destination-dir] [name-suffix] [icon-name]
+#   (defaults: ~/Desktop, no suffix, app_icon)
 #
 # The optional name-suffix (a short token like "ALT") produces
 # "CCeH Crocodile Capture (ALT).app" with its own bundle identifier —
@@ -20,9 +20,14 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="$REPO/.venv"
+if [ ! -x "$VENV/bin/python" ] && [ -x "$REPO/venv/bin/python" ]; then
+    VENV="$REPO/venv"
+fi
 APP_NAME="CCeH Crocodile Capture"
 DEST="${1:-$HOME/Desktop}"
 SUFFIX="${2:-}"
+ICON_NAME="${3:-app_icon}"
+export CROC_APP_ICON="$ICON_NAME"
 
 if [ -n "$SUFFIX" ]; then
     APP_NAME="$APP_NAME ($SUFFIX)"
