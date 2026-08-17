@@ -38,7 +38,12 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QImage
 
+from .capture_audit import (
+    AuditFinding, AuditRequest, SHARPNESS_AUDIT,
+)
 from .thumb_cache import thumb_cache
+from .sharpness import METRIC_VERSION as SHARPNESS_METRIC_VERSION
+from .sharpness import measure as measure_object_sharpness
 
 _logger = logging.getLogger("LoadImageWorker")
 
@@ -82,81 +87,24 @@ def read_embedded_jpeg(path: str) -> Optional[bytes]:
         return f.read()
 
 
-# ---- sharpness ----------------------------------------------------------
+# ---- live-frame sharpness ----------------------------------------------
 
-# Toggled from app startup based on the QSettings flag
-# `sharpnessCheckEnabled`. When False, workers skip the Laplace
-# computation entirely AND return None for sharpness even on cache
-# hits, so the user gets a guaranteed clean experience after flipping
-# the setting off.
-_SHARPNESS_ENABLED = True
-
-
-def set_sharpness_enabled(enabled: bool) -> None:
-    """Global on/off for the per-image sharpness measurement. Called
-    by main.py at startup and whenever the setting changes."""
-    global _SHARPNESS_ENABLED
-    _SHARPNESS_ENABLED = bool(enabled)
-
-
-def _resolved_sharpness(
-    path: str, thumb: Optional[QImage], exif: dict,
-    cached: Optional[float],
-) -> Optional[float]:
-    """Return the sharpness value to surface in a load result, given
-    whatever was found in the cache for this path:
-
-      - feature globally disabled → return None (any cached value is
-        suppressed; caller should not propagate it)
-      - cached value present → return it as-is
-      - cached value absent → compute now, top up the sidecar, return
-        the new value (or None if compute failed)
-
-    The thumb/exif arguments are only used when the function has to
-    write back to the cache; pass the freshly-decoded versions you
-    already have on hand."""
-    if not _SHARPNESS_ENABLED:
-        return None
-    if cached is not None:
-        return cached
-    sharp = compute_sharpness(path)
-    if sharp is not None and thumb is not None:
-        thumb_cache().put(path, thumb, exif, sharp)
-    return sharp
-
-
-def compute_sharpness(source: "str | Image.Image") -> Optional[float]:
+def compute_sharpness(source: Image.Image) -> Optional[float]:
     """Laplace variance on a center-crop of the image — the focus/blur
     measure, ~70–110 for sharp papyrus captures and single digits for
     visibly defocused / shaken ones (verified against real ARW samples).
 
-    `source` is either a file path or an already-decoded frame, so the
-    same metric backs both the post-capture check and the live-view
-    focus readout:
-      - str path → JPEG is decoded at half res (`IMREAD_REDUCED_COLOR_2`,
-        keeps enough high-frequency content for half-pixel-blur
-        sensitivity without the full 60 MP demosaic); RAW pulls the
-        embedded full-res JPEG thumb via rawpy instead of demosaicing.
-      - PIL Image → an in-memory frame (e.g. a live-view preview). Low-res
-        live frames land on a smaller absolute scale than capture files,
-        so compare live values to each other, not to capture numbers.
+    `source` is an already-decoded in-memory frame (e.g. a live-view
+    preview). Low-res live frames land on a smaller absolute scale than
+    capture files, so compare live values only to each other. Capture files
+    use the unrelated v2 edge-rise metric after their full decode.
 
     center-cropping 70% × 70% (~50% of pixels) trims background — the
     papyrus is roughly centered — and halves the Laplace cost. Returns
     None on any IO/decode failure — sharpness is advisory, never blocks
     the load."""
     try:
-        if isinstance(source, Image.Image):
-            gray = np.asarray(source.convert("L"))
-        else:
-            data = read_embedded_jpeg(source)
-            if data is None:
-                return None
-            img = cv2.imdecode(np.frombuffer(data, np.uint8),
-                               cv2.IMREAD_REDUCED_COLOR_2)
-            if img is None:
-                return None
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = np.asarray(source.convert("L"))
         if gray.ndim != 2 or gray.size == 0:
             return None
         h, w = gray.shape
@@ -164,8 +112,7 @@ def compute_sharpness(source: "str | Image.Image") -> Optional[float]:
         x = (w - crop_w) // 2; y = (h - crop_h) // 2
         crop = gray[y:y + crop_h, x:x + crop_w]
         return float(cv2.Laplacian(crop, cv2.CV_64F).var())
-    except (rawpy.LibRawNoThumbnailError, rawpy.LibRawIOError,
-            OSError, ValueError):
+    except (OSError, ValueError):
         return None
 
 
@@ -193,24 +140,20 @@ def _add_tag(tag_id, exif_dict, exif_data) -> None:
 
 def extract_thumb_with_exif(
     path: str, max_size: int = 256
-) -> tuple[Optional[QImage], dict, Optional[float]]:
-    """Format-aware thumb + EXIF + sharpness, memoized on disk. Hit
+) -> tuple[Optional[QImage], dict]:
+    """Format-aware thumb + EXIF, memoized on disk. Hit
     returns in ~5 ms. Miss decodes (JPEG: PIL `Image.draft` for
     DCT-level scaled decode; RAW: `rawpy.extract_thumb` for the
     embedded JPEG preview, falling back to full demosaic + scale if
-    absent), measures sharpness (when globally enabled — see
-    `set_sharpness_enabled`), and stores everything in the sidecar.
+    absent), and stores both values in the sidecar.
 
     Cache key is `absolute_path|mtime_ns` — file edits auto-invalidate.
 
-    `sharpness` is None when: globally disabled, the capture couldn't
-    be decoded for measurement, or this is a legacy cache entry
-    (created before the sharpness column was added)."""
+    Capture sharpness intentionally never enters this disposable cache."""
     cache = thumb_cache()
     hit = cache.get(path)
     if hit is not None:
-        img, exif, cached_sharp = hit
-        return img, exif, _resolved_sharpness(path, img, exif, cached_sharp)
+        return hit
     try:
         if is_raw(path):
             img, exif = _extract_raw_thumb(path, max_size)
@@ -219,11 +162,10 @@ def extract_thumb_with_exif(
     except Exception:
         _logger.warning("extract_thumb_with_exif failed for %s",
                         Path(path).name, exc_info=True)
-        return None, {}, None
-    sharp = compute_sharpness(path) if _SHARPNESS_ENABLED else None
+        return None, {}
     if img is not None and not img.isNull():
-        cache.put(path, img, exif, sharp)
-    return img, exif, sharp
+        cache.put(path, img, exif)
+    return img, exif
 
 
 def _extract_jpeg_thumb(path: str, max_size: int) -> tuple[QImage, dict]:
@@ -265,7 +207,7 @@ def _extract_raw_thumb(path: str, max_size: int) -> tuple[Optional[QImage], dict
         try:
             thumb = raw.extract_thumb()
         except rawpy.LibRawNoThumbnailError:
-            qimg = _raw_full_qimage(raw)
+            qimg = _qimage_from_rgb(_raw_postprocess(raw))
             return _scale_to_fit(qimg, max_size), {}
 
         if thumb.format == rawpy.ThumbFormat.BITMAP:
@@ -291,40 +233,32 @@ def _scale_to_fit(img: QImage, max_size: int) -> QImage:
 
 # ---- full decode --------------------------------------------------------
 
-def _full_decode(path: str) -> tuple[Optional[QImage], dict]:
+def _full_decode(path: str) -> tuple[Optional[QImage], dict, np.ndarray]:
     if is_raw(path):
         return _decode_raw_full(path)
     return _decode_jpeg_full(path)
 
 
-def _decode_jpeg_full(path: str) -> tuple[QImage, dict]:
+def _decode_jpeg_full(path: str) -> tuple[QImage, dict, np.ndarray]:
     # Honour the file's EXIF Orientation: each capture carries its own
     # orientation (written at capture time / when rotated), so the display
     # reflects the file. Orientation 1 (the dome/RTI case) is a no-op.
-    image = ImageOps.exif_transpose(Image.open(path))
-    image.load()
-    w, h = image.size
-    image_data = image.tobytes("raw", "RGB")
-    # .copy() detaches the QImage from the Python `image_data` bytes; without
-    # it the QImage holds a borrowed pointer that is freed once image_data
-    # goes out of scope, so painting the resulting pixmap later dereferences
-    # freed memory and segfaults. The explicit w*3 stride matches tobytes'
-    # tight packing (the 4-arg ctor assumes 32-bit-aligned scanlines, which
-    # raw RGB888 is not).
-    q_image = QImage(
-        image_data, w, h, w * 3, QImage.Format.Format_RGB888,
-    ).copy()
-    return q_image, _get_exif_dict(image)
+    with Image.open(path) as source:
+        exif = _get_exif_dict(source)
+        image = ImageOps.exif_transpose(source).convert("RGB")
+        image.load()
+        rgb = np.ascontiguousarray(np.asarray(image))
+    return _qimage_from_rgb(rgb), exif, rgb
 
 
-def _decode_raw_full(path: str) -> tuple[QImage, dict]:
+def _decode_raw_full(path: str) -> tuple[QImage, dict, np.ndarray]:
     with rawpy.imread(path) as raw:
         exif = _exif_from_raw_embedded_jpeg(raw)
-        q_image = _raw_full_qimage(raw)
-    return q_image, exif
+        rgb = _raw_postprocess(raw)
+    return _qimage_from_rgb(rgb), exif, rgb
 
 
-def _raw_full_qimage(raw) -> QImage:
+def _raw_postprocess(raw) -> np.ndarray:
     # Default user_flip: libraw applies the RAW's Orientation flag, so the
     # decode reflects the file's own orientation (written at capture / on
     # rotate). RTI/dome files carry flip 0, so this is a no-op for them.
@@ -337,11 +271,26 @@ def _raw_full_qimage(raw) -> QImage:
     # but switch the per-image auto-exposure off so relative brightness is
     # faithful.
     rgb = raw.postprocess(use_camera_wb=True, output_bps=8, no_auto_bright=True)
-    rgb = np.ascontiguousarray(rgb)
+    return np.ascontiguousarray(rgb)
+
+
+def _qimage_from_rgb(rgb: np.ndarray) -> QImage:
+    """Detach a tightly packed uint8 RGB array into an owning QImage."""
     h, w, _ = rgb.shape
     # .copy() detaches the QImage from the numpy buffer so it survives
     # after `rgb` is garbage-collected.
     return QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
+
+
+def _measure_capture_array(path: str, rgb: np.ndarray, modality: str):
+    """Run v2 on the already-decoded full-resolution array."""
+    def gray_loader(_path: str) -> np.ndarray:
+        if modality == "ir":
+            # The IR body clips red; validation uses the green channel.
+            return rgb[:, :, 1].astype(np.float32)
+        return cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
+
+    return measure_object_sharpness(path, gray_loader=gray_loader)
 
 
 def _exif_from_raw_embedded_jpeg(raw) -> dict:
@@ -358,46 +307,50 @@ def _exif_from_raw_embedded_jpeg(raw) -> dict:
 
 class LoadImageWorkerResult:
     """Either `image` or `thumbnail` is set, depending on `ImageMode`.
-    BOTH mode sets both. `sharpness` is the Laplace-variance metric
-    when computed, None when disabled or unavailable."""
+    FULL mode sets both. Capture audits arrive later on the separate,
+    path-bound `audit_finished` signal."""
     def __init__(self, image: Optional[QImage], thumbnail: Optional[QImage],
-                 exif: dict, path: str, sharpness: Optional[float] = None):
+                 exif: dict, path: str):
         self.image = image
         self.thumbnail = thumbnail
         self.exif = exif
         self.path = path
-        self.sharpness = sharpness
 
 
 class LoadImageWorkerSignals(QObject):
     finished = pyqtSignal(LoadImageWorkerResult)
+    audit_finished = pyqtSignal(str, object)  # path, AuditFinding
 
 
 class LoadImageWorker(QRunnable):
     def __init__(self, path: str, *, mode: ImageMode = ImageMode.FULL,
-                 thumb_max_size: int = 256):
+                 thumb_max_size: int = 256,
+                 audit_request: AuditRequest | None = None):
         super().__init__()
         self.path = path
         self.mode = mode
         self.thumb_max_size = thumb_max_size
+        # Explicit semantic request from the capture-mode coordinator. The
+        # worker never reconstructs target type or modality from disk names.
+        self.audit_request = audit_request
         self.signals = LoadImageWorkerSignals()
 
     @pyqtSlot()
     def run(self):
         timer = QElapsedTimer()
         timer.start()
+        rgb: np.ndarray | None = None
         try:
             image: Optional[QImage] = None
             thumbnail: Optional[QImage] = None
             exif: dict = {}
-            sharpness: Optional[float] = None
 
             if self.mode is ImageMode.THUMB:
-                thumbnail, exif, sharpness = extract_thumb_with_exif(
+                thumbnail, exif = extract_thumb_with_exif(
                     self.path, self.thumb_max_size
                 )
             else:  # FULL
-                image, exif = _full_decode(self.path)
+                image, exif, rgb = _full_decode(self.path)
                 # Always also populate the thumb (cache hit if present,
                 # else derived from the just-decoded full image + cached
                 # for future THUMB requests). Cheap relative to the full
@@ -406,23 +359,51 @@ class LoadImageWorker(QRunnable):
                     cache = thumb_cache()
                     hit = cache.get(self.path)
                     if hit is not None:
-                        thumbnail, _, sharpness = hit
+                        thumbnail, _ = hit
                     else:
                         thumbnail = _scale_to_fit(image, self.thumb_max_size)
-                        sharpness = (compute_sharpness(self.path)
-                                     if _SHARPNESS_ENABLED else None)
-                        cache.put(self.path, thumbnail, exif, sharpness)
-                    sharpness = _resolved_sharpness(
-                        self.path, thumbnail, exif, sharpness,
-                    )
+                        cache.put(self.path, thumbnail, exif)
 
             self.signals.finished.emit(LoadImageWorkerResult(
                 image=image, thumbnail=thumbnail, exif=exif, path=self.path,
-                sharpness=sharpness,
             ))
-            _logger.debug("load(%s, %s) took %d ms (sharpness=%s)",
-                          Path(self.path).name, self.mode.value, timer.elapsed(),
-                          f"{sharpness:.1f}" if sharpness is not None else "—")
+            _logger.debug("load(%s, %s) took %d ms",
+                          Path(self.path).name, self.mode.value, timer.elapsed())
         except Exception:
             _logger.warning("load failed for %s",
                             Path(self.path).name, exc_info=True)
+            return
+
+        # Display is already queued above. Expensive audits start only now,
+        # so a 2–5 s 61 MP analysis never delays the viewer.
+        if (self.mode is not ImageMode.FULL or self.audit_request is None
+                or rgb is None):
+            return
+        self._run_audits(rgb, self.audit_request)
+
+    def _run_audits(self, rgb: np.ndarray, request: AuditRequest) -> None:
+        """Canonical FULL-array audit dispatcher; each check fails closed."""
+        for check in sorted(request.checks):
+            timer = QElapsedTimer()
+            timer.start()
+            if check != SHARPNESS_AUDIT:
+                _logger.warning("unknown capture audit %r for %s",
+                                check, Path(self.path).name)
+                continue
+            try:
+                result = _measure_capture_array(
+                    self.path, rgb, request.modality)
+            except Exception:
+                result = None
+                _logger.warning("sharpness v2 failed for %s",
+                                Path(self.path).name, exc_info=True)
+            finding = AuditFinding(
+                check=SHARPNESS_AUDIT,
+                metric_version=SHARPNESS_METRIC_VERSION,
+                data=result,
+            )
+            self.signals.audit_finished.emit(self.path, finding)
+            _logger.debug("audit(%s, %s) took %d ms (result=%s)",
+                          Path(self.path).name, check, timer.elapsed(),
+                          "none" if result is None else
+                          f"{result.get('sharp_px', float('nan')):.2f}px")

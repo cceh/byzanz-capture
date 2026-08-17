@@ -21,6 +21,7 @@ from pathlib import Path
 from string import Template
 
 from PyQt6.QtCore import QFileSystemWatcher, Qt
+from PyQt6.QtGui import QBrush, QColor, QPen
 from PyQt6.QtWidgets import QApplication
 
 from byzanz_camera.helpers import refresh_themed_icons
@@ -79,6 +80,34 @@ COLORS: dict[str, str] = {
     "cal_ok":          "#16a34a",   # green-600 — calibration set is fresh
     "cal_due":         "#f59e0b",   # amber-500 — a calibration is due
 }
+
+# One palette for every rendering of capture-audit status (warning pills,
+# filmstrip badges, bucket-card markers). Status→color is check-independent.
+# The values are theme-independent and chosen to remain legible on the
+# viewer's dark chrome in both app themes.
+AUDIT_STATUS_COLORS: dict[str, str] = {
+    "ok":   "#16a34a",  # green-600
+    "warn": "#f59e0b",  # amber-500: inspect, then retake if necessary
+    "none": "#64748b",  # slate-500
+}
+
+
+def paint_audit_warn_marker(painter, rect) -> None:
+    """The amber "!" disc marking an open capture-audit warning — one
+    painter for every papyri-side rendering (sidebar row, bucket card),
+    so the marker cannot drift apart visually. `rect` is a QRectF."""
+    painter.save()
+    painter.setRenderHint(painter.RenderHint.Antialiasing)
+    painter.setPen(QPen(QColor("white"), 1))
+    painter.setBrush(QBrush(QColor(AUDIT_STATUS_COLORS["warn"])))
+    painter.drawEllipse(rect)
+    font = painter.font()
+    font.setPointSize(9)
+    font.setBold(True)
+    painter.setFont(font)
+    painter.setPen(QPen(QColor("white")))
+    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "!")
+    painter.restore()
 
 
 # Dark-mode overrides. Only entries that need to flip live here —
@@ -167,5 +196,3 @@ def install_app_stylesheet(app: QApplication) -> QFileSystemWatcher:
         _apply()
     app.styleHints().colorSchemeChanged.connect(_on_scheme_change)
     return watcher
-
-

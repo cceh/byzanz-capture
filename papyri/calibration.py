@@ -40,6 +40,7 @@ from papyri.calibration_layout import (
 )
 from papyri.capture_vocab import (
     CAPTURE_EXTENSIONS, SPECTRUM_INFRARED, SPECTRUM_VISIBLE, is_hidden_file,
+    SPECTRUM_SHORT_LABEL,
 )
 
 # calibrationTrigger values.
@@ -47,7 +48,6 @@ TRIGGER_OFF = "off"
 TRIGGER_TIME = "time"
 TRIGGER_SESSION = "session"
 
-_SPECTRUM_SHORT = {SPECTRUM_VISIBLE: "VIS", SPECTRUM_INFRARED: "IR"}
 _LEVEL_RANK = {"ok": 0, "due": 1, "overdue": 2}     # worst wins
 
 
@@ -171,7 +171,7 @@ class CalibrationController(QObject):
                 continue      # every tab of this camera hidden — nothing to track
             level, sp_oldest = self._spectrum_level(sp, trigger, now, interval)
             overall = overall if _LEVEL_RANK[overall] >= _LEVEL_RANK[level] else level
-            parts.append(f"{_SPECTRUM_SHORT.get(sp, '?')} "
+            parts.append(f"{SPECTRUM_SHORT_LABEL.get(sp, '?')} "
                          f"{'ok' if level == 'ok' else 'due'}")
             if sp_oldest is not None and (oldest is None or sp_oldest < oldest):
                 oldest = sp_oldest

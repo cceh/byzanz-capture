@@ -69,7 +69,11 @@ The LP file for RTI processing is generated from `cceh-dome-template.lp`.
 - **Never call gphoto2 from the UI thread.** Send a signal on `self.camera_worker.commands` instead. Example: `self.camera_worker.commands.capture_images.emit(CaptureImagesRequest(...))`.
 - **Adding a camera**: subclass `Profile`, implement every abstract method (the property-name getters return strings matching gphoto2 config keys for that camera), then register the instance in `PROFILES` in `main.py`.
 - **Capture format vs file count**: `CaptureImagesRequest` derives `expect_files` (1 for JPEG, 2 for JPEG+RAW) — keep this in sync if adding new formats.
-- **No formal test suite.** Validate camera changes against real hardware or a gphoto2 dummy camera; BLE features must degrade gracefully when hardware is absent.
+- **Targeted capture-audit contract tests** live in `tests/`; run
+  `QT_QPA_PLATFORM=offscreen ./venv/bin/python -m unittest discover -s tests -v`.
+  There is still no broad camera test suite: validate camera changes against
+  real hardware or a gphoto2 dummy camera; BLE features must degrade
+  gracefully when hardware is absent.
 
 ## Single-source rules ("choke points")
 
@@ -84,8 +88,15 @@ event/sink; if there is more than one, funnel them through a single entry**
 | Concern | Canonical home | Do NOT |
 |---|---|---|
 | Make a box active (migrate + show) | `PapyriMainWindow._activate_box` | call `objects_sidebar.set_working_directory` directly |
+| Publish a capture target into reactive session state | `SessionState.publish_target` (refresh first, then emit) | call `session.set_current_object` at a workflow call site or rely on receiver connection order for initial hydration |
 | Read/write an object's `_meta.json` | `object_layout.read_meta` / `write_meta` / `update_meta` | open/`json.dump` the file inline |
 | Reserved `_meta.json` top-level keys | `object_layout.MetaKey` (StrEnum) | write the key as a bare string literal |
+| Capture-audit policy (one module per CHECK) | `papyri/audits/`: infrastructure in `__init__` (`CHECKS`, `read_audit_settings`, `persist_fresh_capture_audit`, `entry_is_current`), each check in its own file (`sharpness.py`: settings slice, `finding_to_entry`, version gate, `status_for`, presentation). New check = new sibling file + `CHECKS` line + `CaptureAuditSettings` field named like the check | spread a check's thresholds/classification/texts across call sites, or add per-check logic to the infrastructure module |
+| Decide which capture audits run (target + modality + enabled checks) | `PapyriMainWindow._capture_audit_context`; per-path skip logic is `PapyriFilmstrip._missing_audit_checks` | infer target/modality from paths, filenames, camera identity, or inside a worker |
+| Execute FULL-array capture audits | `LoadImageWorker._run_audits`; the ONE fresh-result event is `audit_finished` (frozen origin context) → persist → `_refresh_audit_presentation` (the single "audits changed" follow-up) | call a capture metric from UI/filmstrip handlers, demosaic a RAW a second time, or paint audit state from the event instead of persisted meta |
+| Persist + maintain per-capture audits in `_meta.json` | `papyri.audits.persist_fresh_capture_audit` (liveness + dispatch); shape/write/rename/remove stay in `object_layout` (`store_capture_audit`, `rename_capture_audits`, `remove_capture_audits`) under `MetaKey.AUDITS` | write a late result without checking its exact capture + target identities, mutate the `audits` tree at a call site, or leave entries behind when capture identities change |
+| Capture-audit display (palette, feedback column, badges) | colors only from `papyri.styles.AUDIT_STATUS_COLORS`; viewer feedback column (warn pills + status line) only via `PapyriMainWindow._refresh_capture_feedback` (mechanism: `viewer_widget.PillStack`); filmstrip badges via `CaptureFilmstrip.set_audit_badges`, WARN-ONLY by design (a ✓ would overclaim) | hardcode a second palette, paint badges directly in a delegate, render ok-verdicts, show/hide feedback at call sites, or open warning dialogs anywhere but `_notify_fresh_capture_warning` (fresh-persist path only — browsing must never dialog) |
+| Effective-take warning rollup (bucket-card "!" + sidebar row ⚠) | `papyri.audits.bucket_effective_warnings` / `warned_checks`; the chosen/latest rule is single-sourced in `object_layout.resolve_chosen_stem` (Object delegates) | re-derive chosen-or-latest at a call site, or count superseded takes as open warnings |
 | Per-bucket take markers (chosen / reference) | `Object.set_chosen` / `set_reference` / `clear_reference`; roles are `MarkerRole` | store markers in sidecar files |
 | On-disk layout migration | `object_layout.migrate_object` / `migrate_working_dir`, versioned by `layout_version` | change on-disk format without a version bump + migration step |
 | Embedded-JPEG bytes from a RAW/JPEG | `load_image_worker.read_embedded_jpeg` | inline `rawpy.extract_thumb` |
@@ -102,6 +113,7 @@ event/sink; if there is more than one, funnel them through a single entry**
 | List / register camera profiles | `byzanz_camera/profiles` `PROFILES` (one shared registry, all app variants) | keep a per-app profile dict — they drift (RTI once lacked NikonD90) |
 | Main-window camera-control prefs (per-control visibility, exposure-time label style) | `RTICaptureMainWindow._apply_camera_control_prefs` (keys in `CAMERA_CONTROL_PREF_KEYS`) | setVisible on the combos/icon labels at call sites, or read the `show*Control` / `exposureTimeDisplayMode` keys inline |
 | Exposure-time display label (fraction → decimal) | `byzanz_camera.helpers.format_exposure_time` | parse/format shutter-speed strings inline |
+| Side/spectrum display labels ("A"/"B", "VIS"/"IR") | `papyri.capture_vocab.SIDE_SHORT_LABEL` / `SPECTRUM_SHORT_LABEL`; capture-file location for display via `object_layout.locate_capture` | write the literals at call sites, strip `side_`/token prefixes inline, or parse side/spectrum back out of UI labels |
 | LP template path (user-chosen or bundled default) | `RTICaptureMainWindow.resolved_lp_template_path` (`lpTemplatePath` key, empty = bundled) | hardcode `cceh-dome-template.lp` or read the key inline |
 | Move files to recycle bin / trash | `byzanz_camera.helpers.trash` | call `send2trash` directly — forward-slash paths (Qt, MSYS2 Python) make it fail on Windows with E_INVALIDARG |
 | Open a folder in the OS file manager (Finder / Explorer) | `byzanz_camera.helpers.reveal_in_file_manager` | call `QDesktopServices.openUrl` inline |

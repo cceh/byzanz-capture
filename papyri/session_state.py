@@ -7,8 +7,16 @@ setter and a single signal; receivers in MainWindow subscribe and read back
 from the session — never from signal arguments — so that any receiver can
 be invoked anytime to (re-)render the correct state.
 
-Per-axis migration is tracked in the 7-stage refactor plan; until each
-axis lands here it remains on MainWindow.
+The `B<n>` labels in comments and receiver docstrings are the axis ids of
+the (deliberately unfinished) session-state migration:
+
+    B1+B2  active bucket (side, spectrum)   B6  live-view paused intent
+    B3+B4  camera state per spectrum        B7  viewer mode
+    B5     current object                   B8  config-dialog handle
+
+Until each remaining axis lands here it stays on MainWindow — new
+cross-cutting state belongs HERE, not there. Pattern + object-open flow:
+docs/papyri-session-flow.md.
 """
 from __future__ import annotations
 
@@ -130,6 +138,17 @@ class SessionState(QObject):
         self._logger.info("current_object = %s",
                           obj.name if obj is not None else None)
         self.current_object_changed.emit(obj)
+
+    def publish_target(self, target) -> None:
+        """Publish a fully hydrated capture target (or clear with None).
+
+        Receivers of `current_object_changed` run synchronously in
+        connection order. Hydrating (`refresh()`) BEFORE the signal means
+        every receiver sees the same capture/chosen snapshot and no
+        correctness depends on one receiver happening to run first."""
+        if target is not None:
+            target.refresh()
+        self.set_current_object(target)
 
     # ---- B6 live_view_paused ------------------------------------------
 

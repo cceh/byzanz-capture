@@ -16,15 +16,21 @@ from typing import Any
 
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QSpinBox,
-    QWidget,
+    QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QHBoxLayout, QLabel,
+    QLineEdit, QSpinBox, QWidget,
 )
 from PyQt6.uic import loadUi
 
 from byzanz_camera.helpers import get_ui_path
 from byzanz_camera.profiles.base import Profile
+from byzanz_camera.settings_migration import (
+    PAPYRI_SHARPNESS_ENABLED_KEY,
+    PAPYRI_SHARPNESS_IR_THRESHOLD_KEY,
+    PAPYRI_SHARPNESS_VIS_THRESHOLD_KEY,
+)
 from papyri.calibration import SHOT_COUNT_KEY, is_tab_enabled, tab_setting_key
 from papyri.calibration_layout import CalSpec, specs_for
+from papyri.audits import read_audit_settings
 from papyri.capture_vocab import SPECTRA, SPECTRUM_INFIX
 from papyri.focus_audio import AUDIO_AVAILABLE
 
@@ -44,6 +50,7 @@ class PapyriSettingsDialog(QDialog):
 
         self._q_settings = q_settings
         self._profiles = profiles
+        self._loading = True
         # Caller reads this after exec() returns truthy and applies to QSettings.
         self.settings: dict[str, Any] = {}
 
@@ -52,6 +59,7 @@ class PapyriSettingsDialog(QDialog):
         self._populate_profiles()
         self._wire_actions()
         self._load_current()
+        self._loading = False
 
     # ---- setup ---------------------------------------------------------
 
@@ -70,6 +78,12 @@ class PapyriSettingsDialog(QDialog):
         )
         self.sharpness_check_checkbox: QCheckBox = self.findChild(
             QCheckBox, "enableSharpnessCheckCheckbox"
+        )
+        self.sharpness_vis_threshold_input: QDoubleSpinBox = self.findChild(
+            QDoubleSpinBox, "sharpnessVisThresholdInput"
+        )
+        self.sharpness_ir_threshold_input: QDoubleSpinBox = self.findChild(
+            QDoubleSpinBox, "sharpnessIrThresholdInput"
         )
         self.live_sharpness_checkbox: QCheckBox = self.findChild(
             QCheckBox, "enableLiveSharpnessCheckbox"
@@ -166,9 +180,13 @@ class PapyriSettingsDialog(QDialog):
             )
         )
         self.sharpness_check_checkbox.stateChanged.connect(
-            lambda: self._set(
-                "sharpnessCheckEnabled", self.sharpness_check_checkbox.isChecked()
-            )
+            self._on_sharpness_enabled_changed
+        )
+        self.sharpness_vis_threshold_input.valueChanged.connect(
+            lambda value: self._set(PAPYRI_SHARPNESS_VIS_THRESHOLD_KEY, value)
+        )
+        self.sharpness_ir_threshold_input.valueChanged.connect(
+            lambda value: self._set(PAPYRI_SHARPNESS_IR_THRESHOLD_KEY, value)
         )
         self.live_sharpness_checkbox.stateChanged.connect(
             lambda: self._set(
@@ -231,9 +249,14 @@ class PapyriSettingsDialog(QDialog):
         self.second_screen_checkbox.setChecked(
             self._q_settings.value("enableSecondScreenMirror", False, type=bool)
         )
-        self.sharpness_check_checkbox.setChecked(
-            self._q_settings.value("sharpnessCheckEnabled", True, type=bool)
-        )
+        audit_settings = read_audit_settings(self._q_settings)
+        self.sharpness_check_checkbox.setChecked(audit_settings.sharpness.enabled)
+        self.sharpness_vis_threshold_input.setValue(
+            audit_settings.sharpness.vis_warn_from)
+        self.sharpness_ir_threshold_input.setValue(
+            audit_settings.sharpness.ir_warn_from)
+        self._set_sharpness_thresholds_enabled(
+            audit_settings.sharpness.enabled)
         self.live_sharpness_checkbox.setChecked(
             self._q_settings.value("liveViewSharpnessEnabled", True, type=bool)
         )
@@ -287,6 +310,16 @@ class PapyriSettingsDialog(QDialog):
 
     # ---- handlers ------------------------------------------------------
 
-    def _set(self, name: str, value: Any) -> None:
-        self.settings[name] = value
+    def _on_sharpness_enabled_changed(self) -> None:
+        enabled = self.sharpness_check_checkbox.isChecked()
+        self._set_sharpness_thresholds_enabled(enabled)
+        self._set(PAPYRI_SHARPNESS_ENABLED_KEY, enabled)
 
+    def _set_sharpness_thresholds_enabled(self, enabled: bool) -> None:
+        self.sharpness_vis_threshold_input.setEnabled(enabled)
+        self.sharpness_ir_threshold_input.setEnabled(enabled)
+
+    def _set(self, name: str, value: Any) -> None:
+        if self._loading:
+            return
+        self.settings[name] = value

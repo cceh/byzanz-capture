@@ -22,16 +22,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QEvent
+from PyQt6.QtCore import QEvent, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtWidgets import QWidget
 
 from PyQt6.QtWidgets import QMenu
 
+from byzanz_camera.capture_audit import CaptureAuditContext
 from byzanz_camera.capture_filmstrip import CaptureFilmstrip
 from byzanz_camera.filmstrip_widget import THUMB_GAP, stem_of
 from byzanz_camera.load_image_worker import SUPPORTED_EXTENSIONS
+from papyri.audits import CaptureAuditSettings, entry_is_current, warned_checks
 from papyri.capture_vocab import SIDE_A, SIDE_B, SPECTRUM_VISIBLE
+from papyri.object_layout import read_capture_audits
+from papyri.styles import AUDIT_STATUS_COLORS
 
 
 class _DropMarker(QWidget):
@@ -49,6 +53,10 @@ if TYPE_CHECKING:
 class PapyriFilmstrip(CaptureFilmstrip):
     """CaptureFilmstrip bound to a papyri (Object, side, spectrum) bucket."""
 
+    # Menu action "Re-run capture check" on a thumb. Emits the stem; main
+    # drops the persisted findings and queues the re-measure.
+    audit_recheck_requested = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._obj: "Object | None" = None
@@ -60,6 +68,8 @@ class PapyriFilmstrip(CaptureFilmstrip):
         # needless reload when only the spectrum changes but the storage
         # dir doesn't (the simple-mode VIS/IR switch).
         self._bound_dir: str | None = None
+        self._bound_audit_context: CaptureAuditContext | None = None
+        self._audit_settings: CaptureAuditSettings | None = None
 
         # Route the generic capture-action signals from CaptureFilmstrip
         # to Object's per-bucket mutation API. Greppable named slots
@@ -109,6 +119,8 @@ class PapyriFilmstrip(CaptureFilmstrip):
         obj: "Object | None",
         side: str = SIDE_A,
         spectrum: str = SPECTRUM_VISIBLE,
+        audit_context: CaptureAuditContext | None = None,
+        audit_settings: CaptureAuditSettings | None = None,
     ) -> None:
         """Track one (side, spectrum) bucket of an object. Pass obj=None
         to clear; pass a different side or spectrum (with the same
@@ -121,8 +133,19 @@ class PapyriFilmstrip(CaptureFilmstrip):
         # differs per bucket so this never triggers.
         if (obj is not None and obj is self._obj
                 and target_dir == self._bound_dir):
+            context_changed = audit_context != self._bound_audit_context
             self._side = side
             self._spectrum = spectrum
+            self._set_audit_binding(obj, audit_context, audit_settings)
+            current_path = self.current_file_path()
+            # A changed binding (e.g. audits newly enabled, or the simple-
+            # mode VIS/IR switch changing the modality) can leave the
+            # currently shown file without its measurements — re-decode it
+            # so the worker computes exactly the missing checks.
+            if (context_changed and audit_context is not None
+                    and current_path is not None
+                    and self._missing_audit_checks(current_path)):
+                self.reload_current()
             return
 
         self._unbind_previous()
@@ -130,6 +153,7 @@ class PapyriFilmstrip(CaptureFilmstrip):
         self._side = side
         self._spectrum = spectrum
         self._bound_dir = target_dir
+        self._set_audit_binding(obj, audit_context, audit_settings)
         # Connectivity dots belong to the bucket we're leaving — clear them
         # so they never linger on the new bucket. Fresh dots (if this is a
         # stitch bucket) arrive from main.py once its check completes.
@@ -159,17 +183,28 @@ class PapyriFilmstrip(CaptureFilmstrip):
         self.open_directory(
             obj.dir_for(side, spectrum),
             preferred_stem=chosen.stem if chosen else None,
+            audit_context=audit_context,
+            missing_checks=(self._missing_audit_checks
+                            if audit_context is not None else None),
         )
 
     def _build_context_menu(self, item):
         """Simple mode strips the menu down to Delete (no chosen / move).
-        Full mode defers to CaptureFilmstrip's default builder via super()."""
-        if not self._simple:
-            return super()._build_context_menu(item)
-        menu = QMenu(self)
+        Full mode extends CaptureFilmstrip's default builder with the
+        re-run-check action while an audit binding is active."""
         stem = stem_of(item.file_name)
-        delete_action = menu.addAction("Delete capture…")
-        delete_action.triggered.connect(lambda *_: self._confirm_and_delete(stem))
+        if self._simple:
+            menu = QMenu(self)
+            delete_action = menu.addAction("Delete capture…")
+            delete_action.triggered.connect(
+                lambda *_: self._confirm_and_delete(stem))
+            return menu
+        menu = super()._build_context_menu(item)
+        if menu is not None and self._bound_audit_context is not None:
+            menu.addSeparator()
+            recheck = menu.addAction("Re-run capture check")
+            recheck.triggered.connect(
+                lambda *_: self.audit_recheck_requested.emit(stem))
         return menu
 
     # ---- internals -----------------------------------------------------
@@ -186,6 +221,60 @@ class PapyriFilmstrip(CaptureFilmstrip):
             except TypeError:
                 pass
 
+    def _set_audit_binding(
+        self,
+        obj: "Object | None",
+        context: CaptureAuditContext | None,
+        audit_settings: CaptureAuditSettings | None,
+    ) -> None:
+        """Adopt the host-supplied audit binding and repaint the badges.
+        Persisted `_meta.json` entries are the only display source; this
+        widget keeps no findings of its own."""
+        if obj is not None and context is not None and audit_settings is None:
+            raise ValueError("audit settings required for an enabled audit context")
+        self._bound_audit_context = context
+        self._audit_settings = audit_settings
+        self.set_capture_audit_binding(
+            context if obj is not None else None,
+            self._missing_audit_checks if context is not None else None,
+        )
+        self.refresh_audit_badges()
+
+    def refresh_audit_badges(self) -> None:
+        """Repaint per-stem WARNING badges from the object's persisted
+        audits — warn-only by design: a ✓ would claim "verified good",
+        which the metrics cannot promise. Called on binding changes,
+        object state changes, and by main.py after a fresh finding was
+        persisted."""
+        context = self._bound_audit_context
+        if (self._obj is None or context is None
+                or self._audit_settings is None):
+            self.set_audit_badges(None, AUDIT_STATUS_COLORS)
+            return
+        persisted = read_capture_audits(self._obj.meta_path)
+        status_by_stem = {}
+        for capture in self._obj.captures(self._side, self._spectrum):
+            warned = warned_checks(
+                persisted.get(capture.stem, {}),
+                context.request.modality, self._audit_settings)
+            if warned & context.request.checks:
+                status_by_stem[capture.stem] = "warn"
+        self.set_audit_badges(status_by_stem, AUDIT_STATUS_COLORS)
+
+    def _missing_audit_checks(self, path: str) -> frozenset[str]:
+        """Which of the binding's checks have no current persisted entry
+        for this capture. The filename stem is the established per-capture
+        storage key (same key `persist_fresh_capture_audit` writes)."""
+        context = self._bound_audit_context
+        if context is None or self._obj is None:
+            return frozenset()
+        entries = read_capture_audits(self._obj.meta_path).get(
+            Path(path).stem, {})
+        present = frozenset(
+            check for check, entry in entries.items()
+            if entry_is_current(check, entry))
+        return context.request.checks - present
+
     def _is_stitch_bucket(self) -> bool:
         """This bucket shows stitch overlays: a bound papyri object flagged
         for stitching. Simple mode never stitches."""
@@ -197,6 +286,7 @@ class PapyriFilmstrip(CaptureFilmstrip):
         the mode (normal ★ vs stitch ◎) and the marker stem. Simple mode
         has no markers. Connectivity dots are NOT touched here — they come
         from the async check via main.py."""
+        self.refresh_audit_badges()
         if self._is_stitch_bucket():
             self.set_stitch_mode(True)
             reference = self._obj.reference(self._side, self._spectrum)

@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 # accent for that group's tab cards + the fusing-panel border when
 # one of its tabs is active (so VIS-active draws blue chrome, IR-
 # active draws orange) — matches the camera-state pill colours.
-from papyri.styles import current_palette
+from papyri.styles import current_palette, paint_audit_warn_marker
 from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
 
 
@@ -80,13 +80,14 @@ def _placeholder_thumb(rect: QRectF, side: str, p: QPainter) -> None:
 
 class _BucketTab:
     """Internal per-tab state stored as tabData on the BucketTabBar."""
-    __slots__ = ("step_id", "label", "chosen_thumb", "side")
+    __slots__ = ("step_id", "label", "chosen_thumb", "side", "warned")
 
     def __init__(self, step_id: str, label: str, side: str):
         self.step_id = step_id
         self.label = label
         self.side = side
         self.chosen_thumb: Optional[QPixmap] = None
+        self.warned: bool = False   # capture-audit warning on this bucket
 
 
 class BucketTabBar(QTabBar):
@@ -326,6 +327,12 @@ class BucketTabBar(QTabBar):
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                    data.label)
 
+        # Capture-audit warning marker — same "!" language as the
+        # filmstrip badges, pinned to the card's top-right corner.
+        if data.warned:
+            paint_audit_warn_marker(
+                p, QRectF(body.right() - 20, body.top() + 4, 15, 15))
+
 
 # ---- BucketSelector (drop-in for WorkflowStepper) -------------------------
 
@@ -337,6 +344,7 @@ class BucketSelector(QWidget):
         set_active(step_id | None)  set/clear the active tab
         set_chosen_thumb(step_id, pixmap | None)
                                     update the thumb on a tab
+        set_warned(step_id, bool)   capture-audit "!" marker on a tab
         step_clicked(str)           signal emitted on user click
 
     Calls into FusingPanel via set_fusing_panel() to drive the panel's
@@ -460,6 +468,18 @@ class BucketSelector(QWidget):
             data = bar.tabData(idx)
             if isinstance(data, _BucketTab):
                 data.chosen_thumb = pixmap
+                bar.update()
+            return
+
+    def set_warned(self, step_id: str, warned: bool) -> None:
+        """Show/clear the capture-audit "!" marker on one bucket card."""
+        for bar in self._bars:
+            idx = bar.index_of_step(step_id)
+            if idx < 0:
+                continue
+            data = bar.tabData(idx)
+            if isinstance(data, _BucketTab) and data.warned != warned:
+                data.warned = warned
                 bar.update()
             return
 

@@ -17,6 +17,9 @@ Axes:
 """
 from __future__ import annotations
 
+import os
+import re
+
 
 # ---- axes -------------------------------------------------------------
 
@@ -42,6 +45,23 @@ SPECTRUM_INFIX: dict[str, str] = {
 JPG_EXTENSIONS = {".jpg", ".jpeg"}
 RAW_EXTENSIONS = {".arw", ".nef", ".cr2", ".cr3", ".dng", ".raf", ".orf", ".rw2"}
 CAPTURE_EXTENSIONS = JPG_EXTENSIONS | RAW_EXTENSIONS
+
+
+# Short display labels for the axes — the ONE spelling every UI surface
+# uses (bucket cards, sidebar, camera state, dialogs). Long-form labels
+# stay where a single surface needs them.
+SIDE_SHORT_LABEL: dict[str, str] = {SIDE_A: "A", SIDE_B: "B"}
+SPECTRUM_SHORT_LABEL: dict[str, str] = {
+    SPECTRUM_VISIBLE: "VIS",
+    SPECTRUM_INFRARED: "IR",
+}
+
+
+def capture_index(file_name: str) -> int | None:
+    """Trailing integer of a capture filename's stem (`…_001.jpg` → 1),
+    None when there is none. The index orders takes within a bucket."""
+    numbers = re.findall(r"\d+", os.path.splitext(file_name)[0])
+    return int(numbers[-1]) if numbers else None
 
 
 def is_hidden_file(name: str) -> bool:

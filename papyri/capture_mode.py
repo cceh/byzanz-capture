@@ -20,8 +20,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from byzanz_camera.capture_audit import SHARPNESS_AUDIT
 from papyri.capture_vocab import (
     SIDE_A, SIDE_B, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
+    SPECTRUM_SHORT_LABEL,
 )
 from papyri.calibration_layout import CALIBRATION_TARGETS, cal_step_id, specs_for
 from papyri.workflow_stepper import WorkflowGroup, WorkflowStep
@@ -64,6 +66,7 @@ class CaptureMode:
     whole_folder_filmstrip: bool   # filmstrip shows the whole folder,
                                    # no chosen / move actions
     show_calibration: bool         # periodic ColorChecker/Flatfield bar
+    capture_audit_checks: frozenset[str]  # valid post-capture checks
 
     @property
     def bucket_by_step_id(self) -> dict[str, tuple[str, str]]:
@@ -145,6 +148,7 @@ PAPYRI_MODE = CaptureMode(
     show_sides=True,
     whole_folder_filmstrip=False,
     show_calibration=True,
+    capture_audit_checks=frozenset({SHARPNESS_AUDIT}),
 )
 
 SIMPLE_MODE = CaptureMode(
@@ -157,14 +161,15 @@ SIMPLE_MODE = CaptureMode(
     show_sides=False,
     whole_folder_filmstrip=True,
     show_calibration=False,
+    capture_audit_checks=frozenset(),
 )
 
 # Per-spectrum palette for the calibration tabs (same hues as the papyri
 # VIS/IR groups so the chrome reads consistently).
 _CAL_PALETTE = {
-    SPECTRUM_VISIBLE:  dict(label="Visible",  short="VIS",
+    SPECTRUM_VISIBLE:  dict(label="Visible",  short=SPECTRUM_SHORT_LABEL[SPECTRUM_VISIBLE],
                             base="#3b82f6", done="#dbeafe", text="#1e3a8a"),
-    SPECTRUM_INFRARED: dict(label="Infrared", short="IR",
+    SPECTRUM_INFRARED: dict(label="Infrared", short=SPECTRUM_SHORT_LABEL[SPECTRUM_INFRARED],
                             base="#ea580c", done="#ffedd5", text="#9a3412"),
 }
 
@@ -213,6 +218,7 @@ CALIBRATION_MODE = CaptureMode(
     show_sides=False,
     whole_folder_filmstrip=True,   # delete-only menu; per-bucket dir display
     show_calibration=True,         # the bar stays — it carries "← Back"
+    capture_audit_checks=frozenset(),
 )
 
 

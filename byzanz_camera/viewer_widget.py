@@ -61,6 +61,10 @@ class PillBadge(QWidget):
         if self._text == text:
             return
         self._text = text
+        # updateGeometry invalidates any enclosing layout's cached size
+        # hint (PillStack) — adjustSize alone only helps the standalone
+        # overlay case and left an in-layout pill frozen at its old width.
+        self.updateGeometry()
         self.adjustSize()
         self.update()
 
@@ -97,6 +101,62 @@ class PillBadge(QWidget):
         p.setFont(self._font())
         p.setPen(QPen(self._fg))
         p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._text)
+
+
+class PillStack(QWidget):
+    """Vertical column of PillBadges for one viewer corner: zero or more
+    warning pills over an optional always-on status pill. Pure mechanism —
+    texts and colors come from the host; register once via
+    `add_corner_overlay` (repositioning rides on the overlay's resize
+    hook, so growing/shrinking the stack re-pins it automatically)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(6)
+        self._warning_pills: list[PillBadge] = []
+        self._status_pill = PillBadge(self)
+        self._layout.addWidget(self._status_pill, 0,
+                               Qt.AlignmentFlag.AlignLeft)
+        self.hide()
+
+    def set_content(
+        self,
+        warnings: list[tuple[str, str]],
+        status_line: str | None,
+        status_border: str | None = None,
+    ) -> None:
+        """Replace everything shown: one pill per (text, border_color)
+        warning, stacked over the neutral status pill (None hides it).
+        Hides the whole stack when there is nothing to show."""
+        for pill in self._warning_pills:
+            self._layout.removeWidget(pill)
+            pill.deleteLater()
+        self._warning_pills = []
+        for position, (text, border_color) in enumerate(warnings):
+            pill = PillBadge(self)
+            pill.setText(text)
+            pill.set_border_color(border_color)
+            self._layout.insertWidget(position, pill, 0,
+                                      Qt.AlignmentFlag.AlignLeft)
+            pill.show()
+            self._warning_pills.append(pill)
+        if status_line:
+            self._status_pill.setText(status_line)
+            self._status_pill.set_border_color(status_border)
+            self._status_pill.show()
+        else:
+            self._status_pill.hide()
+        if warnings or status_line:
+            self._layout.activate()
+            self.adjustSize()
+            self.show()
+            self.raise_()
+        else:
+            self.hide()
 
 
 # ---- the widget --------------------------------------------------------

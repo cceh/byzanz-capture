@@ -92,7 +92,7 @@ class ThumbCache:
 
     # ---- get / put ------------------------------------------------------
 
-    def get(self, path: str) -> Optional[tuple[QImage, dict, Optional[float]]]:
+    def get(self, path: str) -> Optional[tuple[QImage, dict]]:
         key = self._key(path)
         if key is None:
             return None
@@ -108,11 +108,11 @@ class ThumbCache:
                 os.utime(f)
             except OSError:
                 pass
-        # Sidecar shape: {"exif": <dict>, "sharpness": <float|null>}.
-        # Any pre-existing flat-exif sidecars were one-shot converted
-        # to this shape via `jq` when the column was added.
+        # Sidecar shape: {"exif": <dict>}. Older sidecars may also carry a
+        # Laplace `sharpness` member; deliberately ignore it. Capture-file
+        # sharpness is now the independently persisted v2 metric and must
+        # never be mixed with this disposable thumbnail cache.
         exif: dict = {}
-        sharpness: Optional[float] = None
         ejson = self.cache_dir / f"{key}.json"
         if ejson.exists():
             try:
@@ -121,13 +121,9 @@ class ThumbCache:
             except (OSError, json.JSONDecodeError):
                 raw = {}
             exif = raw.get("exif") or {}
-            s = raw.get("sharpness")
-            if isinstance(s, (int, float)):
-                sharpness = float(s)
-        return img, exif, sharpness
+        return img, exif
 
-    def put(self, path: str, thumb: QImage, exif: dict,
-            sharpness: Optional[float] = None) -> None:
+    def put(self, path: str, thumb: QImage, exif: dict) -> None:
         key = self._key(path)
         if key is None or thumb.isNull():
             return
@@ -137,7 +133,7 @@ class ThumbCache:
         ejson = self.cache_dir / f"{key}.json"
         try:
             ejson.write_text(json.dumps(
-                {"exif": exif, "sharpness": sharpness},
+                {"exif": exif},
                 default=_exif_default,
             ))
         except OSError:

@@ -54,6 +54,56 @@ _DOT_OUTLINE = QColor("#1e293b")     # slate-800
 _DOT_DIAMETER = 10
 _DOT_MARGIN = 5
 
+# Warn-only by design: a ✓ badge would read as "this capture is verified
+# good", which an advisory metric with known blind spots must not claim.
+_AUDIT_GLYPHS = {"warn": "!"}
+_AUDIT_DIAMETER = 18
+_AUDIT_MARGIN = 4
+
+
+class _AuditBadgeState:
+    """Shared paint state used by both swappable filmstrip delegates."""
+
+    def __init__(self):
+        self.status_by_stem: dict[str, str] = {}
+        self.colors: dict[str, QColor] = {}
+
+    def replace(self, status_by_stem: dict[str, str] | None,
+                colors: dict[str, str | QColor]) -> None:
+        self.status_by_stem = dict(status_by_stem or {})
+        self.colors = {
+            status: color if isinstance(color, QColor) else QColor(color)
+            for status, color in colors.items()
+        }
+
+
+def _paint_audit_badge(
+    painter: QPainter, thumb_rect: QRect, stem: str, state: _AuditBadgeState,
+) -> None:
+    """Paint one compact, symbol-plus-color audit badge bottom-right."""
+    status = state.status_by_stem.get(stem)
+    color = state.colors.get(status or "")
+    glyph = _AUDIT_GLYPHS.get(status or "")
+    if color is None or glyph is None:
+        return
+    rect = QRect(
+        thumb_rect.right() - _AUDIT_DIAMETER - _AUDIT_MARGIN + 1,
+        thumb_rect.bottom() - _AUDIT_DIAMETER - _AUDIT_MARGIN + 1,
+        _AUDIT_DIAMETER,
+        _AUDIT_DIAMETER,
+    )
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(QPen(QColor("white"), 1))
+    painter.setBrush(color)
+    painter.drawEllipse(rect)
+    font = painter.font()
+    font.setBold(True)
+    font.setPointSize(9)
+    painter.setFont(font)
+    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, glyph)
+    painter.restore()
+
 
 def _paint_corner_glyph(
     painter: QPainter, thumb_rect: QRect,
@@ -81,8 +131,9 @@ class _ChosenStarDelegate(CaptionDelegate):
     Compares by stem so a JPEG+RAW pair shows the ★ on both rows, and
     RAW-only / JPEG-only takes work without special-casing."""
 
-    def __init__(self, parent=None):
+    def __init__(self, audit_badges: _AuditBadgeState, parent=None):
         super().__init__(parent)
+        self._audit_badges = audit_badges
         self._chosen_stem: str | None = None
 
     def set_chosen_stem(self, stem: str | None) -> None:
@@ -94,9 +145,12 @@ class _ChosenStarDelegate(CaptionDelegate):
         item = index.data(Qt.ItemDataRole.UserRole)
         if not isinstance(item, ImageFileListItem):
             return
-        if stem_of(item.file_name) == self._chosen_stem:
+        stem = stem_of(item.file_name)
+        if stem == self._chosen_stem:
             _paint_corner_glyph(painter, self._thumb_rect(option),
                                 _STAR_GLYPH, _STAR_FILL, _STAR_OUTLINE)
+        _paint_audit_badge(
+            painter, self._thumb_rect(option), stem, self._audit_badges)
 
 
 class _StitchDelegate(CaptionDelegate):
@@ -107,8 +161,9 @@ class _StitchDelegate(CaptionDelegate):
     Stem-compared like the star delegate, so JPEG+RAW pairs mark
     consistently."""
 
-    def __init__(self, parent=None):
+    def __init__(self, audit_badges: _AuditBadgeState, parent=None):
         super().__init__(parent)
+        self._audit_badges = audit_badges
         self._reference_stem: str | None = None
         self._connectivity: dict[str, str] = {}
 
@@ -130,9 +185,11 @@ class _StitchDelegate(CaptionDelegate):
         if stem == self._reference_stem:
             _paint_corner_glyph(painter, thumb_rect, _REFERENCE_GLYPH,
                                 _REFERENCE_FILL, _REFERENCE_OUTLINE)
-            return
-        color = _DOT_COLORS.get(self._connectivity.get(stem, ""), _DOT_UNCHECKED)
-        self._paint_dot(painter, thumb_rect, color)
+        else:
+            color = _DOT_COLORS.get(
+                self._connectivity.get(stem, ""), _DOT_UNCHECKED)
+            self._paint_dot(painter, thumb_rect, color)
+        _paint_audit_badge(painter, thumb_rect, stem, self._audit_badges)
 
     @staticmethod
     def _paint_dot(painter: QPainter, thumb_rect: QRect, color: QColor) -> None:
@@ -157,6 +214,7 @@ class CaptureFilmstrip(FilmstripWidget):
         set_chosen_stem(stem)            update the ★ marker (or clear)
         set_reference_stem(stem)         update the ◎ marker (stitch mode)
         set_connectivity(status_by_stem) update the dots (stitch mode)
+        set_audit_badges(statuses, colors) update shared quality badges
         set_other_side(label, value)     enable the "Move to side X"
                                          menu entry; subclass receives
                                          `value` back in move_requested
@@ -187,8 +245,9 @@ class CaptureFilmstrip(FilmstripWidget):
         super().__init__(parent)
         # One delegate per mode; set_stitch_mode swaps them. Both are
         # created up front so their marker state survives mode flips.
-        self._star_delegate = _ChosenStarDelegate(self)
-        self._stitch_delegate = _StitchDelegate(self)
+        self._audit_badges = _AuditBadgeState()
+        self._star_delegate = _ChosenStarDelegate(self._audit_badges, self)
+        self._stitch_delegate = _StitchDelegate(self._audit_badges, self)
         self._stitch_mode = False
         self.set_item_delegate(self._star_delegate)
         self.set_context_menu_provider(self._build_context_menu)
@@ -229,6 +288,15 @@ class CaptureFilmstrip(FilmstripWidget):
     def set_connectivity(self, status_by_stem: dict[str, str] | None) -> None:
         """Update the connectivity dots (stitch mode). Triggers a repaint."""
         self._stitch_delegate.set_connectivity(status_by_stem)
+        self.repaint_items()
+
+    def set_audit_badges(
+        self,
+        status_by_stem: dict[str, str] | None,
+        colors: dict[str, str | QColor],
+    ) -> None:
+        """Replace per-stem audit status badges for both display modes."""
+        self._audit_badges.replace(status_by_stem, colors)
         self.repaint_items()
 
     def set_other_side(self, label: str, value: str) -> None:

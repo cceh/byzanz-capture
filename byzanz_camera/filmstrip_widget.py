@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from functools import partial
 from os import listdir
 from pathlib import Path
 from typing import Callable, Optional
@@ -36,6 +37,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
+from .capture_audit import AuditFinding, AuditRequest, CaptureAuditContext
 from .load_image_worker import (
     ImageMode, JPEG_EXTENSIONS, LoadImageWorker, LoadImageWorkerResult,
     SUPPORTED_EXTENSIONS,
@@ -376,6 +378,13 @@ class FilmstripWidget(QWidget):
     # close_directory exit signal — viewer subscribes to clear itself.
     directory_closed = pyqtSignal(str)          # path that was closed
 
+    # Fresh worker result — the ONLY audit event. The immutable context was
+    # captured when the job was queued, so even a late result (user has long
+    # navigated away) can be persisted against its origin. Display state is
+    # not transported here: the host renders audits from its persisted
+    # metadata after persisting.
+    audit_finished = pyqtSignal(str, object, object)  # path, AuditFinding, context
+
     # ---- construction --------------------------------------------------
 
     def __init__(self, parent=None):
@@ -483,6 +492,15 @@ class FilmstripWidget(QWidget):
         # via set_sort_by_mtime, once before open_directory.
         self._sort_by_mtime: bool = False
 
+        # Capture-audit semantics are supplied by the host that already knows
+        # the active target and spectrum. This shared widget deliberately does
+        # not reconstruct either fact from directory or filename conventions,
+        # and it keeps NO audit results: display state lives in the host's
+        # persisted metadata. `_missing_checks` (host-supplied) answers which
+        # of the binding's checks still need computing for a given path.
+        self._audit_context: CaptureAuditContext | None = None
+        self._missing_checks: Callable[[str], frozenset[str]] | None = None
+
         # Optional EXIF line on the thumb overlay ("f/8 | 1/250 | ISO 100")
         # — opt-in via set_exif_captions (the RTI app enables it; papyri
         # keeps the single-line caption). The exposure-time part goes
@@ -499,11 +517,13 @@ class FilmstripWidget(QWidget):
         # initial directory load (the preferred-or-last file); the rest
         # are THUMB workers (~30 MB peak each).
         self.__num_images_to_load = 0
-        # Generation token: bumps on every open/close so worker results
-        # from a superseded directory get dropped at __on_image_loaded.
-        # Lets close_directory return promptly without blocking on
-        # waitForDone() — running workers complete on their own and
-        # their results are silently discarded when stale.
+        # Generation token: bumps on every open/close so decoded/display
+        # results from a superseded directory get dropped at
+        # __on_image_loaded. Audit completions are the deliberate exception:
+        # they carry their frozen origin context and are always forwarded
+        # (the host decides about persistence); nothing is repainted from
+        # them here. This lets close_directory return promptly without
+        # blocking on waitForDone().
         self.__generation = 0
 
         # FS watcher: fires __load_directory on directory changes
@@ -557,6 +577,20 @@ class FilmstripWidget(QWidget):
         loaded list would compare mtimes against indexes)."""
         self._sort_by_mtime = enabled
 
+    def set_capture_audit_binding(
+        self,
+        context: CaptureAuditContext | None,
+        missing_checks: Callable[[str], frozenset[str]] | None = None,
+    ) -> None:
+        """Replace the audit binding: what to measure (`context`) and which
+        of those checks still need computing per path (`missing_checks`,
+        answered by the host from its persisted metadata; None = always
+        run the full request). The filmstrip only transports immutable
+        requests/findings and never parses a path to infer modality,
+        target type, or metadata location."""
+        self._audit_context = context
+        self._missing_checks = missing_checks
+
     def _sort_key_for(self, path: str) -> tuple:
         """Ordering key for `path` (absolute) under the current sort mode.
         A file that does not exist yet (placeholder seeded ahead of an
@@ -596,8 +630,14 @@ class FilmstripWidget(QWidget):
             tooltip += "\n" + exif
         return tooltip
 
-    def open_directory(self, dir_path: str, *,
-                       preferred_stem: str | None = None) -> None:
+    def open_directory(
+        self,
+        dir_path: str,
+        *,
+        preferred_stem: str | None = None,
+        audit_context: CaptureAuditContext | None = None,
+        missing_checks: Callable[[str], frozenset[str]] | None = None,
+    ) -> None:
         """Open a new directory: close any currently-open one, start
         watching, kick off the initial async thumb load.
 
@@ -611,6 +651,7 @@ class FilmstripWidget(QWidget):
         the object opens."""
         if self.__currentPath:
             self.close_directory()
+        self.set_capture_audit_binding(audit_context, missing_checks)
         self._initial_load_done = False
         self._preferred_stem = preferred_stem
         self.__currentPath = dir_path
@@ -619,9 +660,11 @@ class FilmstripWidget(QWidget):
 
     def close_directory(self) -> None:
         """Close the currently-bound directory. Bumps the generation
-        token (so any in-flight worker results are dropped), stops
-        watching, clears the displayed strip, and emits directory_closed
-        so consumers (e.g. the viewer) can reset themselves."""
+        token (so in-flight image results cannot repaint this binding),
+        stops watching, clears the displayed strip, and emits
+        directory_closed so consumers (e.g. the viewer) can reset
+        themselves. A late fresh audit is still forwarded with its frozen
+        origin context for liveness-checked persistence."""
         # Bump generation FIRST so any worker results that arrive after
         # this point see a stale gen and skip themselves.
         self.__generation += 1
@@ -632,12 +675,14 @@ class FilmstripWidget(QWidget):
         # Don't try to clear queued workers — the pool is shared
         # (QThreadPool.globalInstance()), so clear() would drop other
         # widgets' queued workers too (e.g. bucket-selector chosen-thumb
-        # loads). Running workers will finish on their own; results
-        # whose gen doesn't match the bumped generation are silently
-        # dropped in __on_image_loaded. close returns promptly without
-        # waitForDone() so the UI stays responsive on rapid switches.
+        # loads). Running workers finish on their own; stale image results
+        # are dropped, while fresh audit events retain their origin context.
+        # close returns promptly without waitForDone() so the UI stays
+        # responsive on rapid switches.
         self.__num_images_to_load = 0
         self._reset_displayed_state()
+        self._audit_context = None
+        self._missing_checks = None
         if path is not None:
             self.directory_closed.emit(path)
 
@@ -647,6 +692,11 @@ class FilmstripWidget(QWidget):
         if item is None or not isinstance(item, ImageFileListItem):
             return None
         return item.file_name
+
+    def current_file_path(self) -> Optional[str]:
+        """Exact path of the currently-selected thumbnail, or None."""
+        item = self.image_file_list.currentItem()
+        return item.path if isinstance(item, ImageFileListItem) else None
 
     def num_files(self) -> int:
         """Number of items in the strip (files, plus any transient
@@ -687,6 +737,16 @@ class FilmstripWidget(QWidget):
             self.image_decode_started.emit(current.path)
             self.__load_image(current.path, self.__show_and_cache)
         return current.file_name
+
+    def redecode(self, path: str) -> None:
+        """Queue a background FULL decode of `path`, selection untouched.
+        The viewer updates only if the file is still the current selection
+        (stale-guarded in __show_and_cache); capture audits re-run for
+        whatever the host's gate reports as missing — which is what the
+        re-run-check menu action relies on."""
+        if self.__currentPath is None:
+            return
+        self.__load_image(path, self.__show_and_cache, ImageMode.FULL)
 
     def reload_current(self) -> None:
         """Re-decode the current item from disk and refresh BOTH its
@@ -981,14 +1041,49 @@ class FilmstripWidget(QWidget):
         gets FULL — each is a fresh capture and should be auto-shown.
         During initial load exactly ONE file gets FULL (preferred-stem
         match or highest-index fallback) so the viewer settles on a
-        single image instead of flashing through them."""
+        single image instead of flashing through them.
+
+        A retained full pixmap plus complete compatible audits turns that
+        initial display target into a THUMB load: the worker restores the
+        card/EXIF while the cached full pixmap is published as soon as the
+        item exists. Missing audits still require FULL because they consume
+        the decoded array.
+        """
         if not added:
             return
-        both_targets = self.__pick_both_targets(added)
-        for f in sorted(added, key=lambda x: self._sort_key_for(
-                os.path.join(self.__currentPath, x))):
-            mode = ImageMode.FULL if f in both_targets else ImageMode.THUMB
-            self.__load_image(f, self.__add_image_item, mode=mode)
+        display_targets = self.__pick_both_targets(added)
+        # The preferred/newest take is the only initial item that can update
+        # the viewer. Queue it before the silent thumbnail fill and give it
+        # thread-pool priority, otherwise a highest-index preferred take sits
+        # behind every older thumbnail on object switches.
+        ordered = sorted(
+            added,
+            key=lambda name: (
+                name not in display_targets,
+                self._sort_key_for(os.path.join(self.__currentPath, name)),
+            ),
+        )
+        for f in ordered:
+            is_display_target = f in display_targets
+            mode = ImageMode.FULL if is_display_target else ImageMode.THUMB
+            path = os.path.join(self.__currentPath, f)
+            cached_full = (QPixmapCache.find(path)
+                           if mode is ImageMode.FULL else None)
+            if cached_full and self._audit_request_for_path(path) is None:
+                self.__load_image(
+                    f,
+                    partial(self.__add_image_item,
+                            display_pixmap=cached_full),
+                    mode=ImageMode.THUMB,
+                    priority=1,
+                )
+            else:
+                self.__load_image(
+                    f,
+                    self.__add_image_item,
+                    mode=mode,
+                    priority=1 if is_display_target else 0,
+                )
 
     def __remove_items(self, removed: set[str]) -> None:
         """Take out list items whose files vanished from disk."""
@@ -1041,15 +1136,23 @@ class FilmstripWidget(QWidget):
         file_name: str,
         on_finished_callback: Callable,
         mode: ImageMode = ImageMode.FULL,
+        priority: int = 0,
     ) -> None:
         """Queue an async decode worker. Captures the current generation
-        token so __on_image_loaded can drop stale results."""
+        token so decoded/display results can be stale-guarded while fresh
+        audits retain the same frozen origin context."""
         self.__num_images_to_load += 1
 
+        path = os.path.join(self.__currentPath, file_name)
+        context = self._audit_context
+        request = (self._audit_request_for_path(path)
+                   if mode is ImageMode.FULL else None)
+
         worker = LoadImageWorker(
-            os.path.join(self.__currentPath, file_name),
+            path,
             mode=mode,
             thumb_max_size=200,
+            audit_request=request,
         )
         # Each call's `gen` is its own local — Python closures capture by
         # reference but the variable is re-bound per call so each lambda
@@ -1058,7 +1161,35 @@ class FilmstripWidget(QWidget):
         worker.signals.finished.connect(
             lambda result: self.__on_image_loaded(result, on_finished_callback, gen)
         )
-        QThreadPool.globalInstance().start(worker)
+        worker.signals.audit_finished.connect(
+            lambda result_path, finding, ctx=context:
+                self.__on_audit_finished(result_path, finding, ctx)
+        )
+        QThreadPool.globalInstance().start(worker, priority)
+
+    def _audit_request_for_path(self, path: str) -> AuditRequest | None:
+        """Checks to run for this exact path: the binding's request,
+        restricted to what the host's `missing_checks` reports as not yet
+        persisted (no callback = always run the full request)."""
+        context = self._audit_context
+        if context is None:
+            return None
+        if self._missing_checks is None:
+            return context.request
+        return context.request.restricted_to(self._missing_checks(path))
+
+    def __on_audit_finished(
+        self,
+        path: str,
+        finding: AuditFinding,
+        context: CaptureAuditContext | None,
+    ) -> None:
+        """Forward the fresh result with its frozen origin context — always,
+        regardless of navigation: the host's persistence layer checks the
+        origin's liveness itself, and display state is re-read from
+        persisted metadata rather than painted from this event."""
+        if context is not None:
+            self.audit_finished.emit(path, finding, context)
 
     def __on_image_loaded(
         self,
@@ -1077,7 +1208,12 @@ class FilmstripWidget(QWidget):
             # Re-scan in case files arrived during loading.
             self.__load_directory()
 
-    def __add_image_item(self, result: LoadImageWorkerResult) -> None:
+    def __add_image_item(
+        self,
+        result: LoadImageWorkerResult,
+        *,
+        display_pixmap: QPixmap | None = None,
+    ) -> None:
         """Create a list item for the file and add it to the strip.
 
         Result shape dictates behavior:
@@ -1088,6 +1224,9 @@ class FilmstripWidget(QWidget):
             we want the viewer to display — auto-select + cache +
             emit image_decoded. THUMB-only arrivals (the silent
             majority of initial loads) just land in the strip.
+          - `display_pixmap` is the equivalent initial-display signal on a
+            retained QPixmapCache hit; the worker then only restores the
+            thumbnail and EXIF.
 
         If a placeholder item exists for this path (drop-import
         flow), it is removed before the fresh item is inserted;
@@ -1146,7 +1285,7 @@ class FilmstripWidget(QWidget):
             self.image_file_list.addItem(list_item)
             self.image_file_list.sortItems()
             self._stop_placeholder_anim_if_done()
-            if result.image is None:
+            if result.image is None and display_pixmap is None:
                 # THUMB-only: silent fill, no viewer update.
                 return
             # BOTH-mode arrival: auto-select + push to viewer.
@@ -1169,11 +1308,13 @@ class FilmstripWidget(QWidget):
             if placeholder is None:
                 self.scroll_to_end()
 
-        pixmap = QPixmap.fromImage(result.image)
-        # Cache so a subsequent click on this thumb skips the full
-        # decode and shows instantly.
-        QPixmapCache.insert(result.path, pixmap)
-        self.image_decoded.emit(result.path, pixmap)
+        if display_pixmap is None:
+            assert result.image is not None
+            display_pixmap = QPixmap.fromImage(result.image)
+            # Cache so a subsequent click on this thumb skips the full
+            # decode and shows instantly.
+            QPixmapCache.insert(result.path, display_pixmap)
+        self.image_decoded.emit(result.path, display_pixmap)
 
     # ---- selection -----------------------------------------------------
 
@@ -1191,7 +1332,11 @@ class FilmstripWidget(QWidget):
             self.image_decoded.emit(file_path, cached_image)
         else:
             self.image_decode_started.emit(file_path)
-            self.__load_image(file_path, self.__show_and_cache)
+            self.__load_image(
+                file_path,
+                self.__show_and_cache,
+                priority=1,
+            )
         self.image_selected.emit(file_path)
 
     def __show_and_cache(self, result: LoadImageWorkerResult) -> None:

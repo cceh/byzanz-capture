@@ -90,13 +90,68 @@
       <item row="4" column="1">
        <layout class="QVBoxLayout" name="sharpnessChecksLayout">
         <item>
-         <widget class="QCheckBox" name="enableSharpnessCheckCheckbox">
-          <property name="toolTip">
-           <string>Compute a Laplace-variance sharpness metric on every loaded capture. Adds ~300 ms to first-time loads of each image; cached afterward.</string>
+         <widget class="QGroupBox" name="auditSettingsGroup">
+          <property name="title">
+           <string>Audit settings</string>
           </property>
-          <property name="text">
-           <string>Compute sharpness on each capture (detects defocus + vibration)</string>
-          </property>
+          <layout class="QVBoxLayout" name="auditSettingsLayout">
+           <item>
+            <widget class="QCheckBox" name="enableSharpnessCheckCheckbox">
+             <property name="toolTip">
+              <string>Measure capture sharpness after showing the image. Existing compatible measurements are reused.</string>
+             </property>
+             <property name="text">
+              <string>Sharpness audit</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="sharpnessAuditHelpLabel">
+             <property name="text">
+              <string>Warn when possible blur is detected. Please inspect the image and retake it if necessary.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QFormLayout" name="sharpnessThresholdsLayout">
+             <item row="0" column="0">
+              <widget class="QLabel" name="sharpnessVisThresholdLabel">
+               <property name="text">
+                <string>Warning threshold VIS:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QDoubleSpinBox" name="sharpnessVisThresholdInput">
+               <property name="decimals"><number>2</number></property>
+               <property name="minimum"><double>0.100000000000000</double></property>
+               <property name="maximum"><double>50.000000000000000</double></property>
+               <property name="singleStep"><double>0.050000000000000</double></property>
+               <property name="suffix"><string> px</string></property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="sharpnessIrThresholdLabel">
+               <property name="text">
+                <string>Warning threshold IR:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QDoubleSpinBox" name="sharpnessIrThresholdInput">
+               <property name="decimals"><number>2</number></property>
+               <property name="minimum"><double>0.100000000000000</double></property>
+               <property name="maximum"><double>50.000000000000000</double></property>
+               <property name="singleStep"><double>0.050000000000000</double></property>
+               <property name="suffix"><string> px</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
          </widget>
         </item>
         <item>

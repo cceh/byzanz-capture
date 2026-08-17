@@ -11,8 +11,9 @@ independent (nothing couples them). The camera-centric id rename happens in a
 later step with its own version bump.
 
 Papyri keeps its own QSettings store (a different application name) and has a
-two-camera model with no dome, so it is *not* migrated by this v1 unbundle —
-its profile-id rename is handled separately when the ids are renamed.
+two-camera model with no dome, so it has its own version steps in
+`migrate_papyri_settings`: v1 renames profile ids; v2 moves the legacy
+capture-sharpness switch into the per-audit settings group.
 """
 from __future__ import annotations
 
@@ -23,6 +24,14 @@ from byzanz_camera.dome_config import DomeConfig, CaptureStrategy
 
 SETTINGS_VERSION = "settingsVersion"
 CURRENT_SETTINGS_VERSION = 2
+
+# Papyri audit settings. Kept beside their migration so old and new keys
+# cannot drift; papyri.audits.sharpness is the sole runtime reader.
+PAPYRI_SHARPNESS_ENABLED_KEY = "audits/sharpness/enabled"
+PAPYRI_SHARPNESS_VIS_THRESHOLD_KEY = "audits/sharpness/visWarnFrom"
+PAPYRI_SHARPNESS_IR_THRESHOLD_KEY = "audits/sharpness/irWarnFrom"
+_PAPYRI_LEGACY_SHARPNESS_ENABLED_KEY = "sharpnessCheckEnabled"
+PAPYRI_CURRENT_SETTINGS_VERSION = 2
 
 # Camera-centric id rename (v2). The old ids conflated camera + dome
 # ("CCeHDome…", "ParisDome…"); the new ones name only the camera body. Applied
@@ -58,12 +67,24 @@ def migrate_settings(qs: QSettings) -> None:
 
 
 def migrate_papyri_settings(qs: QSettings) -> None:
-    """Rename papyri's stored camera-profile ids in place. Papyri keeps its own
-    QSettings store with a two-camera (visible + IR) model and no dome, so the
-    v1 unbundle does not apply — only the id rename does. Idempotent: an id
-    that is not an old id is left untouched."""
-    _rename_camera_id(qs, "profile")
-    _rename_camera_id(qs, "irProfile")
+    """Bring papyri's independent QSettings schema to its current version."""
+    version = int(qs.value(SETTINGS_VERSION, 0))
+    if version < 1:
+        _rename_camera_id(qs, "profile")
+        _rename_camera_id(qs, "irProfile")
+    if version < 2:
+        _migrate_papyri_v2_audit_settings(qs)
+    qs.setValue(SETTINGS_VERSION, PAPYRI_CURRENT_SETTINGS_VERSION)
+
+
+def _migrate_papyri_v2_audit_settings(qs: QSettings) -> None:
+    """v1 -> v2: move the capture-sharpness gate into its audit group."""
+    if qs.value(PAPYRI_SHARPNESS_ENABLED_KEY) is None:
+        legacy = qs.value(_PAPYRI_LEGACY_SHARPNESS_ENABLED_KEY)
+        if legacy is not None:
+            qs.setValue(PAPYRI_SHARPNESS_ENABLED_KEY, qs.value(
+                _PAPYRI_LEGACY_SHARPNESS_ENABLED_KEY, type=bool))
+    qs.remove(_PAPYRI_LEGACY_SHARPNESS_ENABLED_KEY)
 
 
 def _rename_camera_id(qs: QSettings, key: str) -> None:

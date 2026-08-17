@@ -44,6 +44,7 @@ PACKAGES=(
     mingw-w64-x86_64-python-pyqt6
     mingw-w64-x86_64-python-pillow
     mingw-w64-x86_64-python-numpy
+    mingw-w64-x86_64-python-scipy    # sharpness-v2 erf fit (and its native DLLs)
     mingw-w64-x86_64-python-opencv   # the python cv2 bindings (pulls opencv C++ lib as dep;
                                      # the plain `opencv` package ships only headers+DLLs, no cv2)
     mingw-w64-x86_64-python-psutil
@@ -68,13 +69,13 @@ venv)
     # against pacman's libgphoto2. --no-build-isolation reuses the pacman
     # setuptools (visible via --system-site-packages) instead of pip building an
     # isolated env. Everything else binary (rawpy, qasync, send2trash, numpy,
-    # opencv, pillow, psutil, pyqt6) comes from pacman; only pyinstaller and
+    # scipy, opencv, pillow, psutil, pyqt6) comes from pacman; only pyinstaller and
     # piexif are pure-python pip packages with no MSYS2 build.
     pip install setuptools wheel
     pip install gphoto2 --no-binary :all: --no-build-isolation
     pip install pyinstaller piexif
     echo "=== installed ==="
-    pip list 2>/dev/null | grep -iE "gphoto2|rawpy|pyinstaller|qasync|send2trash|piexif|numpy|opencv" || true
+    pip list 2>/dev/null | grep -iE "gphoto2|rawpy|pyinstaller|qasync|send2trash|piexif|numpy|scipy|opencv" || true
     ;;
 build)
     source .venv/bin/activate

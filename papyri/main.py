@@ -44,7 +44,9 @@ from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import (
     QObject, QSettings, QSize, Qt, QThread, QThreadPool, QTimer, pyqtSignal,
 )
-from PyQt6.QtGui import QAction, QCloseEvent, QIcon, QPixmap, QPixmapCache
+from PyQt6.QtGui import (
+    QAction, QCloseEvent, QFont, QIcon, QPainter, QPixmap, QPixmapCache,
+)
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QInputDialog, QLabel, QMainWindow,
     QMenu, QMessageBox, QPushButton, QSplitter, QToolButton, QWidget,
@@ -54,16 +56,18 @@ from PyQt6.uic import loadUi
 from byzanz_camera.camera_worker import (
     CameraStates, CameraWorker, CaptureImagesRequest, ConfigRequest,
 )
+from byzanz_camera.capture_audit import (
+    AuditFinding, AuditRequest, CaptureAuditContext, SHARPNESS_AUDIT,
+)
 from byzanz_camera.filmstrip_widget import get_file_index
 from byzanz_camera.load_image_worker import (
     ImageMode, LoadImageWorker, compute_sharpness,
-    set_sharpness_enabled,
 )
 from byzanz_camera.orientation import read_orientation, write_orientation
 from byzanz_camera.helpers import (
     get_app_icon, get_ui_path, set_state, set_themed_icon, set_themed_pixmap,
 )
-from byzanz_camera.viewer_widget import PillBadge, ViewerWidget
+from byzanz_camera.viewer_widget import PillBadge, PillStack, ViewerWidget
 from byzanz_camera.zoom_control_bar import ZoomControlBar
 from byzanz_camera.config_combo import ConfigComboBox
 from papyri.capture_model import Capture, _CopyRunner
@@ -79,6 +83,7 @@ from papyri.capture_vocab import (
     SPECTRUM_VISIBLE,
     is_hidden_file,
     sanitize_name,
+    SIDE_SHORT_LABEL, SPECTRUM_SHORT_LABEL,
 )
 from papyri.object_layout import (
     BUCKETS,
@@ -90,12 +95,17 @@ from papyri.object_layout import (
     is_managed_object_dir,
     meta_path_for,
     migrate_working_dir,
+    locate_capture,
+    read_capture_audits,
     read_meta,
+    resolve_chosen_stem,
+    remove_capture_audits,
+    rename_capture_audits,
     update_meta,
     write_meta,
 )
 from papyri.build_info import describe as describe_build
-from papyri.styles import install_app_stylesheet
+from papyri.styles import AUDIT_STATUS_COLORS, install_app_stylesheet
 from papyri.camera_state_widget import CameraStateWidget
 from papyri.papyri_filmstrip import PapyriFilmstrip
 from papyri.metadata_pane import MetadataPane
@@ -114,6 +124,10 @@ from papyri.calibration_bar import CalibrationBar
 from papyri.calibration_layout import label_for_slot
 from papyri.calibration_target import CalibrationTarget
 from papyri.capture_mode import CALIBRATION_MODE, calibration_mode_for, get_mode
+from papyri.audits import (
+    CHECKS, CaptureAuditSettings, bucket_effective_warnings,
+    persist_fresh_capture_audit, read_audit_settings,
+)
 from papyri._metadata import (
     current_height_for,
     height_choices_for,
@@ -255,8 +269,10 @@ class Object(QObject):
             os.makedirs(self.dir_for(side, spectrum), exist_ok=True)
         if not os.path.exists(self.meta_path):
             # Born at the current layout version so migration skips it.
-            write_meta(self.meta_path,
-                       {MetaKey.LAYOUT_VERSION: CURRENT_LAYOUT_VERSION})
+            write_meta(self.meta_path, {
+                MetaKey.LAYOUT_VERSION: CURRENT_LAYOUT_VERSION,
+                MetaKey.AUDITS: {},
+            })
 
     def mark_dir_loaded(self) -> None:
         """Set dir_loaded=True and run a fresh refresh so per-bucket
@@ -376,6 +392,7 @@ class Object(QObject):
             dest_path = os.path.join(dest_dir, new_stem + ext)
             os.replace(src_path, dest_path)
 
+        rename_capture_audits(self.meta_path, {stem: new_stem})
         self._drop_stale_stem_markers(src_side, src_spectrum, stem)
         self.refresh()
 
@@ -422,6 +439,7 @@ class Object(QObject):
         if not paths:
             return
         trash(paths)
+        remove_capture_audits(self.meta_path, stem)
         self._drop_stale_stem_markers(side, spectrum, stem)
         self.refresh()
 
@@ -565,16 +583,12 @@ class Object(QObject):
     def _resolve_chosen(
         self, bucket: tuple[str, str], captures: list[Capture], markers: dict
     ) -> Capture | None:
-        """The chosen (displayed) take. A pinned stem wins; otherwise fall
-        back to the LATEST capture — the newest take is presumably the
-        keeper until the user marks another (which pins across new arrivals).
-        Chosen has no cleared state; a null/absent marker both mean latest."""
-        stem = self._marker_stem(markers, bucket, MarkerRole.CHOSEN)
-        if stem and stem is not _MISSING:
-            for c in captures:
-                if c.stem == stem:
-                    return c
-        return captures[-1] if captures else None
+        """The chosen (displayed) take — rule single-sourced in
+        `object_layout.resolve_chosen_stem` (the audit rollups resolve
+        through the same function)."""
+        stem = resolve_chosen_stem(
+            markers, *bucket, [c.stem for c in captures])
+        return next((c for c in captures if c.stem == stem), None)
 
     def _resolve_reference(
         self, bucket: tuple[str, str], captures: list[Capture], markers: dict
@@ -722,18 +736,16 @@ class PapyriMainWindow(QMainWindow):
             "workingDirectory": "",   # no box open until the user picks one
             "maxPixmapCache": 256,
             "enableSecondScreenMirror": False,
-            "sharpnessCheckEnabled": True,
             "liveViewSharpnessEnabled": True,
             "enableAuditiveFocusAssist": False,
         }
         for key, value in defaults.items():
             if self.q_settings.value(key) is None:
                 self.q_settings.setValue(key, value)
-        # Apply the sharpness-check toggle to the worker module-global
-        # so workers spawned anywhere in the app see it.
-        set_sharpness_enabled(self.q_settings.value(
-            "sharpnessCheckEnabled", True, type=bool,
-        ))
+        # One immutable policy snapshot for every audit consumer. Settings
+        # changes replace it atomically and trigger one reconciliation.
+        self._capture_audit_settings: CaptureAuditSettings = (
+            read_audit_settings(self.q_settings))
         # Gates the live-view sharpness compute and its label.
         self._live_sharpness_enabled = self.q_settings.value(
             "liveViewSharpnessEnabled", True, type=bool,
@@ -826,6 +838,11 @@ class PapyriMainWindow(QMainWindow):
         self.overlap_coach.reading_changed.connect(self._on_coach_reading)
         self._coach_pill = PillBadge()
         self.viewer.add_corner_overlay(self._coach_pill, "top-left")
+        self._capture_feedback = PillStack()
+        self.viewer.add_corner_overlay(self._capture_feedback, "bottom-left")
+        # Modal notice for freshly measured warnings (see
+        # _notify_fresh_capture_warning). One dialog at a time.
+        self._capture_warning_dialog: QMessageBox | None = None
         # Live-frame filter chain — THE extension point for drawing onto
         # live-view frames (see add_live_frame_filter). The coach's ghost
         # overlay is its first consumer; the toggle lives in the stitch bar
@@ -1079,10 +1096,20 @@ class PapyriMainWindow(QMainWindow):
         # Spinner during cache-miss full-decode of a clicked thumb.
         # show_busy takes no args; PyQt drops the path arg.
         self.filmstrip.image_decode_started.connect(self.viewer.show_busy)
+        self.filmstrip.audit_finished.connect(
+            self._on_capture_audit_finished)
+        self.filmstrip.audit_recheck_requested.connect(
+            self._on_audit_recheck_requested)
 
         # Objects sidebar. The working directory IS the open box (its folder
         # name is the box no.); the last box auto-reopens via this setting.
         self.objects_sidebar.set_recent_boxes(self._recent_boxes())
+        # Audit rollup for the object rows: warn while any bucket's
+        # EFFECTIVE capture has an enabled-check warning. Injected as a
+        # probe so the sidebar stays free of audit policy.
+        self.objects_sidebar.set_audit_warn_probe(
+            lambda object_dir: bool(bucket_effective_warnings(
+                object_dir, self._capture_audit_settings)))
         self._activate_box(self.q_settings.value("workingDirectory", ""))
         self.objects_sidebar.object_selected.connect(self._on_sidebar_object_selected)
         self.objects_sidebar.new_object_requested.connect(self._on_sidebar_new_object)
@@ -1137,7 +1164,9 @@ class PapyriMainWindow(QMainWindow):
         self.visible_worker.usb_offenders_detected.connect(
             self._on_usb_offenders_detected
         )
-        self.visible_camera_state.bind_worker(self.visible_worker, "VIS", self.profile)
+        self.visible_camera_state.bind_worker(
+            self.visible_worker, SPECTRUM_SHORT_LABEL[SPECTRUM_VISIBLE],
+            self.profile)
         self.visible_thread.start()
 
         # IR worker — only if the user configured an IR profile in Settings.
@@ -1163,7 +1192,9 @@ class PapyriMainWindow(QMainWindow):
             self.ir_worker.usb_offenders_detected.connect(
                 self._on_usb_offenders_detected
             )
-            self.ir_camera_state.bind_worker(self.ir_worker, "IR", self.ir_profile)
+            self.ir_camera_state.bind_worker(
+                self.ir_worker, SPECTRUM_SHORT_LABEL[SPECTRUM_INFRARED],
+                self.ir_profile)
             self.ir_thread.start()
             self.logger.info(
                 "IR worker started for profile %r (model pattern: %r)",
@@ -1198,7 +1229,10 @@ class PapyriMainWindow(QMainWindow):
 
         A receiver that needs to depend on multiple axes subscribes to
         each one — multi-subscribe is normal; the receiver re-reads from
-        session each call so over-running is harmless."""
+        session each call so over-running is harmless.
+
+        Axis legend (B1..B8) and the full object-open flow diagram:
+        docs/papyri-session-flow.md."""
         s = self.session
 
         # active_bucket
@@ -1229,6 +1263,7 @@ class PapyriMainWindow(QMainWindow):
         s.current_object_changed.connect(self._refresh_objects_sidebar_entries)
         s.current_object_changed.connect(self._refresh_workflow_stepper_active)
         s.current_object_changed.connect(self._refresh_bucket_chosen_thumbs)
+        s.current_object_changed.connect(self._refresh_bucket_audit_warnings)
         s.current_object_changed.connect(self._refresh_filmstrip_binding)
         s.current_object_changed.connect(self._handle_current_object_subscription)
         s.current_object_changed.connect(self._handle_current_object_view_mode_reset)
@@ -1310,7 +1345,8 @@ class PapyriMainWindow(QMainWindow):
         emitted with the next connect_camera."""
         if spectrum == SPECTRUM_VISIBLE:
             worker, state_widget = self.visible_worker, self.visible_camera_state
-            other_profile, other_label = self.ir_profile, "IR"
+            other_profile, other_label = (
+                self.ir_profile, SPECTRUM_SHORT_LABEL[SPECTRUM_INFRARED])
         else:
             worker, state_widget = self.ir_worker, self.ir_camera_state
             other_profile, other_label = self.profile, "visible"
@@ -1728,7 +1764,7 @@ class PapyriMainWindow(QMainWindow):
             # Simple mode has no side axis — drop "Side X" from the caption.
             self.capture_button.setText(f"Capture · {spectrum_label}")
         else:
-            side_label = "Side A" if self.session.active_side == SIDE_A else "Side B"
+            side_label = f"Side {SIDE_SHORT_LABEL[self.session.active_side]}"
             self.capture_button.setText(f"Capture · {side_label} · {spectrum_label}")
         self.capture_button.setIcon(QIcon(get_ui_path("ui/capture.svg")))
 
@@ -1764,8 +1800,32 @@ class PapyriMainWindow(QMainWindow):
             self.session.current_object,
             self.session.active_side,
             self.session.active_spectrum,
+            self._capture_audit_context(),
+            self._capture_audit_settings,
         )
         self._refresh_stitch_ui()
+
+    def _capture_audit_context(self) -> CaptureAuditContext | None:
+        """Build the explicit audit request at the semantic UI choke point.
+
+        This coordinator already owns target type, active spectrum, mode, and
+        settings. Downstream components receive those facts and never infer
+        them from a directory tree, camera identity, or filename token.
+        """
+        obj = self.session.current_object
+        if not isinstance(obj, Object):
+            return None
+        checks = (set(self.effective_mode.capture_audit_checks)
+                  & set(self._capture_audit_settings.enabled_checks))
+        if not checks:
+            return None
+        return CaptureAuditContext(
+            target_id=obj.meta_path,
+            request=AuditRequest(
+                modality=SPECTRUM_INFIX[self.session.active_spectrum],
+                checks=frozenset(checks),
+            ),
+        )
 
     # ---- stitch connectivity check --------------------------------------
 
@@ -1921,7 +1981,184 @@ class PapyriMainWindow(QMainWindow):
         preserve zoom otherwise — exactly the capture-browsing behaviour."""
         self._shown_image_path = path
         self.viewer.show_image(pixmap)
+        self._refresh_capture_feedback()
         self._refresh_rotation_indicator()
+
+    def _on_capture_audit_finished(
+        self,
+        path: str,
+        finding: AuditFinding,
+        context: CaptureAuditContext,
+    ) -> None:
+        """Persist a freshly computed finding, then re-render from disk.
+        Persisted `_meta.json` entries are the only audit display source —
+        a finding that could not be persisted is logged, never shown."""
+        if not isinstance(finding, AuditFinding):
+            self.logger.warning("ignored malformed audit finding for %s", path)
+            return
+        try:
+            persisted = persist_fresh_capture_audit(
+                path, finding, context, self._capture_audit_settings)
+        except (OSError, TypeError, ValueError):
+            # The object may have been renamed/deleted while a worker was in
+            # flight. Never recreate or guess a replacement target.
+            self.logger.warning(
+                "could not persist late audit for %s", path, exc_info=True)
+            return
+        if not persisted:
+            self.logger.info(
+                "ignored audit whose capture or target no longer exists: %s",
+                path,
+            )
+            return
+        self._refresh_audit_presentation()
+        module = CHECKS.get(finding.check)
+        if module is not None:
+            check_settings = getattr(
+                self._capture_audit_settings, finding.check)
+            entry = module.finding_to_entry(
+                finding, context.request.modality, check_settings)
+            status, text = module.presentation_for_entry(
+                entry, context.request.modality, check_settings)
+            if status == "warn":
+                self._notify_fresh_capture_warning(context, path, text)
+
+    def _on_audit_recheck_requested(self, stem: str) -> None:
+        """Menu action "Re-run capture check": drop the persisted findings
+        so the gate reports every check as missing, then queue one
+        background FULL decode — the fresh result flows through the
+        normal persist → refresh path like any new capture."""
+        obj = self.session.current_object
+        if not isinstance(obj, Object):
+            return
+        remove_capture_audits(obj.meta_path, stem)
+        self._refresh_audit_presentation()
+        capture = next(
+            (c for c in obj.captures(self.session.active_side,
+                                     self.session.active_spectrum)
+             if c.stem == stem), None)
+        if capture is not None:
+            self.filmstrip.redecode(capture.primary_path)
+
+    def _notify_fresh_capture_warning(
+        self,
+        context: CaptureAuditContext,
+        path: str,
+        text: str,
+    ) -> None:
+        """Modal notice for a FRESHLY measured warning — the one moment the
+        operator can still retake while the object lies on the table; the
+        pill/badge markers alone are easy to miss mid-handling. Fires only
+        from the fresh-persist path, so browsing old takes never dialogs.
+        Rapid successive warnings (e.g. VIS and IR stands) append to the
+        open dialog instead of stacking modal boxes."""
+        located = locate_capture(path)
+        if located is not None:
+            object_dir, side, spectrum = located
+            place = (f"{os.path.basename(object_dir)} · "
+                     f"Side {SIDE_SHORT_LABEL[side]} · "
+                     f"{SPECTRUM_SHORT_LABEL[spectrum]}")
+        else:
+            place = Path(context.target_id).parent.name
+        line = f"{place}\n\n{Path(path).stem}\n\n{text}"
+        dialog = self._capture_warning_dialog
+        if dialog is not None and dialog.isVisible():
+            dialog.setText(dialog.text() + "\n\n" + line)
+            return
+        dialog = QMessageBox(
+            QMessageBox.Icon.Warning,
+            "Aufnahme-Prüfung",
+            line,
+            QMessageBox.StandardButton.Ok,
+            self,
+        )
+        dialog.setInformativeText(
+            "Bitte die Aufnahme genau ansehen und bei Bedarf wiederholen."
+        )
+        # The fresh capture was FULL-decoded moments ago, so its pixmap is
+        # almost always still in the process-global cache — show it instead
+        # of the generic warning icon. A miss keeps the icon; never decode
+        # here just for a dialog.
+        pixmap = QPixmapCache.find(path)
+        if pixmap is not None and not pixmap.isNull():
+            scaled = pixmap.scaled(
+                150, 150, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
+            # setIconPixmap replaces the standard warning icon, so stamp
+            # the ⚠️ emoji (self-colored, renders on macOS + Windows) into
+            # the corner — thumb and warning stay visible together.
+            painter = QPainter(scaled)
+            painter.setFont(QFont("", 30))
+            painter.drawText(
+                scaled.rect().adjusted(6, 6, 0, 0),
+                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
+                "⚠️")
+            painter.end()
+            dialog.setIconPixmap(scaled)
+        dialog.finished.connect(self._on_capture_warning_dialog_closed)
+        self._capture_warning_dialog = dialog
+        # open() shows window-modal WITHOUT nesting an event loop (exec()
+        # would re-enter while camera-worker signals are in flight).
+        dialog.open()
+
+    def _on_capture_warning_dialog_closed(self, *_args) -> None:
+        self._capture_warning_dialog = None
+
+    def _refresh_audit_presentation(self) -> None:
+        """THE follow-up for "persisted audit state changed" (fresh persist,
+        re-check request, settings change): re-render everything derived
+        from it. All four receivers are idempotent and re-read state, so
+        over-running is harmless and callers never pick a subset."""
+        self.filmstrip.refresh_audit_badges()
+        self._refresh_capture_feedback()
+        self._refresh_bucket_audit_warnings()
+        self._refresh_objects_sidebar_entries()
+
+    def _refresh_capture_feedback(self) -> None:
+        """Single renderer for the viewer's feedback column (bottom-left):
+        warning pills — one per warning check — stacked over the always-on
+        neutral status line. Check-agnostic: loops the audit registry and
+        lets each check module classify and phrase its persisted entry
+        (stem-keyed, like the persistence side writes it). No entry yet =
+        still measuring → the status line shows the pending fragment."""
+        context = self._capture_audit_context()
+        path = self._shown_image_path
+        if (context is None or path is None
+                or self.session.view_mode == "live"):
+            self._capture_feedback.set_content([], None)
+            return
+        entries = read_capture_audits(context.target_id).get(
+            Path(path).stem, {})
+        warnings: list[tuple[str, str]] = []
+        fragments: list[str] = []
+        for check in sorted(context.request.checks):
+            module = CHECKS[check]
+            entry = entries.get(check)
+            if entry is None or not module.is_current_entry(entry):
+                fragments.append(module.summary_for_entry(None))
+                continue
+            check_settings = getattr(self._capture_audit_settings, check)
+            status, text = module.presentation_for_entry(
+                entry, context.request.modality, check_settings)
+            if status == "warn":
+                warnings.append((text, AUDIT_STATUS_COLORS["warn"]))
+            fragments.append(module.summary_for_entry(entry))
+        self._capture_feedback.set_content(
+            warnings, " · ".join(fragments) if fragments else None,
+            status_border=AUDIT_STATUS_COLORS["none"])
+
+    def _refresh_bucket_audit_warnings(self) -> None:
+        """Warn markers on the bucket cards, per the effective-capture
+        rule: a bucket warns only while the take that represents it
+        (pinned chosen, else newest) has an enabled-check warning."""
+        obj = self.session.current_object
+        checks = (set(self.effective_mode.capture_audit_checks)
+                  & set(self._capture_audit_settings.enabled_checks))
+        warned = (bucket_effective_warnings(
+                      obj.dir, self._capture_audit_settings)
+                  if isinstance(obj, Object) and checks else set())
+        for bucket, step_id in self.effective_mode.step_id_by_bucket.items():
+            self.bucket_selector.set_warned(step_id, bucket in warned)
 
     # ---- live-view reconciliation ---------------------------------------
 
@@ -2127,6 +2364,7 @@ class PapyriMainWindow(QMainWindow):
         # no-object overlay right after the close set it to "empty".
         if self.session.current_object is None:
             return
+        self._capture_feedback.hide()
         # Overlap coach: feed every live frame (it samples + gates
         # internally, and no-ops unless a stitch-bucket anchor is set).
         # Pre-rotation frame on purpose — rotation is display-only and the
@@ -2460,6 +2698,7 @@ class PapyriMainWindow(QMainWindow):
         """Forget the currently-shown capture (viewer cleared / dir closed),
         so the rotate button can't write into a stale path."""
         self._shown_image_path = None
+        self._capture_feedback.hide()
 
     # --------------------------------------------------- object lifecycle
 
@@ -2494,6 +2733,7 @@ class PapyriMainWindow(QMainWindow):
 
         # Rename capture files in every (side, spectrum) bucket whose basename
         # starts with the old object name. `_meta.json` travels with the dir.
+        renamed_stems: dict[str, str] = {}
         for side, spectrum in BUCKETS:
             bucket_dir = Path(dir_for_bucket(old_dir, side, spectrum))
             if not bucket_dir.is_dir():
@@ -2504,7 +2744,9 @@ class PapyriMainWindow(QMainWindow):
                     continue
                 basename, ext = os.path.splitext(entry)
                 if basename.startswith(old_name):
-                    renamed = basename.replace(old_name, new_name, 1) + ext
+                    new_stem = basename.replace(old_name, new_name, 1)
+                    renamed_stems[basename] = new_stem
+                    renamed = new_stem + ext
                     os.rename(entry_path, bucket_dir / renamed)
 
         # Take markers in `_meta.json` store stems that include the old
@@ -2516,9 +2758,11 @@ class PapyriMainWindow(QMainWindow):
                 if isinstance(stem, str) and stem.startswith(old_name):
                     bucket[role] = stem.replace(old_name, new_name, 1)
         write_meta(meta_path_for(old_dir), meta)
+        rename_capture_audits(meta_path_for(old_dir), renamed_stems)
 
         os.rename(old_dir, new_dir)
-        self.session.set_current_object(Object(self.session.current_object.working_dir, new_name))
+        self.session.publish_target(Object(self.session.current_object.working_dir, new_name),
+        )
 
     def start_object(self, name: str):
         # Simple mode reuses the title-bar name field as a filename-override
@@ -2555,11 +2799,11 @@ class PapyriMainWindow(QMainWindow):
         # new object at the canonical first step (Side A · Visible) rather
         # than inheriting whatever bucket the previous object left behind.
         self.session.set_active_bucket(SIDE_A, SPECTRUM_VISIBLE)
-        self.session.set_current_object(obj)
+        self.session.publish_target(obj)
 
     def close_object(self):
         self.stitch.invalidate()
-        self.session.set_current_object(None)
+        self.session.publish_target(None)
 
     def _open_simple_target(self, output_dir: str) -> None:
         """Bind the flat-folder target for simple mode. The output folder
@@ -2567,7 +2811,7 @@ class PapyriMainWindow(QMainWindow):
         the user picks a new folder. A blank folder leaves no target
         (capture stays disabled until one is chosen)."""
         if not output_dir:
-            self.session.set_current_object(None)
+            self.session.publish_target(None)
             return
         target = SimpleTarget(output_dir)
         target.ensure_dir()
@@ -2575,7 +2819,7 @@ class PapyriMainWindow(QMainWindow):
         # folder change doesn't silently reset naming back to camera-default.
         target.set_name_override(self.title_bar.current_name())
         self.session.set_active_bucket(SIDE_A, SPECTRUM_VISIBLE)
-        self.session.set_current_object(target)
+        self.session.publish_target(target)
 
     def _choose_simple_output_folder(self) -> None:
         """Simple mode: pick the output folder via a native dialog, persist
@@ -2631,11 +2875,12 @@ class PapyriMainWindow(QMainWindow):
     # ---- B5 imperative handlers ----------------------------------------
 
     def _handle_current_object_subscription(self) -> None:
-        """Manage the Object.state_changed connection — disconnect from
-        the previous object, connect to the new one, kick off an initial
-        refresh so captures populate. Tracks the previously-subscribed
-        instance via self._subscribed_object since session only exposes
-        the new value."""
+        """Move the future-state subscription to the published target.
+
+        Initial hydration already happened in `session.publish_target`, before
+        `current_object_changed`, so this receiver performs no disk read and
+        its position in the signal connection order has no semantic effect.
+        """
         prev = self._subscribed_object
         new = self.session.current_object
         if prev is new:
@@ -2649,7 +2894,6 @@ class PapyriMainWindow(QMainWindow):
         self._subscribed_object = new
         if new is not None:
             new.state_changed.connect(self._on_object_state_changed)
-            new.refresh()
 
     def _handle_current_object_view_mode_reset(self) -> None:
         """When the object closes (B5 → None), reset view_mode to "empty"
@@ -2720,7 +2964,7 @@ class PapyriMainWindow(QMainWindow):
             return
         # Reset active bucket — see start_object for rationale.
         self.session.set_active_bucket(SIDE_A, SPECTRUM_VISIBLE)
-        self.session.set_current_object(obj)
+        self.session.publish_target(obj)
 
     def _on_sidebar_delete_object(self, name: str) -> None:
         """Sidebar 'Move to Trash' on a row: confirm, then send the object's
@@ -2854,6 +3098,7 @@ class PapyriMainWindow(QMainWindow):
         Components that mirror that state (side cards, objects sidebar badge,
         metadata pane subtitle) re-read from `self.session.current_object` here."""
         self._refresh_bucket_chosen_thumbs()
+        self._refresh_bucket_audit_warnings()
         # The active object's `· → ?? → ✓` badge in the sidebar can flip
         # when captures land. Cheap re-scan; no FS watcher needed.
         self.objects_sidebar.refresh()
@@ -3090,9 +3335,9 @@ class PapyriMainWindow(QMainWindow):
         # clear the object first, then set the calibration bucket, then the
         # target. (Otherwise a receiver fires with the old papyri Object +
         # a 'cal_*' slot, and Object.dir_for rightly rejects that slot.)
-        self.session.set_current_object(None)
+        self.session.publish_target(None)
         self.session.set_active_bucket(slot, spectrum)
-        self.session.set_current_object(self._cal_target)
+        self.session.publish_target(self._cal_target)
         # The bucket switch above ran mid-swap (no target bound yet), so the
         # canonical review-vs-live decision was skipped. Re-assert it now
         # that the calibration target is current — live view starts/pauses
@@ -3130,11 +3375,11 @@ class PapyriMainWindow(QMainWindow):
         # Same atomic swap as on enter, reversed (clear first so no receiver
         # sees the calibration target with a papyri side). Unbinding the
         # filmstrip first also makes it safe to prune an unused run folder.
-        self.session.set_current_object(None)
+        self.session.publish_target(None)
         if self._cal_target is not None:
             self._cal_target.discard_if_empty()
         self.session.set_active_bucket(side, spectrum)
-        self.session.set_current_object(self._object_before_calibration)
+        self.session.publish_target(self._object_before_calibration)
         # Same re-assert as on enter (the bucket switch ran while no target
         # was bound): restore the review-vs-live decision for the object
         # bucket we're returning to.
@@ -3195,7 +3440,7 @@ class PapyriMainWindow(QMainWindow):
         if self._calibration_active:
             self._exit_calibration()
 
-        self.session.set_current_object(None)
+        self.session.publish_target(None)
         self.mode = get_mode(target)
         self.q_settings.setValue("captureMode", target)
         self.q_settings.sync()
@@ -3232,6 +3477,7 @@ class PapyriMainWindow(QMainWindow):
         # wire-then-load pattern), and that echo must not kick the user out
         # of a running calibration.
         previous_cal_tabs = enabled_step_ids(self.q_settings)
+        audit_settings_changed = False
 
         dialog = PapyriSettingsDialog(self.q_settings, PROFILES, self)
         if not dialog.exec():
@@ -3269,6 +3515,8 @@ class PapyriMainWindow(QMainWindow):
                 self.q_settings.setValue(name, value)
                 continue
             self.q_settings.setValue(name, value)
+            if name.startswith("audits/"):
+                audit_settings_changed = True
             if name == "workingDirectory":
                 self._refresh_camera_dependent_ui()
                 self._activate_box(value)
@@ -3282,8 +3530,6 @@ class PapyriMainWindow(QMainWindow):
                 # papyri's workingDirectory here doesn't touch it.
             elif name == "maxPixmapCache":
                 QPixmapCache.setCacheLimit(int(value) * 1024)
-            elif name == "sharpnessCheckEnabled":
-                set_sharpness_enabled(bool(value))
             elif name == "liveViewSharpnessEnabled":
                 self._live_sharpness_enabled = bool(value)
                 self._refresh_camera_dependent_ui()
@@ -3313,6 +3559,11 @@ class PapyriMainWindow(QMainWindow):
             elif name.startswith("rotatedSampleNudge/"):  # rotated-sample nudge
                 if getattr(self, "_rotated_sample_nudge", None) is not None:
                     self._rotated_sample_nudge.refresh()
+
+        if audit_settings_changed:
+            self._capture_audit_settings = read_audit_settings(self.q_settings)
+            self._refresh_filmstrip_binding()
+            self._refresh_audit_presentation()
 
         # F-PERS-1 (narrowed): profile→profile changes hot-switch above; only
         # enabling/disabling IR (None↔profile) — or a change while no IR

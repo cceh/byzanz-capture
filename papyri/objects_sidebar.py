@@ -37,7 +37,9 @@ from PyQt6.QtWidgets import (
 )
 
 from byzanz_camera.helpers import reveal_in_file_manager, set_state
-from papyri.capture_vocab import SIDES, SPECTRUM_INFRARED, SPECTRUM_VISIBLE
+from papyri.capture_vocab import (
+    SIDES, SPECTRUM_INFRARED, SPECTRUM_SHORT_LABEL, SPECTRUM_VISIBLE,
+)
 from papyri.object_layout import (
     captured_sides_for_spectrum, is_spectrum_complete, is_stitching_object,
     list_managed_objects, newest_capture_mtime,
@@ -55,6 +57,7 @@ class ObjectListEntry:
     metadata_complete: bool
     stitching: bool                 # oversized object captured as segments
     last_capture_ts: float | None   # newest capture mtime; None = no captures
+    audit_warned: bool = False      # a bucket's effective capture warns
 
     @property
     def has_captures(self) -> bool:
@@ -62,9 +65,20 @@ class ObjectListEntry:
 
     @property
     def needs_metadata(self) -> bool:
-        """Amber ⚠: captures exist but required metadata is missing. Empty
-        objects don't warn — a just-created object isn't a problem yet."""
+        """Captures exist but required metadata is missing. Empty objects
+        don't warn — a just-created object isn't a problem yet."""
         return self.has_captures and not self.metadata_complete
+
+    @property
+    def warn(self) -> bool:
+        """Amber ⚠ — the sidebar's single "needs attention" aggregate
+        (missing metadata OR an open capture-audit warning). The sidebar
+        is the overview level: WHICH cause it is lives in the tooltip and,
+        after opening, in the per-meaning markers inside the object view
+        (bucket/filmstrip "!", pills)."""
+        return self.needs_metadata or self.audit_warned
+
+
 
 
 def _capture_date_text(ts: float | None) -> str:
@@ -103,6 +117,8 @@ def _tooltip_text(entry: ObjectListEntry) -> str:
     if entry.has_captures:
         lines.append("Metadata: complete" if entry.metadata_complete
                      else "Metadata: incomplete")
+        if entry.audit_warned:
+            lines.append("(!) Capture check warning on a current take")
         lines.append(f"Last capture: {_capture_date_text(entry.last_capture_ts)}")
     return "\n".join(lines)
 
@@ -157,13 +173,15 @@ class _ObjectRowWidget(QWidget):
             stitch.setObjectName("sidebarRowStitch")
             stitch.setToolTip("Stitching object (captured as segments)")
             top.addWidget(stitch, 0)
-        if entry.needs_metadata:
+        if entry.warn:
             warn = QLabel("⚠")
             warn.setObjectName("sidebarRowWarn")
             top.addWidget(warn, 0)
         for spectrum_label, sides, complete in (
-                ("VIS", entry.vis_sides, entry.vis_complete),
-                ("IR", entry.ir_sides, entry.ir_complete)):
+                (SPECTRUM_SHORT_LABEL[SPECTRUM_VISIBLE],
+                 entry.vis_sides, entry.vis_complete),
+                (SPECTRUM_SHORT_LABEL[SPECTRUM_INFRARED],
+                 entry.ir_sides, entry.ir_complete)):
             if sides == 0:
                 continue
             pill = QLabel(spectrum_label)
@@ -209,6 +227,7 @@ class ObjectsSidebar(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._audit_warn_probe = None
         self.setObjectName("objectsSidebar")
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -223,6 +242,12 @@ class ObjectsSidebar(QFrame):
         self._build_ui()
 
     # ---- public API --------------------------------------------------
+
+    def set_audit_warn_probe(self, probe) -> None:
+        """Install the host's capture-audit rollup: `probe(object_dir) ->
+        bool`. The sidebar stays free of audit policy — it only renders
+        the verdict. None (default) disables the marker."""
+        self._audit_warn_probe = probe
 
     def set_working_directory(self, path: str | None) -> None:
         if path == self._working_dir:
@@ -394,8 +419,7 @@ class ObjectsSidebar(QFrame):
         if self._working_dir:
             reveal_in_file_manager(os.path.join(self._working_dir, name))
 
-    @staticmethod
-    def _scan(working_dir: str | None) -> list[ObjectListEntry]:
+    def _scan(self, working_dir: str | None) -> list[ObjectListEntry]:
         if working_dir is None:
             return []
         entries = []
@@ -410,5 +434,7 @@ class ObjectsSidebar(QFrame):
                 metadata_complete=is_metadata_complete_for(working_dir, name),
                 stitching=is_stitching_object(obj_dir),
                 last_capture_ts=newest_capture_mtime(obj_dir),
+                audit_warned=(self._audit_warn_probe(obj_dir)
+                              if self._audit_warn_probe is not None else False),
             ))
         return entries

@@ -60,6 +60,7 @@ import os
 from enum import StrEnum
 
 from papyri.capture_vocab import (
+    capture_index,
     CAPTURE_EXTENSIONS, SIDE_A, SIDE_B, SIDES, SPECTRA, SPECTRUM_INFRARED,
     SPECTRUM_VISIBLE, is_hidden_file,
 )
@@ -78,6 +79,7 @@ class MetaKey(StrEnum):
     HEIGHT_VIS     = "capture_height_vis"
     HEIGHT_IR      = "capture_height_ir"
     BOX_NR         = "box_nr"
+    AUDITS         = "audits"
 
 
 class MarkerRole(StrEnum):
@@ -190,6 +192,56 @@ def update_meta(meta_path: str, updates: dict) -> dict:
     return data
 
 
+# ---- per-capture audits ---------------------------------------------------
+# Audit entries are keyed by capture stem, then by check name. These helpers
+# own that shape so callers never mutate or reinterpret the reserved top-level
+# metadata key themselves.
+
+def read_capture_audits(meta_path: str) -> dict[str, dict[str, dict]]:
+    """Return the persisted audit tree, or an empty tree if malformed."""
+    audits = read_meta(meta_path).get(MetaKey.AUDITS, {})
+    if not isinstance(audits, dict):
+        _logger.warning("ignored malformed capture audits in %s", meta_path)
+        return {}
+    return {
+        stem: dict(findings)
+        for stem, findings in audits.items()
+        if isinstance(stem, str) and isinstance(findings, dict)
+    }
+
+
+def store_capture_audit(
+    meta_path: str, stem: str, check: str, entry: dict,
+) -> None:
+    """Persist one finding without disturbing other metadata or checks."""
+    audits = read_capture_audits(meta_path)
+    audits.setdefault(stem, {})[check] = dict(entry)
+    update_meta(meta_path, {MetaKey.AUDITS: audits})
+
+
+def rename_capture_audits(meta_path: str, renames: dict[str, str]) -> None:
+    """Move audit entries alongside captures whose stems were renamed."""
+    if not renames:
+        return
+    audits = read_capture_audits(meta_path)
+    changed = False
+    for old_stem, new_stem in renames.items():
+        findings = audits.pop(old_stem, None)
+        if findings is None:
+            continue
+        audits.setdefault(new_stem, {}).update(findings)
+        changed = True
+    if changed:
+        update_meta(meta_path, {MetaKey.AUDITS: audits})
+
+
+def remove_capture_audits(meta_path: str, stem: str) -> None:
+    """Remove findings for a capture that no longer belongs to the object."""
+    audits = read_capture_audits(meta_path)
+    if audits.pop(stem, None) is not None:
+        update_meta(meta_path, {MetaKey.AUDITS: audits})
+
+
 def is_managed_object_dir(object_dir: str) -> bool:
     """True if `object_dir` contains the `_meta.json` marker."""
     return os.path.isfile(meta_path_for(object_dir))
@@ -209,7 +261,7 @@ def is_stitching_object(object_dir: str) -> bool:
 # is moved. Only papyri Objects have a meta file; simple/calibration targets
 # persist no marker state, so nothing to version there yet.
 
-CURRENT_LAYOUT_VERSION = 1
+CURRENT_LAYOUT_VERSION = 2
 
 
 def _needs_migration(object_dir: str) -> bool:
@@ -229,6 +281,8 @@ def migrate_object(object_dir: str) -> bool:
     meta = read_meta(meta_path_for(object_dir))
     if int(meta.get(MetaKey.LAYOUT_VERSION, 0)) < 1:
         _migrate_v1_markers_into_meta(object_dir, meta)
+    if int(meta.get(MetaKey.LAYOUT_VERSION, 0)) < 2:
+        _migrate_v2_capture_audits(meta)
     meta[MetaKey.LAYOUT_VERSION] = CURRENT_LAYOUT_VERSION
     write_meta(meta_path_for(object_dir), meta)
     return True
@@ -298,6 +352,79 @@ def _migrate_v1_markers_into_meta(object_dir: str, meta: dict) -> None:
                 bucket[role] = (None if role == MarkerRole.REFERENCE
                                 and stem == "none" else stem)
             os.rename(path, path + ".migrated")
+
+
+def _migrate_v2_capture_audits(meta: dict) -> None:
+    """v1 -> v2: reserve the additive per-capture audit container."""
+    meta.setdefault(MetaKey.AUDITS, {})
+
+
+def capture_stems_for_bucket(
+    object_dir: str, side: str, spectrum: str,
+) -> list[str]:
+    """Stems of the captures in one bucket, ordered by capture index —
+    the same population `Object._scan_bucket` pairs into `Capture`s
+    (supported extensions, hidden files and index-less names skipped),
+    without touching the concrete JPG/RAW paths."""
+    bucket_dir = dir_for_bucket(object_dir, side, spectrum)
+    if not os.path.isdir(bucket_dir):
+        return []
+    by_stem: dict[str, int] = {}
+    for name in os.listdir(bucket_dir):
+        if is_hidden_file(name):
+            continue
+        stem, ext = os.path.splitext(name)
+        if ext.lower() not in CAPTURE_EXTENSIONS:
+            continue
+        index = capture_index(name)
+        if index is None:
+            continue
+        by_stem[stem] = index
+    return sorted(by_stem, key=lambda stem: by_stem[stem])
+
+
+def resolve_chosen_stem(
+    markers: dict, side: str, spectrum: str, stems_in_order: list[str],
+) -> str | None:
+    """THE chosen-take rule: a pinned stem wins while it still exists;
+    otherwise the LATEST capture is the keeper (a null/absent marker both
+    mean latest; chosen has no cleared state). Single source — `Object`
+    and the audit rollups both resolve through here."""
+    pinned = markers.get(bucket_key(side, spectrum), {}).get(MarkerRole.CHOSEN)
+    if pinned and pinned in stems_in_order:
+        return pinned
+    return stems_in_order[-1] if stems_in_order else None
+
+
+def effective_capture_stem(
+    object_dir: str, side: str, spectrum: str,
+) -> str | None:
+    """Stem of the take that currently REPRESENTS a bucket (pinned chosen,
+    else newest), or None on an empty bucket. Path-only variant for
+    consumers without a live `Object` (sidebar, audit rollups)."""
+    markers = read_meta(meta_path_for(object_dir)).get(MetaKey.MARKERS, {})
+    if not isinstance(markers, dict):
+        markers = {}
+    return resolve_chosen_stem(
+        markers, side, spectrum,
+        capture_stems_for_bucket(object_dir, side, spectrum))
+
+
+def locate_capture(path: str) -> tuple[str, str, str] | None:
+    """Reverse lookup: (object_dir, side, spectrum) for a capture file
+    inside a managed object, or None when the path does not match the
+    layout. Display/reporting helper only — audit routing keeps receiving
+    its target and modality explicitly (see CLAUDE.md choke points),
+    this never feeds a measurement decision."""
+    spectrum_dir = os.path.dirname(os.path.abspath(path))
+    side_dir = os.path.dirname(spectrum_dir)
+    object_dir = os.path.dirname(side_dir)
+    side = os.path.basename(side_dir)
+    spectrum = os.path.basename(spectrum_dir)
+    if (side in SIDES and spectrum in SPECTRA
+            and is_managed_object_dir(object_dir)):
+        return object_dir, side, spectrum
+    return None
 
 
 def has_captures_for_bucket(object_dir: str, side: str, spectrum: str) -> bool:
@@ -379,5 +506,4 @@ def list_managed_objects(working_dir: str | None) -> list[str]:
         if os.path.isdir(os.path.join(working_dir, name))
         and is_managed_object_dir(os.path.join(working_dir, name))
     )
-
 
