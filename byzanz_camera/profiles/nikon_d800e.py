@@ -11,6 +11,14 @@ class NikonD800E(Profile):
         # Adjust if your specific firmware reports differently.
         return "Nikon DSC D800"
 
+    def focus_magnify_property_name(self) -> str:
+        # The D90 magnifies the live view via "liveviewimagezoomratio";
+        # "Entire Display" is unzoomed. Essential here since focus is manual.
+        return "liveviewimagezoomratio"
+
+    def focus_magnify_value(self, on: bool) -> str:
+        return "50%" if on else "Entire Display"
+
     def burstnumber_property_name(self):
         return "burstnumber"
 
