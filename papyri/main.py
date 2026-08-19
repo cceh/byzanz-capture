@@ -883,10 +883,7 @@ class PapyriMainWindow(QMainWindow):
         # VIS<->IR switch targets the right camera). Connected once; the
         # widget only emits on genuine user changes, never on the 0.5s poll.
         for combo in self._capture_setting_combos:
-            combo.value_chosen.connect(
-                lambda name, value:
-                    self.active_worker.commands.set_single_config.emit(name, value)
-            )
+            combo.value_chosen.connect(self._on_capture_setting_chosen)
 
         # Current VIS rig height — a sticky setting shared by object capture
         # (stamped per object) and per-height Flatfield calibration. Presets
@@ -2370,13 +2367,14 @@ class PapyriMainWindow(QMainWindow):
         # Pre-rotation frame on purpose — rotation is display-only and the
         # affine match is rotation-agnostic.
         self.overlap_coach.push(image.image)
-        # One sharpness compute feeds both the readout and the focus tone.
+        # One sharpness compute feeds both the readout and the focus tone;
+        # push() filters the raw value and returns the smoothed one, so the
+        # label shows what the tone hears instead of the per-frame wobble.
         if self._live_sharpness_enabled or self.focus_audio.is_active():
-            sharp = compute_sharpness(image.image)
+            sharp = self.focus_audio.push(compute_sharpness(image.image))
             if self._live_sharpness_enabled:
                 self.focus_sharpness_label.setText(
                     f"◎ {sharp:.0f}" if sharp is not None else "◎ –")
-            self.focus_audio.push(sharp)
         # Fit-to-viewport only on the first frame of a live-view session
         # — the transition from any non-"live" view_mode (paused / preview
         # / empty) into live is the natural trigger. After that, subsequent
@@ -2409,6 +2407,13 @@ class PapyriMainWindow(QMainWindow):
 
     def _on_focus_assist_toggled(self, _checked: bool) -> None:
         self._update_focus_audio()
+
+    def _on_capture_setting_chosen(self, name: str, value) -> None:
+        """User pick in an ISO/aperture/shutter combo → the active worker.
+        Exposure changes shift the live frames' contrast and noise, and with
+        them the sharpness scale — the focus tone's reference is stale."""
+        self.active_worker.commands.set_single_config.emit(name, value)
+        self.focus_audio.reset()
 
     def _update_focus_audio(self) -> None:
         """Play the focus tone only when enabled, the button is on, and live
@@ -2651,6 +2656,9 @@ class PapyriMainWindow(QMainWindow):
         if prop:
             self.active_worker.commands.set_single_config.emit(
                 prop, profile.focus_magnify_value(on))
+            # The magnified feed lives on a different sharpness scale — the
+            # focus tone's adaptive reference is meaningless across the jump.
+            self.focus_audio.reset()
 
     def _rotate_view(self):
         """Rotate the current view +90° clockwise.
