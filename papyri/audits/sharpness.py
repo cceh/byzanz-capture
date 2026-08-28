@@ -1,6 +1,6 @@
 """The sharpness capture audit: is this capture in focus?
 
-Wraps the vendored v2 metric (byzanz_camera.sharpness) in Papyri policy:
+Wraps the vendored metric (byzanz_camera.sharpness) in Papyri policy:
 configurable per-modality warn thresholds, the stable `_meta.json` entry
 shape, classification, and the German operator feedback. One module per
 check — a future check (height, chart presence, …) gets its own sibling

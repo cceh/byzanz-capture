@@ -8,9 +8,12 @@ corpus there, then update these copies together. Capture-specific thresholds,
 status mapping, persistence, and UI remain in `byzanz-capture`.
 
 `object_blur.py` here is a deliberate SUBSET of its canonical counterpart:
-only the shared primitives v2 consumes (`_gray_full`, `_edge_sites`,
-`N_EDGES`). The v1 estimator and its `measure()` are not vendored — this
-app never runs v1.
+only the shared primitives the metric chain (v2 → v3 → v4) consumes
+(`_gray_full`, `_edge_sites`, `N_EDGES`). The v1 estimator and its
+`measure()` are not vendored — this app never runs v1. The active metric
+is whatever `__init__.py` re-exports (currently `object_blur_v4`); the
+older versions stay vendored because each delta module imports its
+predecessor.
 
 ## Planned extraction
 

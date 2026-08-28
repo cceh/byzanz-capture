@@ -2,8 +2,8 @@
 """Shared metric primitives: full-res decode + strongest-edge selection.
 
 VENDORED SUBSET of the canonical object_blur.py (croc-viewer): only the
-pieces the metric (object_blur_v2) consumes — `_gray_full`, `_edge_sites`,
-`N_EDGES`. The canonical file additionally carries viewer-side tooling
+pieces the metric chain (object_blur_v2/_v3/_v4) consumes — `_gray_full`,
+`_edge_sites`, `N_EDGES`. The canonical file additionally carries viewer-side tooling
 (its own width estimator, `measure()`, a CLI) that this app never runs.
 When syncing metric changes, port only these shared pieces.
 """
@@ -21,7 +21,7 @@ def _gray_full(path):
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
 
 
-def _edge_sites(gray, n, exclude_mask=None):
+def _edge_sites(gray, n, exclude_mask=None, border=200):
     """Strong, non-clustered edge sites as (y, x, gx, gy). `exclude_mask`
     (optional bool array, True = excluded) suppresses regions that must
     not contribute edges - e.g. the ColorChecker / scale card, which sit
@@ -32,7 +32,7 @@ def _edge_sites(gray, n, exclude_mask=None):
     mag = cv2.magnitude(gx, gy)
     # suppress the outer border (vignetting, frame edges)
     m = np.zeros_like(mag)
-    b = 200
+    b = border
     m[b:-b, b:-b] = mag[b:-b, b:-b]
     if exclude_mask is not None:
         m[exclude_mask] = 0

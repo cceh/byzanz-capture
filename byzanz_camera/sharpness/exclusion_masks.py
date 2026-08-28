@@ -40,6 +40,27 @@ _DETECT_DOWNSCALE = 8      # mask rasterisation runs on a 1/8 preview
 
 _DETECTORS: dict[str, Callable[[np.ndarray], list]] = {}
 
+# Every reduction and margin below is expressed for a full-resolution capture. Callers
+# that hand over a reduced rendition — the registration works on ~1600 px — would
+# otherwise have their cards shrink under the detectors' size gates. `_frame_scale`
+# lets each detector adapt to the frame it was actually given, so no caller has to know
+# the internals and no module constant has to be mutated (the sharpness audit imports
+# this module in the same process, and mutating them would corrupt its measurements).
+_TUNED_FRAME_W = 9500      # the repro-stand captures these gates were tuned on
+
+
+def _frame_scale(gray: np.ndarray) -> float:
+    return min(1.0, gray.shape[1] / _TUNED_FRAME_W)
+
+
+def _reduction(gray: np.ndarray, tuned: int) -> float:
+    """Reduction that puts the preview at the SIZE these gates were tuned for, not at a
+    tuned fraction of an arbitrary frame. Deliberately fractional: rounding to whole
+    numbers on a 1600 px frame lands on 1, and at that preview size the chart's patches
+    no longer merge under the fixed closing kernel — the detector then latches onto a
+    dark stretch of papyrus instead."""
+    return max(1.0, tuned * _frame_scale(gray))
+
 
 def register_detector(name: str, fn: Callable[[np.ndarray], list]) -> None:
     _DETECTORS[name] = fn
@@ -69,12 +90,12 @@ def build_mask(gray: np.ndarray, names=None):
     if not all_polygons:
         return None, found
 
-    scale = _DETECT_DOWNSCALE
-    small_shape = (gray.shape[0] // scale + 1, gray.shape[1] // scale + 1)
+    scale = _reduction(gray, _DETECT_DOWNSCALE)
+    small_shape = (int(gray.shape[0] / scale) + 1, int(gray.shape[1] / scale) + 1)
     small = np.zeros(small_shape, np.uint8)
     for polygon in all_polygons:
         cv2.fillPoly(small, [np.int32(np.asarray(polygon) / scale)], 1)
-    margin = max(1, MASK_MARGIN_PX // scale)
+    margin = max(1, int(MASK_MARGIN_PX * _frame_scale(gray) / scale))
     small = cv2.dilate(small, np.ones((2 * margin + 1, 2 * margin + 1), np.uint8))
     mask = cv2.resize(small, (gray.shape[1], gray.shape[0]),
                       interpolation=cv2.INTER_NEAREST)
@@ -96,7 +117,7 @@ def _detect_colorchecker(gray: np.ndarray) -> list:
     (background is white, papyrus is mid-gray). Search the dark blobs of
     a small preview for one with chart-like aspect ratio and solidity;
     keep the largest match."""
-    scale = _DETECT_DOWNSCALE
+    scale = _reduction(gray, _DETECT_DOWNSCALE)
     preview = cv2.resize(gray, None, fx=1 / scale, fy=1 / scale,
                          interpolation=cv2.INTER_AREA)
     preview = np.clip(preview, 0, 255).astype(np.uint8)
@@ -145,8 +166,11 @@ def _detect_scalebar(gray: np.ndarray) -> list:
     """Reuse the tick-comb pattern search from `scalebar` on a half-size
     preview (its size gates are tuned for half resolution). Every comb
     matching the card's length/pitch signature becomes a padded rectangle
-    around the card."""
-    preview = np.clip(cv2.resize(gray, None, fx=0.5, fy=0.5,
+    around the card. On a reduced frame the ticks are already only a few
+    pixels apart, so the halving is dropped rather than pushing them under
+    `_SCALE_MIN_SPACING_PX`."""
+    scale = _reduction(gray, 2)
+    preview = np.clip(cv2.resize(gray, None, fx=1 / scale, fy=1 / scale,
                                  interpolation=cv2.INTER_AREA),
                       0, 255).astype(np.uint8)
     combs = scalebar._combs(scalebar._tick_candidates(preview))
@@ -168,7 +192,7 @@ def _detect_scalebar(gray: np.ndarray) -> list:
             x0, x1 = comb["cy"] - half_across, comb["cy"] + half_across
             y0, y1 = comb["cx"] - half_along, comb["cx"] + half_along
         polygons.append(np.float32(
-            [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) * 2)
+            [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) * scale)
     return polygons
 
 

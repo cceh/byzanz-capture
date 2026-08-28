@@ -283,7 +283,8 @@ def _qimage_from_rgb(rgb: np.ndarray) -> QImage:
 
 
 def _measure_capture_array(path: str, rgb: np.ndarray, modality: str):
-    """Run v2 on the already-decoded full-resolution array."""
+    """Run the vendored sharpness metric on the already-decoded
+    full-resolution array."""
     def gray_loader(_path: str) -> np.ndarray:
         if modality == "ir":
             # The IR body clips red; validation uses the green channel.
@@ -395,7 +396,8 @@ class LoadImageWorker(QRunnable):
                     self.path, rgb, request.modality)
             except Exception:
                 result = None
-                _logger.warning("sharpness v2 failed for %s",
+                _logger.warning("sharpness (%s) failed for %s",
+                                SHARPNESS_METRIC_VERSION,
                                 Path(self.path).name, exc_info=True)
             finding = AuditFinding(
                 check=SHARPNESS_AUDIT,
