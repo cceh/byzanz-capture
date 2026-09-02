@@ -67,6 +67,14 @@ def _number(value, converter):
         return None
 
 
+def _per_bin(value, converter):
+    """Orientation-bin dict with JSON-stable string keys (json round-trips
+    int keys as strings; normalizing at write time keeps both paths equal)."""
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): _number(v, converter) for key, v in value.items()}
+
+
 def finding_to_entry(
     finding: AuditFinding,
     modality: AuditModality,
@@ -80,12 +88,17 @@ def finding_to_entry(
     balance = _number(
         data.get("balance", data.get("orientation_balance")), float)
     excluded = data.get("excluded")
+    regions = data.get("regions")
     return {
         "sharp_px": sharp_px,
         "median_px": _number(data.get("median_px"), float),
         "n_edges": _number(data.get("n_edges"), int),
+        "n_rejected_subpx": _number(data.get("n_rejected_subpx"), int),
         "balance": balance,
+        "orientation_counts": _per_bin(data.get("orientation_counts"), int),
+        "orientation_p20": _per_bin(data.get("orientation_p20"), float),
         "excluded": dict(excluded) if isinstance(excluded, dict) else {},
+        "regions": dict(regions) if isinstance(regions, dict) else {},
         "metric_version": finding.metric_version,
         "warn_threshold": settings.threshold_for(modality),
         "status": _status(sharp_px, modality, settings),

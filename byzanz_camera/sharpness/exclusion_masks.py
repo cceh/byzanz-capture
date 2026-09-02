@@ -8,8 +8,10 @@ never contribute to the object sharpness statistic.
 
 Detector registry: `register_detector(name, fn)` adds a detector. A
 detector takes the full-resolution grayscale frame (float32, 0-255) and
-returns a list of polygons (Nx2 arrays, full-resolution x/y coordinates)
-around its targets - an empty list when the target is not in the frame.
+returns a list of regions - an empty list when the target is not in the
+frame. A region is a dict with at least `"polygon"` (Nx2 array,
+full-resolution x/y coordinates) plus whatever detail the detector
+measured on the way (the scale detector attaches its tick-comb data).
 Built-ins:
 
   "cc"     ColorChecker, found by its dark chart face (large near-black
@@ -70,10 +72,27 @@ def available() -> tuple[str, ...]:
     return tuple(_DETECTORS)
 
 
-def detect_polygons(gray: np.ndarray, names=None) -> dict[str, list]:
-    """Run the requested detectors; {name: [polygon, ...]} (may be empty)."""
+def detect_regions(gray: np.ndarray, names=None) -> dict[str, list[dict]]:
+    """Run the requested detectors; {name: [region, ...]} (may be empty)."""
     names = tuple(_DETECTORS) if names is None else tuple(names)
     return {name: _DETECTORS[name](gray) for name in names}
+
+
+def mask_from_polygons(gray: np.ndarray, polygons) -> Optional[np.ndarray]:
+    """Boolean array of gray's shape with True inside every polygon plus
+    MASK_MARGIN_PX; None when there are no polygons."""
+    if not polygons:
+        return None
+    scale = _reduction(gray, _DETECT_DOWNSCALE)
+    small_shape = (int(gray.shape[0] / scale) + 1, int(gray.shape[1] / scale) + 1)
+    small = np.zeros(small_shape, np.uint8)
+    for polygon in polygons:
+        cv2.fillPoly(small, [np.int32(np.asarray(polygon) / scale)], 1)
+    margin = max(1, int(MASK_MARGIN_PX * _frame_scale(gray) / scale))
+    small = cv2.dilate(small, np.ones((2 * margin + 1, 2 * margin + 1), np.uint8))
+    mask = cv2.resize(small, (gray.shape[1], gray.shape[0]),
+                      interpolation=cv2.INTER_NEAREST)
+    return mask.astype(bool)
 
 
 def build_mask(gray: np.ndarray, names=None):
@@ -84,32 +103,44 @@ def build_mask(gray: np.ndarray, names=None):
     nothing was detected; `found` maps each requested detector name to
     whether it found its target.
     """
-    polygons_by_name = detect_polygons(gray, names)
-    found = {name: len(polys) > 0 for name, polys in polygons_by_name.items()}
-    all_polygons = [p for polys in polygons_by_name.values() for p in polys]
-    if not all_polygons:
-        return None, found
+    regions = detect_regions(gray, names)
+    found = {name: len(rs) > 0 for name, rs in regions.items()}
+    polygons = [r["polygon"] for rs in regions.values() for r in rs]
+    return mask_from_polygons(gray, polygons), found
 
-    scale = _reduction(gray, _DETECT_DOWNSCALE)
-    small_shape = (int(gray.shape[0] / scale) + 1, int(gray.shape[1] / scale) + 1)
-    small = np.zeros(small_shape, np.uint8)
-    for polygon in all_polygons:
-        cv2.fillPoly(small, [np.int32(np.asarray(polygon) / scale)], 1)
-    margin = max(1, int(MASK_MARGIN_PX * _frame_scale(gray) / scale))
-    small = cv2.dilate(small, np.ones((2 * margin + 1, 2 * margin + 1), np.uint8))
-    mask = cv2.resize(small, (gray.shape[1], gray.shape[0]),
-                      interpolation=cv2.INTER_NEAREST)
-    return mask.astype(bool), found
+
+def jsonable_regions(regions: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    """Regions as plain JSON types, polygon corners rounded to whole
+    full-resolution pixels — the shape callers may persist as-is."""
+    return {
+        name: [
+            {"polygon": [[int(round(x)), int(round(y))]
+                         for x, y in np.asarray(region["polygon"], float)],
+             **{k: v for k, v in region.items() if k != "polygon"}}
+            for region in rs
+        ]
+        for name, rs in regions.items()
+    }
 
 
 # ---- built-in detector: ColorChecker --------------------------------------
 
-# geometry gates for the chart face, relative to the frame
+# geometry gates for the chart face, relative to the frame. The area cap only has to
+# exclude nonsense (a shadowed table edge spanning the frame) — the 40 cm captures put
+# the chart at ~11 % of the frame, so a tight cap made the detector blind exactly there
+# (H40 hit rate was 1 %). What separates the chart from a dark, rectangular fragment is
+# not its size but its STRUCTURE: the light patches inside the dark face. A papyrus is
+# never bright inside its own outline; the chart always is.
 _CC_MIN_AREA_FRACTION = 0.001
-_CC_MAX_AREA_FRACTION = 0.06
+_CC_MAX_AREA_FRACTION = 0.25
 _CC_ASPECT_RANGE = (1.25, 1.8)
 _CC_MIN_FILL = 0.6
 _CC_DARK_THRESHOLD = 60
+# Measured on the corpus: inside the chart outline 10-12 % of the pixels clear 120 at
+# every height; inside a dark fragment 0.1-0.6 %. The gate sits at 3 %, a factor of
+# three below the darkest chart and five above the brightest fragment.
+_CC_BRIGHT_THRESHOLD = 120
+_CC_MIN_BRIGHT_FRACTION = 0.03   # of the pixels inside the blob outline
 
 
 def _detect_colorchecker(gray: np.ndarray) -> list:
@@ -142,12 +173,20 @@ def _detect_colorchecker(gray: np.ndarray) -> list:
             continue
         if area / (w * h) < _CC_MIN_FILL:
             continue
+        # structural gate: the chart's light patches sit INSIDE the dark outline.
+        # Measured inside the contour (not the box), so the white plate around a
+        # non-rectangular dark fragment cannot fake it.
+        inside = np.zeros(preview.shape, np.uint8)
+        cv2.fillPoly(inside, [contour], 1)
+        bright = np.count_nonzero(preview[inside > 0] > _CC_BRIGHT_THRESHOLD)
+        if bright < _CC_MIN_BRIGHT_FRACTION * np.count_nonzero(inside):
+            continue
         if best is None or area > best[0]:
             best = (area, contour)
     if best is None:
         return []
     corners = cv2.boxPoints(cv2.minAreaRect(best[1])) * scale
-    return [corners.astype(np.float32)]
+    return [{"polygon": corners.astype(np.float32)}]
 
 
 # ---- built-in detector: scale card ----------------------------------------
@@ -166,9 +205,11 @@ def _detect_scalebar(gray: np.ndarray) -> list:
     """Reuse the tick-comb pattern search from `scalebar` on a half-size
     preview (its size gates are tuned for half resolution). Every comb
     matching the card's length/pitch signature becomes a padded rectangle
-    around the card. On a reduced frame the ticks are already only a few
-    pixels apart, so the halving is dropped rather than pushing them under
-    `_SCALE_MIN_SPACING_PX`."""
+    around the card, with the comb's measurements attached in
+    full-resolution pixels (on the 1 cm card the tick period is 1 mm, so
+    `tick_period_px` doubles as px/mm). On a reduced frame the ticks are
+    already only a few pixels apart, so the halving is dropped rather than
+    pushing them under `_SCALE_MIN_SPACING_PX`."""
     scale = _reduction(gray, 2)
     preview = np.clip(cv2.resize(gray, None, fx=1 / scale, fy=1 / scale,
                                  interpolation=cv2.INTER_AREA),
@@ -180,20 +221,33 @@ def _detect_scalebar(gray: np.ndarray) -> list:
                  <= c["tick_len"] / c["spacing"]
                  <= _SCALE_LEN_RATIO_RANGE[1]]
     combs = sorted(combs, key=lambda c: -c["n"])[:_SCALE_MAX_COMBS]
-    polygons = []
+    regions = []
     for comb in combs:
         pad = _SCALE_PAD_TICK_LENGTHS * comb["tick_len"]
         half_along = comb["tick_len"] / 2 + pad
         half_across = comb["span"] / 2 + pad
         if comb["horizontal"]:
-            x0, x1 = comb["cx"] - half_along, comb["cx"] + half_along
-            y0, y1 = comb["cy"] - half_across, comb["cy"] + half_across
+            cx, cy = comb["cx"], comb["cy"]
+            x0, x1 = cx - half_along, cx + half_along
+            y0, y1 = cy - half_across, cy + half_across
         else:
-            x0, x1 = comb["cy"] - half_across, comb["cy"] + half_across
-            y0, y1 = comb["cx"] - half_along, comb["cx"] + half_along
-        polygons.append(np.float32(
-            [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) * scale)
-    return polygons
+            cx, cy = comb["cy"], comb["cx"]
+            x0, x1 = cx - half_across, cx + half_across
+            y0, y1 = cy - half_along, cy + half_along
+        regions.append({
+            "polygon": np.float32(
+                [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) * scale,
+            "comb": {
+                "n_ticks": int(comb["n"]),
+                "tick_period_px": round(comb["spacing"] * scale, 2),
+                "tick_len_px": round(comb["tick_len"] * scale, 1),
+                "span_px": round(comb["span"] * scale, 1),
+                "spacing_cv": round(comb["cv"], 4),
+                "center": [int(round(cx * scale)), int(round(cy * scale))],
+                "horizontal": bool(comb["horizontal"]),
+            },
+        })
+    return regions
 
 
 register_detector("cc", _detect_colorchecker)

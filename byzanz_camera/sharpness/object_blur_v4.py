@@ -131,14 +131,21 @@ def _sites(gray, mask):
 
 
 def measure(path, gray_loader=None, exclude=("cc", "scale")):
-    """Measure one capture. Same contract and return shape as object_blur_v3.measure;
+    """Measure one capture. Return shape of object_blur_v3.measure plus
+    `regions`: the detected exclusion geometry as JSON-ready dicts in
+    full-resolution pixels (the scale card's regions carry their tick-comb
+    data), so callers can persist what the exclusion pass already measured.
     None when too few real edges remain ("not measurable", never "ok")."""
     gray = (gray_loader or object_blur._gray_full)(path)
-    if exclude:
-        mask, mask_found = exclusion_masks.build_mask(gray, exclude)
-    else:
-        mask, mask_found = None, {}
-    return object_blur_v3.reduce_sites(gray, mask_found, _sites(gray, mask), METRIC_VERSION)
+    regions = exclusion_masks.detect_regions(gray, exclude) if exclude else {}
+    found = {name: len(rs) > 0 for name, rs in regions.items()}
+    polygons = [r["polygon"] for rs in regions.values() for r in rs]
+    mask = exclusion_masks.mask_from_polygons(gray, polygons)
+    result = object_blur_v3.reduce_sites(
+        gray, found, _sites(gray, mask), METRIC_VERSION)
+    if result is not None:
+        result["regions"] = exclusion_masks.jsonable_regions(regions)
+    return result
 
 
 if __name__ == "__main__":

@@ -15,6 +15,14 @@ is whatever `__init__.py` re-exports (currently `object_blur_v4`); the
 older versions stay vendored because each delta module imports its
 predecessor.
 
+Local divergence (2026-09, to port back to the canonical source with the
+next sync): `exclusion_masks` returns detected regions instead of bare
+polygons (`detect_regions` / `mask_from_polygons` / `jsonable_regions`;
+the scale detector attaches its tick-comb measurements), and
+`object_blur_v4.measure` reports them as `regions` so the capture audit
+can persist the geometry per capture. Measurement values are unchanged —
+`metric_version` stays "v4".
+
 ## Planned extraction
 
 Sharpness, ColorChecker detection, scale-bar detection, and future image
