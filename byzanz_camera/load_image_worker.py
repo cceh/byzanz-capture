@@ -43,7 +43,7 @@ from .capture_audit import (
 )
 from .thumb_cache import thumb_cache
 from .sharpness import METRIC_VERSION as SHARPNESS_METRIC_VERSION
-from .sharpness import measure as measure_object_sharpness
+from .sharpness import measure_rgb as measure_sharpness_rgb
 
 _logger = logging.getLogger("LoadImageWorker")
 
@@ -282,16 +282,12 @@ def _qimage_from_rgb(rgb: np.ndarray) -> QImage:
     return QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
 
 
-def _measure_capture_array(path: str, rgb: np.ndarray, modality: str):
+def _measure_capture_array(rgb: np.ndarray, modality: str):
     """Run the vendored sharpness metric on the already-decoded
-    full-resolution array."""
-    def gray_loader(_path: str) -> np.ndarray:
-        if modality == "ir":
-            # The IR body clips red; validation uses the green channel.
-            return rgb[:, :, 1].astype(np.float32)
-        return cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
-
-    return measure_object_sharpness(path, gray_loader=gray_loader)
+    full-resolution array. The metric derives its own measurement channel
+    per kind (VIS luminance, IR green); AuditModality maps onto the
+    metric's KINDS here and nowhere else."""
+    return measure_sharpness_rgb(rgb, "visible" if modality == "vis" else "ir")
 
 
 def _exif_from_raw_embedded_jpeg(raw) -> dict:
@@ -392,8 +388,7 @@ class LoadImageWorker(QRunnable):
                                 check, Path(self.path).name)
                 continue
             try:
-                result = _measure_capture_array(
-                    self.path, rgb, request.modality)
+                result = _measure_capture_array(rgb, request.modality)
             except Exception:
                 result = None
                 _logger.warning("sharpness (%s) failed for %s",

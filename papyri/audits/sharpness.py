@@ -1,10 +1,12 @@
 """The sharpness capture audit: is this capture in focus?
 
 Wraps the vendored metric (byzanz_camera.sharpness) in Papyri policy:
-configurable per-modality warn thresholds, the stable `_meta.json` entry
-shape, classification, and the German operator feedback. One module per
-check — a future check (height, chart presence, …) gets its own sibling
-file and a registry line in `papyri.audits`.
+configurable per-modality warn thresholds, classification, and the German
+operator feedback. The `_meta.json` entry IS the metric's result — its
+shape is owned by the vendored module and versioned by `metric_version`,
+this module only appends the policy fields. One module per check — a
+future check (height, chart presence, …) gets its own sibling file and a
+registry line in `papyri.audits`.
 """
 from __future__ import annotations
 
@@ -22,6 +24,9 @@ from byzanz_camera.sharpness import METRIC_VERSION
 
 CHECK = SHARPNESS_AUDIT
 
+# Calibrated on the v4 corpus. v6 masks the full card face, which shifts
+# values slightly on frames WITH a card — revalidate against the v6
+# corpus re-audit before trusting warns near the line.
 DEFAULT_VIS_THRESHOLD = 2.60
 DEFAULT_IR_THRESHOLD = 1.75
 
@@ -67,42 +72,22 @@ def _number(value, converter):
         return None
 
 
-def _per_bin(value, converter):
-    """Orientation-bin dict with JSON-stable string keys (json round-trips
-    int keys as strings; normalizing at write time keeps both paths equal)."""
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): _number(v, converter) for key, v in value.items()}
-
-
 def finding_to_entry(
     finding: AuditFinding,
     modality: AuditModality,
     settings: SharpnessAuditSettings,
 ) -> dict:
-    """Normalize one runtime finding to the stable `_meta.json` shape."""
+    """One runtime finding as the `_meta.json` entry: the metric's result
+    verbatim — its shape is JSON-stable by contract — plus the policy
+    fields (`warn_threshold`, `status`)."""
     if finding.check != CHECK:
         raise ValueError(f"not a sharpness finding: {finding.check!r}")
-    data = finding.data or {}
-    sharp_px = _number(data.get("sharp_px"), float)
-    balance = _number(
-        data.get("balance", data.get("orientation_balance")), float)
-    excluded = data.get("excluded")
-    regions = data.get("regions")
-    return {
-        "sharp_px": sharp_px,
-        "median_px": _number(data.get("median_px"), float),
-        "n_edges": _number(data.get("n_edges"), int),
-        "n_rejected_subpx": _number(data.get("n_rejected_subpx"), int),
-        "balance": balance,
-        "orientation_counts": _per_bin(data.get("orientation_counts"), int),
-        "orientation_p20": _per_bin(data.get("orientation_p20"), float),
-        "excluded": dict(excluded) if isinstance(excluded, dict) else {},
-        "regions": dict(regions) if isinstance(regions, dict) else {},
-        "metric_version": finding.metric_version,
-        "warn_threshold": settings.threshold_for(modality),
-        "status": _status(sharp_px, modality, settings),
-    }
+    entry = dict(finding.data or {})
+    entry["metric_version"] = finding.metric_version
+    entry["warn_threshold"] = settings.threshold_for(modality)
+    entry["status"] = _status(
+        _number(entry.get("sharp_px"), float), modality, settings)
+    return entry
 
 
 def is_current_entry(entry: object) -> bool:

@@ -18,31 +18,28 @@ class CaptureAuditPolicyTest(unittest.TestCase):
 
     @staticmethod
     def finding(sharp_px: float | None, balance: float = 0.5) -> AuditFinding:
+        # The shape measure_rgb returns (see its docstring).
         data = None if sharp_px is None else {
             "sharp_px": sharp_px,
             "median_px": sharp_px + 0.5,
             "n_edges": 200,
             "n_rejected_subpx": 3,
             "orientation_balance": balance,
-            "orientation_counts": {0: 80, 45: 40, 90: 50, 135: 30},
-            "orientation_p20": {0: 2.1, 45: None, 90: 2.3, 135: 2.2},
+            "orientation_counts": {"0": 80, "45": 40, "90": 50, "135": 30},
+            "orientation_p20": {"0": 2.1, "45": None, "90": 2.3, "135": 2.2},
             "excluded": {"cc": False, "scale": True},
             "regions": {
                 "cc": [],
-                "scale": [{
-                    "polygon": [[100, 200], [500, 200],
-                                [500, 320], [100, 320]],
-                    "comb": {
-                        "n_ticks": 11,
-                        "tick_period_px": 31.42,
-                        "tick_len_px": 103.7,
-                        "span_px": 314.2,
-                        "spacing_cv": 0.012,
-                        "center": [300, 260],
-                        "horizontal": False,
-                    },
-                }],
+                "scale": [[[100.0, 200.0], [500.0, 200.0],
+                           [500.0, 320.0], [100.0, 320.0]]],
             },
+            "scale_card": {
+                "px_per_mm": 31.4159,
+                "ticks": 11,
+                "residual": 0.42,
+                "angle": 90.0,
+            },
+            "metric_version": METRIC_VERSION,
         }
         return AuditFinding(SHARPNESS_AUDIT, METRIC_VERSION, data)
 
@@ -83,19 +80,20 @@ class CaptureAuditPolicyTest(unittest.TestCase):
         self.assertFalse(is_current_entry("not-a-dict"))
         self.assertFalse(entry_is_current("unknown-check", self.entry(2.0)))
 
-    def test_measurement_detail_is_persisted(self) -> None:
-        # Everything the metric measured lands in the entry: the orientation
-        # histograms (JSON-stable string keys), the subpixel-reject count,
-        # and the exclusion geometry with the scale comb's tick period.
+    def test_entry_is_the_metric_result_plus_policy(self) -> None:
+        # The entry carries the metric's result verbatim — geometry and
+        # scale included — with only the policy fields appended.
         entry = self.entry(2.0)
         self.assertEqual(entry["orientation_counts"],
                          {"0": 80, "45": 40, "90": 50, "135": 30})
         self.assertEqual(entry["orientation_p20"]["45"], None)
         self.assertEqual(entry["n_rejected_subpx"], 3)
+        self.assertEqual(entry["orientation_balance"], 0.5)
         self.assertEqual(entry["regions"]["cc"], [])
-        comb = entry["regions"]["scale"][0]["comb"]
-        self.assertEqual(comb["tick_period_px"], 31.42)
-        self.assertEqual(len(entry["regions"]["scale"][0]["polygon"]), 4)
+        self.assertEqual(len(entry["regions"]["scale"][0]), 4)
+        self.assertEqual(entry["scale_card"]["px_per_mm"], 31.4159)
+        self.assertEqual(entry["scale_card"]["ticks"], 11)
+        self.assertEqual(entry["warn_threshold"], 2.60)
 
     def test_status_reclassifies_against_current_settings(self) -> None:
         # Persisted with a 2.60 threshold, re-read after the user tightened

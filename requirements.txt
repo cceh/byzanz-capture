@@ -4,11 +4,11 @@ Pillow~=12.2.0
 Send2Trash~=1.8.3
 rawpy~=0.26.1
 numpy~=2.4.4
-opencv-python-headless~=4.13.0
+opencv-python-headless~=5.0
 # headless build of the `stitching` package (same code, depends on
 # opencv-python-headless). Pulls numba via largestinteriorrectangle;
 # unused at runtime — we stitch with crop=False, which never imports it.
-stitching-headless~=0.6.1
+stitching-headless~=0.7.0
 psutil
 ExifRead~=3.5.1
 scipy~=1.17.1

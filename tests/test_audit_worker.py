@@ -38,7 +38,7 @@ class AuditWorkerTest(unittest.TestCase):
             patch("byzanz_camera.load_image_worker.thumb_cache",
                   return_value=self.cache),
             patch(
-                "byzanz_camera.load_image_worker.measure_object_sharpness",
+                "byzanz_camera.load_image_worker.measure_sharpness_rgb",
                 return_value={"sharp_px": 1.2},
             ),
         ):

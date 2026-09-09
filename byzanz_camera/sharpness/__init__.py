@@ -1,5 +1,5 @@
 """Vendored papyrus-plane sharpness metric used by capture feedback."""
 
-from .object_blur_v4 import METRIC_VERSION, measure
+from .object_blur import KINDS, METRIC_VERSION, measure, measure_rgb
 
-__all__ = ["METRIC_VERSION", "measure"]
+__all__ = ["KINDS", "METRIC_VERSION", "measure", "measure_rgb"]
