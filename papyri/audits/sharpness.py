@@ -55,6 +55,13 @@ def read_settings(settings: QSettings) -> SharpnessAuditSettings:
     )
 
 
+def applies_to(stem: str, *, stitching: bool,
+               reference_stem: str | None) -> bool:
+    """Every capture — the object metric measures reference frames too
+    (honestly "not measurable", but with the card geometry persisted)."""
+    return True
+
+
 def _status(
     value: float | None,
     modality: AuditModality,

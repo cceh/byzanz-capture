@@ -11,6 +11,7 @@ from typing import Literal
 
 AuditModality = Literal["vis", "ir"]
 SHARPNESS_AUDIT = "sharpness"
+SCALECARD_AUDIT = "scalecard"
 
 
 @dataclass(frozen=True)

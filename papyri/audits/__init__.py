@@ -25,7 +25,7 @@ from pathlib import Path
 from PyQt6.QtCore import QSettings
 
 from byzanz_camera.capture_audit import AuditFinding, CaptureAuditContext
-from papyri.audits import sharpness
+from papyri.audits import scalecard, sharpness
 from papyri.capture_vocab import SPECTRUM_INFIX
 from papyri.object_layout import (
     BUCKETS, effective_capture_stem, meta_path_for, read_capture_audits,
@@ -34,6 +34,7 @@ from papyri.object_layout import (
 
 CHECKS = {
     sharpness.CHECK: sharpness,
+    scalecard.CHECK: scalecard,
 }
 
 
@@ -43,6 +44,7 @@ class CaptureAuditSettings:
     Field names equal check names (see module docstring)."""
 
     sharpness: sharpness.SharpnessAuditSettings
+    scalecard: scalecard.ScalecardAuditSettings
 
     @property
     def enabled_checks(self) -> frozenset[str]:
@@ -56,6 +58,27 @@ def read_audit_settings(settings: QSettings) -> CaptureAuditSettings:
     """Read and type-normalize the complete capture-audit configuration."""
     return CaptureAuditSettings(
         sharpness=sharpness.read_settings(settings),
+        scalecard=scalecard.read_settings(settings),
+    )
+
+
+def applicable_checks(
+    requested: frozenset[str],
+    stem: str,
+    *,
+    stitching: bool,
+    reference_stem: str | None,
+) -> frozenset[str]:
+    """Which of the requested checks apply to THIS capture — the single
+    per-capture applicability rule, owned by the check modules
+    (`applies_to`). Both the filmstrip's missing-check gate and the
+    feedback rendering resolve through here, so a check that targets only
+    some captures (scalecard: the stitch reference frame) is neither
+    measured nor shown as pending anywhere else."""
+    return frozenset(
+        check for check in requested
+        if CHECKS[check].applies_to(
+            stem, stitching=stitching, reference_stem=reference_stem)
     )
 
 

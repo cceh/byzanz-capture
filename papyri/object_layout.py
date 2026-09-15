@@ -219,6 +219,20 @@ def store_capture_audit(
     update_meta(meta_path, {MetaKey.AUDITS: audits})
 
 
+def remove_capture_audit(meta_path: str, stem: str, check: str) -> None:
+    """Remove ONE check's entry for one capture, leaving the stem's other
+    findings alone — for a check that no longer applies to the capture
+    (e.g. the scalecard check after the reference was re-pinned)."""
+    audits = read_capture_audits(meta_path)
+    findings = audits.get(stem)
+    if not findings or check not in findings:
+        return
+    del findings[check]
+    if not findings:
+        del audits[stem]
+    update_meta(meta_path, {MetaKey.AUDITS: audits})
+
+
 def rename_capture_audits(meta_path: str, renames: dict[str, str]) -> None:
     """Move audit entries alongside captures whose stems were renamed."""
     if not renames:

@@ -39,11 +39,13 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QImage
 
 from .capture_audit import (
-    AuditFinding, AuditRequest, SHARPNESS_AUDIT,
+    AuditFinding, AuditRequest, SCALECARD_AUDIT, SHARPNESS_AUDIT,
 )
 from .thumb_cache import thumb_cache
 from .sharpness import METRIC_VERSION as SHARPNESS_METRIC_VERSION
 from .sharpness import measure_rgb as measure_sharpness_rgb
+from .sharpness.edge_blur import METRIC_VERSION as SCALECARD_METRIC_VERSION
+from .sharpness.edge_blur import measure_rgb as measure_scalecard_rgb
 
 _logger = logging.getLogger("LoadImageWorker")
 
@@ -282,12 +284,21 @@ def _qimage_from_rgb(rgb: np.ndarray) -> QImage:
     return QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
 
 
-def _measure_capture_array(rgb: np.ndarray, modality: str):
-    """Run the vendored sharpness metric on the already-decoded
-    full-resolution array. The metric derives its own measurement channel
-    per kind (VIS luminance, IR green); AuditModality maps onto the
-    metric's KINDS here and nowhere else."""
-    return measure_sharpness_rgb(rgb, "visible" if modality == "vis" else "ir")
+# The FULL-array audit metrics by check name, each with the metric version
+# its findings are stamped with.
+_AUDIT_METRICS = {
+    SHARPNESS_AUDIT: (measure_sharpness_rgb, SHARPNESS_METRIC_VERSION),
+    SCALECARD_AUDIT: (measure_scalecard_rgb, SCALECARD_METRIC_VERSION),
+}
+
+
+def _measure_capture_array(check: str, rgb: np.ndarray, modality: str):
+    """Run one audit's vendored metric on the already-decoded
+    full-resolution array. The metrics derive their own measurement
+    channel per kind (VIS luminance, IR green); AuditModality maps onto
+    their KINDS here and nowhere else."""
+    measure_fn, _ = _AUDIT_METRICS[check]
+    return measure_fn(rgb, "visible" if modality == "vis" else "ir")
 
 
 def _exif_from_raw_embedded_jpeg(raw) -> dict:
@@ -383,24 +394,27 @@ class LoadImageWorker(QRunnable):
         for check in sorted(request.checks):
             timer = QElapsedTimer()
             timer.start()
-            if check != SHARPNESS_AUDIT:
+            metric = _AUDIT_METRICS.get(check)
+            if metric is None:
                 _logger.warning("unknown capture audit %r for %s",
                                 check, Path(self.path).name)
                 continue
+            metric_version = metric[1]
             try:
-                result = _measure_capture_array(rgb, request.modality)
+                result = _measure_capture_array(check, rgb, request.modality)
             except Exception:
                 result = None
-                _logger.warning("sharpness (%s) failed for %s",
-                                SHARPNESS_METRIC_VERSION,
+                _logger.warning("%s (%s) failed for %s",
+                                check, metric_version,
                                 Path(self.path).name, exc_info=True)
             finding = AuditFinding(
-                check=SHARPNESS_AUDIT,
-                metric_version=SHARPNESS_METRIC_VERSION,
+                check=check,
+                metric_version=metric_version,
                 data=result,
             )
             self.signals.audit_finished.emit(self.path, finding)
-            sharp = None if result is None else result.get("sharp_px")
+            value = (None if result is None
+                     else result.get("sharp_px", result.get("edge_px")))
             _logger.debug("audit(%s, %s) took %d ms (result=%s)",
                           Path(self.path).name, check, timer.elapsed(),
-                          "none" if sharp is None else f"{sharp:.2f}px")
+                          "none" if value is None else f"{value:.2f}px")

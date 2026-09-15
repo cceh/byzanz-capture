@@ -10,6 +10,7 @@ from byzanz_camera.capture_audit import (
 )
 from byzanz_camera.sharpness import METRIC_VERSION
 from papyri.audits import CaptureAuditSettings, persist_fresh_capture_audit
+from papyri.audits.scalecard import ScalecardAuditSettings
 from papyri.audits.sharpness import SharpnessAuditSettings
 
 
@@ -29,7 +30,8 @@ class AuditPersistenceCoordinatorTest(unittest.TestCase):
         )
         self.settings = CaptureAuditSettings(
             sharpness=SharpnessAuditSettings(
-                enabled=True, vis_warn_from=2.60, ir_warn_from=1.75))
+                enabled=True, vis_warn_from=2.60, ir_warn_from=1.75),
+            scalecard=ScalecardAuditSettings(enabled=True))
 
     def tearDown(self) -> None:
         self.temp.cleanup()

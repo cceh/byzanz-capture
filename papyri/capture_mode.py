@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from byzanz_camera.capture_audit import SHARPNESS_AUDIT
+from byzanz_camera.capture_audit import SCALECARD_AUDIT, SHARPNESS_AUDIT
 from papyri.capture_vocab import (
     SIDE_A, SIDE_B, SPECTRUM_INFRARED, SPECTRUM_VISIBLE,
     SPECTRUM_SHORT_LABEL,
@@ -148,7 +148,7 @@ PAPYRI_MODE = CaptureMode(
     show_sides=True,
     whole_folder_filmstrip=False,
     show_calibration=True,
-    capture_audit_checks=frozenset({SHARPNESS_AUDIT}),
+    capture_audit_checks=frozenset({SHARPNESS_AUDIT, SCALECARD_AUDIT}),
 )
 
 SIMPLE_MODE = CaptureMode(

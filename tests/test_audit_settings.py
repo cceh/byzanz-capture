@@ -5,7 +5,7 @@ import unittest
 
 from PyQt6.QtCore import QSettings
 
-from byzanz_camera.capture_audit import SHARPNESS_AUDIT
+from byzanz_camera.capture_audit import SCALECARD_AUDIT, SHARPNESS_AUDIT
 from byzanz_camera.settings_migration import (
     PAPYRI_SHARPNESS_ENABLED_KEY, PAPYRI_SHARPNESS_IR_THRESHOLD_KEY,
     PAPYRI_SHARPNESS_VIS_THRESHOLD_KEY, migrate_papyri_settings,
@@ -33,7 +33,8 @@ class AuditSettingsTest(unittest.TestCase):
     def test_defaults_and_complete_snapshot(self) -> None:
         # A fresh store yields the shipped defaults without any seeding.
         snapshot = read_audit_settings(self.settings)
-        self.assertEqual(snapshot.enabled_checks, {SHARPNESS_AUDIT})
+        self.assertEqual(snapshot.enabled_checks,
+                         {SHARPNESS_AUDIT, SCALECARD_AUDIT})
         self.assertEqual(snapshot.sharpness.vis_warn_from, 2.60)
         self.assertEqual(snapshot.sharpness.ir_warn_from, 1.75)
 

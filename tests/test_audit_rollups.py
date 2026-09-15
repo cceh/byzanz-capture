@@ -7,6 +7,7 @@ from pathlib import Path
 from byzanz_camera.capture_audit import SHARPNESS_AUDIT
 from byzanz_camera.sharpness import METRIC_VERSION
 from papyri.audits import CaptureAuditSettings, bucket_effective_warnings
+from papyri.audits.scalecard import ScalecardAuditSettings
 from papyri.audits.sharpness import SharpnessAuditSettings
 from papyri.capture_vocab import SIDE_A, SPECTRUM_VISIBLE
 from papyri.object_layout import (
@@ -28,8 +29,10 @@ class BucketEffectiveWarningsTest(unittest.TestCase):
         self.bucket = Path(dir_for_bucket(
             self.object_dir, SIDE_A, SPECTRUM_VISIBLE))
         self.bucket.mkdir(parents=True)
-        self.settings = CaptureAuditSettings(SharpnessAuditSettings(
-            enabled=True, vis_warn_from=2.60, ir_warn_from=1.75))
+        self.settings = CaptureAuditSettings(
+            SharpnessAuditSettings(
+                enabled=True, vis_warn_from=2.60, ir_warn_from=1.75),
+            ScalecardAuditSettings(enabled=True))
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -80,8 +83,10 @@ class BucketEffectiveWarningsTest(unittest.TestCase):
     def test_disabled_audits_never_warn(self) -> None:
         self._touch("obj_a_vis_001")
         self._write_meta({"obj_a_vis_001": {SHARPNESS_AUDIT: WARN_ENTRY}})
-        disabled = CaptureAuditSettings(SharpnessAuditSettings(
-            enabled=False, vis_warn_from=2.60, ir_warn_from=1.75))
+        disabled = CaptureAuditSettings(
+            SharpnessAuditSettings(
+                enabled=False, vis_warn_from=2.60, ir_warn_from=1.75),
+            ScalecardAuditSettings(enabled=False))
         self.assertEqual(
             bucket_effective_warnings(self.object_dir, disabled), set())
 

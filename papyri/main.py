@@ -125,8 +125,9 @@ from papyri.calibration_layout import label_for_slot
 from papyri.calibration_target import CalibrationTarget
 from papyri.capture_mode import CALIBRATION_MODE, calibration_mode_for, get_mode
 from papyri.audits import (
-    CHECKS, CaptureAuditSettings, bucket_effective_warnings,
-    persist_fresh_capture_audit, read_audit_settings,
+    CHECKS, CaptureAuditSettings, applicable_checks,
+    bucket_effective_warnings, persist_fresh_capture_audit,
+    read_audit_settings,
 )
 from papyri._metadata import (
     current_height_for,
@@ -1624,10 +1625,13 @@ class PapyriMainWindow(QMainWindow):
     def _on_stitch_toggled(self, checked: bool) -> None:
         """User clicked the Stitch toggle → write the flag to the current
         object's `_meta.json`. `set_stitching` refreshes the object, so the
-        filmstrip and stitch check react via `state_changed`."""
+        filmstrip and stitch check react via `state_changed`; the reference
+        frame's audit requirements change with the flag, so its audits
+        follow explicitly."""
         obj = self.session.current_object
         if isinstance(obj, Object):
             obj.set_stitching(checked)
+            self.filmstrip.ensure_reference_audits()
 
     def _refresh_stitch_toggle(self) -> None:
         """Reflect the current object's stitching flag; disabled without an
@@ -2124,11 +2128,18 @@ class PapyriMainWindow(QMainWindow):
                 or self.session.view_mode == "live"):
             self._capture_feedback.set_content([], None)
             return
-        entries = read_capture_audits(context.target_id).get(
-            Path(path).stem, {})
+        stem = Path(path).stem
+        entries = read_capture_audits(context.target_id).get(stem, {})
+        obj = self.session.current_object
+        reference = obj.reference(
+            self.session.active_side, self.session.active_spectrum)
+        applicable = applicable_checks(
+            context.request.checks, stem,
+            stitching=obj.is_stitching(),
+            reference_stem=reference.stem if reference else None)
         warnings: list[tuple[str, str]] = []
         fragments: list[str] = []
-        for check in sorted(context.request.checks):
+        for check in sorted(applicable):
             module = CHECKS[check]
             entry = entries.get(check)
             if entry is None or not module.is_current_entry(entry):

@@ -32,9 +32,11 @@ from byzanz_camera.capture_audit import CaptureAuditContext
 from byzanz_camera.capture_filmstrip import CaptureFilmstrip
 from byzanz_camera.filmstrip_widget import THUMB_GAP, stem_of
 from byzanz_camera.load_image_worker import SUPPORTED_EXTENSIONS
-from papyri.audits import CaptureAuditSettings, entry_is_current, warned_checks
+from papyri.audits import (
+    CaptureAuditSettings, applicable_checks, entry_is_current, warned_checks,
+)
 from papyri.capture_vocab import SIDE_A, SIDE_B, SPECTRUM_VISIBLE
-from papyri.object_layout import read_capture_audits
+from papyri.object_layout import read_capture_audits, remove_capture_audit
 from papyri.styles import AUDIT_STATUS_COLORS
 
 
@@ -47,6 +49,7 @@ class _DropMarker(QWidget):
 
 
 if TYPE_CHECKING:
+    from papyri.capture_model import Capture
     from papyri.main import Object
 
 
@@ -261,19 +264,54 @@ class PapyriFilmstrip(CaptureFilmstrip):
                 status_by_stem[capture.stem] = "warn"
         self.set_audit_badges(status_by_stem, AUDIT_STATUS_COLORS)
 
+    def ensure_reference_audits(self, previous: "Capture | None" = None) -> None:
+        """After the reference or the stitching flag changed: the only
+        captures whose audit requirements can change are the previous and
+        the current reference. Remove their entries whose check no longer
+        applies (a stale scalecard entry on a segment would linger in the
+        viewer import); a capture with a missing check is re-decoded
+        through the normal display path (`redecode`) — the launch gate
+        (`_missing_audit_checks`) computes what to run, exactly as when
+        the file is opened. Audits never decode anything of their own."""
+        context = self._bound_audit_context
+        if self._obj is None or context is None:
+            return
+        current = self._obj.reference(self._side, self._spectrum)
+        stitching = self._obj.is_stitching()
+        persisted = read_capture_audits(self._obj.meta_path)
+        targets = {c.stem: c for c in (previous, current) if c is not None}
+        for capture in targets.values():
+            applicable = applicable_checks(
+                context.request.checks, capture.stem,
+                stitching=stitching,
+                reference_stem=current.stem if current else None)
+            stale = (set(persisted.get(capture.stem, {}))
+                     & set(context.request.checks)) - applicable
+            for check in stale:
+                remove_capture_audit(self._obj.meta_path, capture.stem, check)
+            if self._missing_audit_checks(capture.primary_path):
+                self.redecode(capture.primary_path)
+
     def _missing_audit_checks(self, path: str) -> frozenset[str]:
-        """Which of the binding's checks have no current persisted entry
-        for this capture. The filename stem is the established per-capture
-        storage key (same key `persist_fresh_capture_audit` writes)."""
+        """Which of the binding's checks apply to this capture but have no
+        current persisted entry. Applicability is the check modules' rule
+        (`applicable_checks`); the filename stem is the established
+        per-capture storage key (same key `persist_fresh_capture_audit`
+        writes)."""
         context = self._bound_audit_context
         if context is None or self._obj is None:
             return frozenset()
-        entries = read_capture_audits(self._obj.meta_path).get(
-            Path(path).stem, {})
+        stem = Path(path).stem
+        reference = self._obj.reference(self._side, self._spectrum)
+        applicable = applicable_checks(
+            context.request.checks, stem,
+            stitching=self._obj.is_stitching(),
+            reference_stem=reference.stem if reference else None)
+        entries = read_capture_audits(self._obj.meta_path).get(stem, {})
         present = frozenset(
             check for check, entry in entries.items()
             if entry_is_current(check, entry))
-        return context.request.checks - present
+        return applicable - present
 
     def _is_stitch_bucket(self) -> bool:
         """This bucket shows stitch overlays: a bound papyri object flagged
@@ -310,11 +348,15 @@ class PapyriFilmstrip(CaptureFilmstrip):
 
     def _on_mark_reference_requested(self, stem: str) -> None:
         if self._obj is not None:
+            previous = self._obj.reference(self._side, self._spectrum)
             self._obj.set_reference(self._side, self._spectrum, stem)
+            self.ensure_reference_audits(previous)
 
     def _on_unmark_reference_requested(self) -> None:
         if self._obj is not None:
+            previous = self._obj.reference(self._side, self._spectrum)
             self._obj.clear_reference(self._side, self._spectrum)
+            self.ensure_reference_audits(previous)
 
     def _on_move_requested(self, stem: str, dest_side: str) -> None:
         if self._obj is not None:
