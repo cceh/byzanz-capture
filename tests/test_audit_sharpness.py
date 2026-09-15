@@ -95,6 +95,19 @@ class CaptureAuditPolicyTest(unittest.TestCase):
         self.assertEqual(entry["scale_card"]["ticks"], 11)
         self.assertEqual(entry["warn_threshold"], 2.60)
 
+    def test_not_measurable_keeps_the_card_geometry(self) -> None:
+        # The metric reports the cards even when the sharpness is not
+        # measurable (sharp_px None — reference frames); the entry keeps
+        # that geometry and classifies as "none".
+        data = self.finding(2.0).data
+        data.update(sharp_px=None, median_px=None, n_edges=0,
+                    orientation_balance=None)
+        finding = AuditFinding(SHARPNESS_AUDIT, METRIC_VERSION, data)
+        entry = finding_to_entry(finding, "vis", self.settings)
+        self.assertEqual(entry["status"], "none")
+        self.assertEqual(entry["scale_card"]["px_per_mm"], 31.4159)
+        self.assertEqual(len(entry["regions"]["scale"]), 1)
+
     def test_status_reclassifies_against_current_settings(self) -> None:
         # Persisted with a 2.60 threshold, re-read after the user tightened
         # it: the stored status snapshot must not win over the live rule.

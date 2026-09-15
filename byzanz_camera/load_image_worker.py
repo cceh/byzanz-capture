@@ -400,7 +400,7 @@ class LoadImageWorker(QRunnable):
                 data=result,
             )
             self.signals.audit_finished.emit(self.path, finding)
+            sharp = None if result is None else result.get("sharp_px")
             _logger.debug("audit(%s, %s) took %d ms (result=%s)",
                           Path(self.path).name, check, timer.elapsed(),
-                          "none" if result is None else
-                          f"{result.get('sharp_px', float('nan')):.2f}px")
+                          "none" if sharp is None else f"{sharp:.2f}px")

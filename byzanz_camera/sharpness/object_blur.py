@@ -32,7 +32,8 @@ What one measurement does:
      AND starves the along-motion bins, so `orientation_balance` (weakest / strongest bin)
      collapses under shake while defocus leaves it alone — a suspicion marker, not proof
      (near-parallel fibre strips lower it too).
-  Honesty gate: fewer than MIN_EDGES_TOTAL real edges → None ("not measurable", never "ok").
+  Honesty gate: fewer than MIN_EDGES_TOTAL real edges → the sharpness fields are None
+  ("not measurable", never "ok"); the card geometry found in step 1 is reported anyway.
 
 Values are calibrated per METRIC_VERSION against the corpus and never compared across
 versions. v5 = the v4 measurement (its site selection, fit, floors and thresholds are
@@ -43,7 +44,6 @@ unchanged) with the ColorChecker mask from the patch-based detector and one deco
 """
 from __future__ import annotations
 
-import sys
 
 import cv2
 import numpy as np
@@ -51,10 +51,7 @@ import rawpy
 from scipy.optimize import curve_fit
 from scipy.special import erf
 
-try:
-    from . import cards
-except ImportError:                # script-style use
-    import cards
+from . import cards
 
 METRIC_VERSION = "v6"      # v6: the scale card by template + comb lattice (scalecard.py); the
                            # mask covers the full card face — values shift slightly on frames
@@ -98,14 +95,21 @@ def gray_for(rgb: np.ndarray, kind: str) -> np.ndarray:
     raise ValueError(f"kind must be one of {KINDS}, not {kind!r}")
 
 
-def measure(path: str, kind: str) -> dict | None:
+def measure(path: str, kind: str) -> dict:
     return measure_rgb(decode(path), kind)
 
 
-def measure_rgb(rgb: np.ndarray, kind: str) -> dict | None:
-    """Measure one decoded frame. None when too few real edges remain; else
+_NOT_MEASURABLE = {"sharp_px": None, "median_px": None, "n_edges": 0, "n_rejected_subpx": 0,
+                   "orientation_counts": {}, "orientation_p20": {}, "orientation_balance": None}
 
-    sharp_px             20th percentile of edge widths — THE sharpness number
+
+def measure_rgb(rgb: np.ndarray, kind: str) -> dict:
+    """Measure one decoded frame. Always a result: the cards' geometry is found first and
+    is reported even when the sharpness is not measurable (too few real edges — a
+    stitching reference frame with nothing but the cards on the plate); `sharp_px` is
+    None then, and so are the other sharpness numbers.
+
+    sharp_px             20th percentile of edge widths — THE sharpness number, or None
     median_px            median width (content-dependent, for context)
     n_edges              successfully measured edges
     n_rejected_subpx     fits discarded below WIDTH_FLOOR_PX
@@ -123,7 +127,7 @@ def measure_rgb(rgb: np.ndarray, kind: str) -> dict | None:
     mask = cards.exclusion_mask(gray.shape, polygons)
     result = _reduce(gray, _sites(gray, mask))
     if result is None:
-        return None
+        result = dict(_NOT_MEASURABLE)
     result["excluded"] = {name: bool(p) for name, p in polygons.items()}
     result["regions"] = {name: [np.round(p, 1).tolist() for p in plist]
                          for name, plist in polygons.items()}
@@ -302,15 +306,3 @@ def _reduce(gray, sites):
         "n_rejected_subpx": n_rejected_subpx,
     }
 
-
-if __name__ == "__main__":
-    kind = sys.argv[1]
-    for arg in sys.argv[2:]:
-        result = measure(arg, kind)
-        name = arg.rsplit("/", 1)[-1]
-        if result is None:
-            print(f"{name[:46]:<46} nicht messbar")
-        else:
-            print(f"{name[:46]:<46} n={result['n_edges']:<5} p20={result['sharp_px']:5.2f} px   "
-                  f"median={result['median_px']:5.2f} px   balance={result['orientation_balance']:5.3f}   "
-                  f"cc={result['excluded']['cc']} scale={result['excluded']['scale']}")
