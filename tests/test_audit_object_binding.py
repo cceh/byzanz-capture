@@ -206,6 +206,52 @@ class ReferenceAuditFollowupTest(unittest.TestCase):
             finally:
                 filmstrip.deleteLater()
 
+    def test_second_capture_makes_the_first_shot_a_measured_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "obj_a_vis_001.jpg"
+            second = root / "obj_a_vis_002.jpg"
+            first.touch()
+            second.touch()
+            cap1 = Capture(first.stem, str(first), None, 1)
+            cap2 = Capture(second.stem, str(second), None, 2)
+            write_meta(str(root / "_meta.json"), {MetaKey.AUDITS: {
+                cap1.stem: {SHARPNESS_AUDIT: {"metric_version": METRIC_VERSION}},
+            }})
+            target = _Target(root, cap1)
+            target._stitching = True
+            target._reference = cap1
+            context = CaptureAuditContext(
+                target.meta_path,
+                AuditRequest("vis", frozenset(
+                    {SHARPNESS_AUDIT, SCALECARD_AUDIT})),
+            )
+            settings = CaptureAuditSettings(
+                SharpnessAuditSettings(
+                    enabled=True, vis_warn_from=2.60, ir_warn_from=1.75),
+                ScalecardAuditSettings(enabled=True))
+            filmstrip = PapyriFilmstrip()
+            try:
+                target.refresh()
+                with patch.object(filmstrip, "open_directory"):
+                    filmstrip.bind_object(
+                        target, SIDE_A, SPECTRUM_VISIBLE, context, settings)
+
+                # One capture: an ordinary shot, nothing to measure.
+                with patch.object(filmstrip, "redecode") as redecode:
+                    filmstrip.ensure_reference_audits()
+                redecode.assert_not_called()
+
+                # The first segment arrives: the card shot is now the
+                # reference and gets its scalecard measured.
+                target._all.append(cap2)
+                target.refresh()
+                with patch.object(filmstrip, "redecode") as redecode:
+                    filmstrip.ensure_reference_audits()
+                redecode.assert_called_once_with(str(first))
+            finally:
+                filmstrip.deleteLater()
+
 
 if __name__ == "__main__":
     unittest.main()

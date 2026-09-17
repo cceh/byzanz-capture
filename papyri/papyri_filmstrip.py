@@ -265,9 +265,10 @@ class PapyriFilmstrip(CaptureFilmstrip):
         self.set_audit_badges(status_by_stem, AUDIT_STATUS_COLORS)
 
     def ensure_reference_audits(self, previous: "Capture | None" = None) -> None:
-        """After the reference or the stitching flag changed: the only
-        captures whose audit requirements can change are the previous and
-        the current reference. Remove their entries whose check no longer
+        """After the reference, the stitching flag or the bucket size
+        changed (a fresh capture can make the first shot a reference): the
+        only captures whose audit requirements can change are the previous
+        and the current reference. Remove their entries whose check no longer
         applies (a stale scalecard entry on a segment would linger in the
         viewer import); a capture with a missing check is re-decoded
         through the normal display path (`redecode`) — the launch gate
@@ -278,13 +279,15 @@ class PapyriFilmstrip(CaptureFilmstrip):
             return
         current = self._obj.reference(self._side, self._spectrum)
         stitching = self._obj.is_stitching()
+        n_captures = len(self._obj.captures(self._side, self._spectrum))
         persisted = read_capture_audits(self._obj.meta_path)
         targets = {c.stem: c for c in (previous, current) if c is not None}
         for capture in targets.values():
             applicable = applicable_checks(
                 context.request.checks, capture.stem,
                 stitching=stitching,
-                reference_stem=current.stem if current else None)
+                reference_stem=current.stem if current else None,
+                n_captures=n_captures)
             stale = (set(persisted.get(capture.stem, {}))
                      & set(context.request.checks)) - applicable
             for check in stale:
@@ -306,7 +309,8 @@ class PapyriFilmstrip(CaptureFilmstrip):
         applicable = applicable_checks(
             context.request.checks, stem,
             stitching=self._obj.is_stitching(),
-            reference_stem=reference.stem if reference else None)
+            reference_stem=reference.stem if reference else None,
+            n_captures=len(self._obj.captures(self._side, self._spectrum)))
         entries = read_capture_audits(self._obj.meta_path).get(stem, {})
         present = frozenset(
             check for check, entry in entries.items()

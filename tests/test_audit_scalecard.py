@@ -62,21 +62,31 @@ class ScalecardAuditPolicyTest(unittest.TestCase):
 
     def test_applies_only_to_the_stitch_reference(self) -> None:
         self.assertTrue(applies_to(
-            "obj_a_vis_001", stitching=True, reference_stem="obj_a_vis_001"))
+            "obj_a_vis_001", stitching=True,
+            reference_stem="obj_a_vis_001", n_captures=4))
         self.assertFalse(applies_to(
-            "obj_a_vis_002", stitching=True, reference_stem="obj_a_vis_001"))
+            "obj_a_vis_002", stitching=True,
+            reference_stem="obj_a_vis_001", n_captures=4))
         self.assertFalse(applies_to(
-            "obj_a_vis_001", stitching=False, reference_stem="obj_a_vis_001"))
+            "obj_a_vis_001", stitching=False,
+            reference_stem="obj_a_vis_001", n_captures=4))
+        # A single-capture bucket's shot shows the papyrus — an ordinary
+        # capture, no card-only reference (same rule as the viewer).
+        self.assertFalse(applies_to(
+            "obj_a_ir_001", stitching=True,
+            reference_stem="obj_a_ir_001", n_captures=1))
 
     def test_applicable_checks_routes_through_the_modules(self) -> None:
         requested = frozenset({"sharpness", "scalecard"})
         self.assertEqual(
             applicable_checks(requested, "obj_a_vis_001",
-                              stitching=True, reference_stem="obj_a_vis_001"),
+                              stitching=True,
+                              reference_stem="obj_a_vis_001", n_captures=4),
             {"sharpness", "scalecard"})
         self.assertEqual(
             applicable_checks(requested, "obj_a_vis_002",
-                              stitching=True, reference_stem="obj_a_vis_001"),
+                              stitching=True,
+                              reference_stem="obj_a_vis_001", n_captures=4),
             {"sharpness"})
 
 

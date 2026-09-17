@@ -36,10 +36,14 @@ def read_settings(settings: QSettings) -> ScalecardAuditSettings:
         enabled=settings.value(PAPYRI_SCALECARD_ENABLED_KEY, True, type=bool))
 
 
-def applies_to(stem: str, *, stitching: bool,
-               reference_stem: str | None) -> bool:
-    """Only the stitch reference frame (see module docstring)."""
-    return stitching and stem == reference_stem
+def applies_to(stem: str, *, stitching: bool, reference_stem: str | None,
+               n_captures: int) -> bool:
+    """Only the stitch reference frame — and only in a MULTI-capture
+    bucket: a single-capture bucket's shot shows the papyrus (the object
+    fits one frame there), so it is an ordinary capture; the card-only
+    reference shot exists only where segments follow. Same rule as the
+    viewer's import."""
+    return stitching and n_captures > 1 and stem == reference_stem
 
 
 def _status(entry: dict) -> str:

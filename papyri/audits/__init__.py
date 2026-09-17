@@ -68,17 +68,20 @@ def applicable_checks(
     *,
     stitching: bool,
     reference_stem: str | None,
+    n_captures: int,
 ) -> frozenset[str]:
     """Which of the requested checks apply to THIS capture — the single
     per-capture applicability rule, owned by the check modules
     (`applies_to`). Both the filmstrip's missing-check gate and the
     feedback rendering resolve through here, so a check that targets only
-    some captures (scalecard: the stitch reference frame) is neither
-    measured nor shown as pending anywhere else."""
+    some captures (scalecard: the stitch reference frame of a
+    multi-capture bucket) is neither measured nor shown as pending
+    anywhere else."""
     return frozenset(
         check for check in requested
         if CHECKS[check].applies_to(
-            stem, stitching=stitching, reference_stem=reference_stem)
+            stem, stitching=stitching, reference_stem=reference_stem,
+            n_captures=n_captures)
     )
 
 

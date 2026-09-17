@@ -2013,6 +2013,9 @@ class PapyriMainWindow(QMainWindow):
             )
             return
         self._refresh_audit_presentation()
+        # A new capture can turn the bucket's first shot into a stitch
+        # reference (1 → 2 captures), which changes its audit requirements.
+        self.filmstrip.ensure_reference_audits()
         module = CHECKS.get(finding.check)
         if module is not None:
             check_settings = getattr(
@@ -2136,7 +2139,9 @@ class PapyriMainWindow(QMainWindow):
         applicable = applicable_checks(
             context.request.checks, stem,
             stitching=obj.is_stitching(),
-            reference_stem=reference.stem if reference else None)
+            reference_stem=reference.stem if reference else None,
+            n_captures=len(obj.captures(
+                self.session.active_side, self.session.active_spectrum)))
         warnings: list[tuple[str, str]] = []
         fragments: list[str] = []
         for check in sorted(applicable):
