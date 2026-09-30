@@ -2533,6 +2533,8 @@ class PapyriMainWindow(QMainWindow):
 
             case CameraStates.FocusStarted():
                 self.autofocus_button.setEnabled(False)
+                self.capture_status_label.setText("")
+                set_state(self.capture_status_label, "state", None)
 
             case CameraStates.FocusFinished(success=success):
                 self.autofocus_button.setEnabled(self._autofocus_supported())
