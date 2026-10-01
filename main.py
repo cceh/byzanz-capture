@@ -19,6 +19,8 @@ _install_logging("byzanz-rti", dir_name="ByzanzCapture", debug_env="BYZANZ_DEBUG
 # env-provided values before that happens, then let the resolver
 # decide which source wins (frozen / env / vendor / bundled). See
 # byzanz_camera/_gphoto2_paths.py for the full precedence chain.
+from byzanz_camera._gphoto2_paths import prepare_dll_search as _prepare_dll_search
+_prepare_dll_search()
 _pre_camlibs = os.environ.get('CAMLIBS')
 _pre_iolibs = os.environ.get('IOLIBS')
 import gphoto2 as gp

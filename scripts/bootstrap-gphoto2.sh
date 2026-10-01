@@ -339,9 +339,10 @@ verify() {
     cd "$REPO_ROOT"
     python - <<'PY'
 import os, sys
+from byzanz_camera._gphoto2_paths import apply_paths, prepare_dll_search
+prepare_dll_search()
 _pre = (os.environ.get("CAMLIBS"), os.environ.get("IOLIBS"))
 import gphoto2 as gp
-from byzanz_camera._gphoto2_paths import apply_paths
 apply_paths(*_pre)
 ver, *_ = gp.gp_library_version(gp.GP_VERSION_VERBOSE)
 print(f"  libgphoto2 version: {ver}")

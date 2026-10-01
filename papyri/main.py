@@ -30,6 +30,8 @@ _install_logging("papyri", dir_name="PapyriCapture", debug_env="PAPYRI_DEBUG")
 # env-provided values before that happens, then let the resolver
 # decide which source wins (frozen / env / vendor / bundled). See
 # byzanz_camera/_gphoto2_paths.py for the full precedence.
+from byzanz_camera._gphoto2_paths import prepare_dll_search as _prepare_dll_search  # noqa: E402
+_prepare_dll_search()  # noqa: E402
 _pre_camlibs = os.environ.get('CAMLIBS')
 _pre_iolibs = os.environ.get('IOLIBS')
 import gphoto2 as gp  # noqa: E402

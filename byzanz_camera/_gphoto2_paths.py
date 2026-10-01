@@ -45,6 +45,28 @@ _logger = logging.getLogger(__name__)
 _KILL_SWITCH_VAR = "BYZANZ_GPHOTO2_USE_BUNDLED"
 
 
+def prepare_dll_search() -> None:
+    """Windows only: make the vendor build's DLLs loadable. Call BEFORE
+    `import gphoto2`.
+
+    Since Python 3.8 an extension module's dependencies are no longer
+    searched for on PATH — only next to the .pyd and in directories
+    registered with `os.add_dll_directory`. MSYS2's python registers its
+    own prefix, which is why a pacman-installed libgphoto2 just works;
+    our repo-local build at `vendor/build/bin` is invisible without this,
+    and `import gphoto2` fails with "DLL load failed while importing
+    _context". A frozen bundle is unaffected (every DLL sits next to the
+    .pyd), as is any platform where the shared library records its own
+    path."""
+    if sys.platform != "win32":
+        return
+    bindir = Path(__file__).resolve().parents[1] / "vendor" / "build" / "bin"
+    if not bindir.is_dir():
+        return
+    os.add_dll_directory(str(bindir))
+    _logger.info("gphoto2 DLL search: added %s", bindir)
+
+
 def apply_paths(pre_camlibs: str | None, pre_iolibs: str | None) -> None:
     """Apply the resolved CAMLIBS/IOLIBS per the precedence in this
     module's docstring. Call AFTER `import gphoto2`. `pre_camlibs` /
