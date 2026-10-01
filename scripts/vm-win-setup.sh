@@ -38,31 +38,36 @@ exec > >(tee "/tmp/vmsetup-${PHASE:-none}.log") 2>&1
 PACKAGES=(
     mingw-w64-ucrt-x86_64-python
     mingw-w64-ucrt-x86_64-python-pip
-    mingw-w64-ucrt-x86_64-gcc             # for the gphoto2 sdist build (the only pip source build left)
-    mingw-w64-ucrt-x86_64-pkgconf         # gphoto2 sdist build locates libgphoto2 via pkg-config
-    mingw-w64-ucrt-x86_64-libgphoto2 # not linked against — installed for its dependency
-                                     # chain (libexif, libusb, libgd, ...), which is what
-                                     # the vendored fork needs to build
-    mingw-w64-ucrt-x86_64-meson      # the fork's build system
+    mingw-w64-ucrt-x86_64-gcc               # python-gphoto2 is built from sdist
+    mingw-w64-ucrt-x86_64-pkgconf           # ... and locates libgphoto2 via pkg-config
+    # --- what the vendored libgphoto2 fork needs to build ---
+    mingw-w64-ucrt-x86_64-libgphoto2        # not linked against: installed for its dependency
+                                            # chain (libexif, libusb, libgd, ...)
+    mingw-w64-ucrt-x86_64-meson             # the fork's build system
     mingw-w64-ucrt-x86_64-ninja
-    mingw-w64-ucrt-x86_64-gettext    # libintl, linked by the camlibs
-    mingw-w64-ucrt-x86_64-libxml2    # the remaining pkg-config deps of the fork's
-    mingw-w64-ucrt-x86_64-curl       # meson build (see PREREQ_PKGS in
-    mingw-w64-ucrt-x86_64-libgd      # scripts/bootstrap-gphoto2.sh)
+    mingw-w64-ucrt-x86_64-gettext           # libintl, linked by the camlibs
+    mingw-w64-ucrt-x86_64-libtool           # libltdl — libgphoto2 dlopens its drivers with it
+    mingw-w64-ucrt-x86_64-libxml2           # the remaining pkg-config deps of the fork's
+    mingw-w64-ucrt-x86_64-curl              # meson build (see PREREQ_PKGS in
+    mingw-w64-ucrt-x86_64-libgd             # scripts/bootstrap-gphoto2.sh)
     mingw-w64-ucrt-x86_64-libtiff
+    autotools                               # autoconf/automake/libtool commands the fork's
+                                            # build checks for (MSYS, not a mingw package)
+    # --- the app itself ---
     mingw-w64-ucrt-x86_64-qt6-base
-    mingw-w64-ucrt-x86_64-qt6-svg         # Qt6Svg.dll for PyQt6.QtSvg (SVG icon rendering);
-                                     # NOT part of qt6-base, and python-pyqt6 doesn't pull
-                                     # it — without it the frozen app crashes at startup
-                                     # ("DLL load failed while importing QtSvg").
+    mingw-w64-ucrt-x86_64-qt6-svg           # Qt6Svg.dll for PyQt6.QtSvg (SVG icon rendering);
+                                            # NOT part of qt6-base, and python-pyqt6 doesn't
+                                            # pull it — without it the frozen app crashes at
+                                            # startup ("DLL load failed while importing QtSvg").
     mingw-w64-ucrt-x86_64-python-pyqt6
     mingw-w64-ucrt-x86_64-python-pillow
     mingw-w64-ucrt-x86_64-python-numpy
-    mingw-w64-ucrt-x86_64-python-scipy    # sharpness-v2 erf fit (and its native DLLs)
-    mingw-w64-ucrt-x86_64-python-opencv   # the python cv2 bindings (pulls opencv C++ lib as dep;
-                                     # the plain `opencv` package ships only headers+DLLs, no cv2)
+    mingw-w64-ucrt-x86_64-python-scipy      # sharpness erf fit (and its native DLLs)
+    mingw-w64-ucrt-x86_64-python-opencv     # the python cv2 bindings (pulls opencv C++ lib as
+                                            # dep; the plain `opencv` package ships only
+                                            # headers+DLLs, no cv2)
     mingw-w64-ucrt-x86_64-python-psutil
-    mingw-w64-ucrt-x86_64-python-rawpy    # prebuilt (pulls libraw) — no sdist compile
+    mingw-w64-ucrt-x86_64-python-rawpy      # prebuilt (pulls libraw) — no sdist compile
     mingw-w64-ucrt-x86_64-python-qasync
     mingw-w64-ucrt-x86_64-python-send2trash
 )
