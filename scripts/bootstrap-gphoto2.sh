@@ -26,7 +26,10 @@ PLATFORM="$(uname -s)"
 # ---- prereqs --------------------------------------------------------
 
 # Tools required on the PATH.
-PREREQ_CMDS=(git meson ninja pkg-config autoconf automake libtool)
+# `git` is NOT in this list: it is needed only to fetch the submodule, which a
+# CI checkout has already done — and the MSYS2 shell ships without it.
+# ensure_submodule checks for it where it actually matters.
+PREREQ_CMDS=(meson ninja pkg-config autoconf automake libtool)
 
 # Libraries required by libgphoto2 — checked via pkg-config rather than
 # by command, since they're shared libs without a CLI. Discovered the
@@ -88,6 +91,11 @@ ensure_submodule() {
     # If `vendor/libgphoto2` is empty (fresh clone without --recursive)
     # or doesn't exist, init the submodule.
     if [ ! -e "$SRC_DIR/meson.build" ]; then
+        if ! command -v git >/dev/null 2>&1; then
+            echo "vendor/libgphoto2 is empty and git is not available here." >&2
+            echo "Fetch it first: git submodule update --init vendor/libgphoto2" >&2
+            exit 1
+        fi
         echo ">> Initializing vendor/libgphoto2 submodule..."
         git -C "$REPO_ROOT" submodule update --init vendor/libgphoto2
     fi

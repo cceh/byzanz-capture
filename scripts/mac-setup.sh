@@ -49,7 +49,6 @@ venv)
     ;;
 gphoto2)
     source "$VENV/bin/activate"
-    git submodule update --init vendor/libgphoto2
     ./scripts/bootstrap-gphoto2.sh
     ;;
 build)
