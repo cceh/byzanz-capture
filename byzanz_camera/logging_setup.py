@@ -106,6 +106,11 @@ def install(app_name: str, *, dir_name: str, debug_env: str) -> None:
         level=logging.DEBUG,  # root passes everything; handlers filter
         format=_LOG_FORMAT,
         handlers=[stderr_handler, file_handler],
+        # Anything that logs before this call (a module-level
+        # `logging.info`, an eager dependency) configures the root logger
+        # as a side effect, and basicConfig would then do NOTHING —
+        # leaving the app without its log file. Ours is the last word.
+        force=True,
     )
     # stderr stays at INFO regardless of PAPYRI_DEBUG (DEBUG detail is
     # for the file; the console would just scroll it away).
