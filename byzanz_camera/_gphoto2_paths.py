@@ -11,11 +11,11 @@ after `import gphoto2`. Precedence (highest first):
   0. `BYZANZ_GPHOTO2_USE_BUNDLED=1`   — escape hatch, trust gphoto2's
      rewrite (i.e. accept whatever the installed wheel ships).
   1. `sys.frozen` (PyInstaller)       — trust the runtime hook
-     (`build_win_hook.py`), which pointed both vars at `sys._MEIPASS`
+     (`build_runtime_hook.py`), which pointed both vars at `sys._MEIPASS`
      before any Python code ran.
   2. Pre-import env (`CAMLIBS` /
      `IOLIBS` set in the shell or by   — restore the user's choice; the
-     PyCharm / build_win_hook)          rewrite at import time clobbered it.
+     PyCharm / the runtime hook)        rewrite at import time clobbered it.
   3. Repo-local vendor build at
      `vendor/build/lib/libgphoto2/*`   — for collaborators who ran
      and `..._port/*`                    `scripts/bootstrap-gphoto2.sh`.
@@ -66,7 +66,7 @@ def apply_paths(pre_camlibs: str | None, pre_iolibs: str | None) -> None:
         _logger.info("gphoto2 paths: bundled (%s=1)", _KILL_SWITCH_VAR)
         return
 
-    # 1. Frozen bundle — the runtime hook (build_win_hook.py) set env
+    # 1. Frozen bundle — the runtime hook (build_runtime_hook.py) set env
     #    to sys._MEIPASS before any imports. gphoto2's import-time
     #    rewrite still happened, but inside a PyInstaller onedir bundle
     #    the gphoto2 package sits inside _MEIPASS too, so we restore

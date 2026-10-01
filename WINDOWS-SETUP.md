@@ -1,6 +1,6 @@
 # Running byzanz-capture from source on Windows
 
-The RTI app can only run on Windows inside **MSYS2 / MINGW64** — this is not a
+The RTI app can only run on Windows inside **MSYS2 / UCRT64** — this is not a
 choice but a requirement: it drives the camera through **libgphoto2**, which has
 no native Windows build and no Windows Python wheel. MSYS2 provides both
 `libgphoto2` and a Python that can use it. (If you only want to *run* the app,
@@ -21,7 +21,7 @@ lockstep with the Windows CI. Run the phases in order.
    `Documents\GitHub\byzanz-capture` by default. In GitHub Desktop,
    *Repository → Show in Explorer* shows the exact folder.
 
-2. **Open the `MSYS2 MINGW64` shell** — Start menu → **“MSYS2 MINGW64”**
+2. **Open the `MSYS2 UCRT64` shell** — Start menu → **“MSYS2 UCRT64”**
    (the blue icon). ⚠️ *Not* the default “MSYS2 MSYS” shell — the wrong shell
    uses the wrong Python and nothing below will work.
 
@@ -76,7 +76,7 @@ user profile:
 
 Edit with whatever you like (an editor, or Claude Code in a second terminal),
 then commit and **push via GitHub Desktop**. The two shells are independent:
-edit/commit anywhere, but always **run** the app from the *MINGW64* shell.
+edit/commit anywhere, but always **run** the app from the *UCRT64* shell.
 
 ## Alternative: just run it, no MSYS2
 

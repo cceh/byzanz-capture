@@ -1,11 +1,11 @@
 #!/bin/bash
-# Set up the MSYS2/MINGW64 build environment for byzanz-capture on the
+# Set up the MSYS2/UCRT64 build environment for byzanz-capture on the
 # Windows test VM and build the distributable bundle. Run phases
-# individually from any shell (the script establishes the MINGW64
+# individually from any shell (the script establishes the UCRT64
 # environment itself, so it also works over `ssh -> cmd -> bash`):
 #
 #   ./scripts/vm-win-setup.sh sync    # full pacman upgrade (stale DB is unsafe to install against)
-#   ./scripts/vm-win-setup.sh deps    # install/upgrade all MINGW64 packages the RTI app needs
+#   ./scripts/vm-win-setup.sh deps    # install/upgrade all UCRT64 packages the RTI app needs
 #   ./scripts/vm-win-setup.sh venv    # recreate .venv and pip-install the pure-python + sdist deps
 #   ./scripts/vm-win-setup.sh build   # run build_win.sh (PyInstaller onedir bundle into dist/)
 #   ./scripts/vm-win-setup.sh smoketest  # launch the frozen bundle headless; fail on a startup crash
@@ -15,13 +15,13 @@
 #
 # Notes:
 # - requirements.txt pins wheel versions (PyQt6~=6.11, numpy 2.4, ...) that do
-#   not exist for MINGW64 python; binary deps come from pacman instead. Do NOT
+#   not exist for UCRT64 python; binary deps come from pacman instead. Do NOT
 #   `pip install -r requirements.txt` here.
-# - rawpy has no MINGW64 wheel/package: pip builds it from sdist against
-#   pacman's libraw (needs gcc + pkg-config).
+# - python-gphoto2 is the only pip source build left: pip compiles it against
+#   pacman's libgphoto2 (needs gcc + pkg-config).
 
-# --- establish the MINGW64 environment (do NOT rely on cmd `set MSYSTEM=`) ---
-export MSYSTEM=MINGW64
+# --- establish the UCRT64 environment (do NOT rely on cmd `set MSYSTEM=`) ---
+export MSYSTEM=UCRT64
 source /etc/profile
 set -euo pipefail
 
@@ -31,26 +31,26 @@ cd "$(dirname "$0")/.."   # repo root
 exec > >(tee "/tmp/vmsetup-${PHASE:-none}.log") 2>&1
 
 PACKAGES=(
-    mingw-w64-x86_64-python
-    mingw-w64-x86_64-python-pip
-    mingw-w64-x86_64-gcc             # for the gphoto2 sdist build (the only pip source build left)
-    mingw-w64-x86_64-pkgconf         # gphoto2 sdist build locates libgphoto2 via pkg-config
-    mingw-w64-x86_64-libgphoto2
-    mingw-w64-x86_64-qt6-base
-    mingw-w64-x86_64-qt6-svg         # Qt6Svg.dll for PyQt6.QtSvg (SVG icon rendering);
+    mingw-w64-ucrt-x86_64-python
+    mingw-w64-ucrt-x86_64-python-pip
+    mingw-w64-ucrt-x86_64-gcc             # for the gphoto2 sdist build (the only pip source build left)
+    mingw-w64-ucrt-x86_64-pkgconf         # gphoto2 sdist build locates libgphoto2 via pkg-config
+    mingw-w64-ucrt-x86_64-libgphoto2
+    mingw-w64-ucrt-x86_64-qt6-base
+    mingw-w64-ucrt-x86_64-qt6-svg         # Qt6Svg.dll for PyQt6.QtSvg (SVG icon rendering);
                                      # NOT part of qt6-base, and python-pyqt6 doesn't pull
                                      # it — without it the frozen app crashes at startup
                                      # ("DLL load failed while importing QtSvg").
-    mingw-w64-x86_64-python-pyqt6
-    mingw-w64-x86_64-python-pillow
-    mingw-w64-x86_64-python-numpy
-    mingw-w64-x86_64-python-scipy    # sharpness-v2 erf fit (and its native DLLs)
-    mingw-w64-x86_64-python-opencv   # the python cv2 bindings (pulls opencv C++ lib as dep;
+    mingw-w64-ucrt-x86_64-python-pyqt6
+    mingw-w64-ucrt-x86_64-python-pillow
+    mingw-w64-ucrt-x86_64-python-numpy
+    mingw-w64-ucrt-x86_64-python-scipy    # sharpness-v2 erf fit (and its native DLLs)
+    mingw-w64-ucrt-x86_64-python-opencv   # the python cv2 bindings (pulls opencv C++ lib as dep;
                                      # the plain `opencv` package ships only headers+DLLs, no cv2)
-    mingw-w64-x86_64-python-psutil
-    mingw-w64-x86_64-python-rawpy    # prebuilt (pulls libraw) — no sdist compile
-    mingw-w64-x86_64-python-qasync
-    mingw-w64-x86_64-python-send2trash
+    mingw-w64-ucrt-x86_64-python-psutil
+    mingw-w64-ucrt-x86_64-python-rawpy    # prebuilt (pulls libraw) — no sdist compile
+    mingw-w64-ucrt-x86_64-python-qasync
+    mingw-w64-ucrt-x86_64-python-send2trash
 )
 
 case "$PHASE" in
@@ -132,8 +132,8 @@ run)
     # bundle uses sys._MEIPASS); byzanz_camera/_gphoto2_paths.py picks these up
     # as the pre-import env override so the drivers are found.
     source .venv/bin/activate
-    CAMLIB_DIR=$(ls -d /mingw64/lib/libgphoto2/*/ | sort -V | tail -1)
-    IOLIB_DIR=$(ls -d /mingw64/lib/libgphoto2_port/*/ | sort -V | tail -1)
+    CAMLIB_DIR=$(ls -d /ucrt64/lib/libgphoto2/*/ | sort -V | tail -1)
+    IOLIB_DIR=$(ls -d /ucrt64/lib/libgphoto2_port/*/ | sort -V | tail -1)
     export CAMLIBS="$(cygpath -w "${CAMLIB_DIR%/}")"
     export IOLIBS="$(cygpath -w "${IOLIB_DIR%/}")"
     echo "CAMLIBS=$CAMLIBS"

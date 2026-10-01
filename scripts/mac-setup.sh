@@ -67,7 +67,7 @@ build)
         --add-data i18n:i18n \
         --add-data cceh-dome-template.lp:. \
         --add-data dome_presets:dome_presets main.py \
-        --runtime-hook ./build_win_hook.py \
+        --runtime-hook ./build_runtime_hook.py \
         --icon ui/icon/app_icon.icns \
         --osx-bundle-identifier de.uni-koeln.cceh.byzanz-capture \
         --noconfirm \

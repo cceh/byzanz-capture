@@ -24,9 +24,9 @@ python main.py
 ```
 
 ### Building for Windows
-The local `build_win.sh` is **not** cross-platform — it requires an MSYS2/MINGW64 shell on Windows (uses `/mingw64/lib/...` paths and the Windows 7-Zip binary). The canonical build is the GitHub Actions workflow `.github/workflows/build-win.yml`, which provisions MSYS2, installs `libgphoto2`/`qt6-base`/`pyqt6` from pacman, then runs `build_win.sh` to produce a PyInstaller onedir bundle.
+The local `build_win.sh` is **not** cross-platform — it requires an MSYS2/UCRT64 shell on Windows (uses `/ucrt64/lib/...` paths and the Windows 7-Zip binary). The canonical build is the GitHub Actions workflow `.github/workflows/build-win.yml`, which provisions MSYS2, installs `libgphoto2`/`qt6-base`/`pyqt6` from pacman, then runs `build_win.sh` to produce a PyInstaller onedir bundle.
 
-`build_win_hook.py` is a PyInstaller runtime hook that points `IOLIBS`/`CAMLIBS` at `sys._MEIPASS` so the bundled gphoto2 camera/port drivers are found at runtime.
+`build_runtime_hook.py` is a PyInstaller runtime hook that points `IOLIBS`/`CAMLIBS` at `sys._MEIPASS` so the bundled gphoto2 camera/port drivers are found at runtime.
 
 ## Architecture Overview
 
