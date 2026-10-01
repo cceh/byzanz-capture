@@ -158,7 +158,11 @@ build_libgphoto2() {
         #   libsystre  POSIX regex (regcomp & co.), absent from the Windows C
         #              library — gphoto2-port-info-list.c matches port paths with it
         #   ws2_32     Winsock, for the ptpip port driver
-        export LDFLAGS="-lsystre -lws2_32 ${LDFLAGS:-}"
+        #   libintl    gettext's libintl.h macro-renames sprintf/gettext to
+        #              libintl_*, so every module that includes it needs the
+        #              library; meson's optional intl dependency reaches the
+        #              core library but not the port drivers
+        export LDFLAGS="-lsystre -lws2_32 -lintl ${LDFLAGS:-}"
     fi
 
     # The iolibs list is explicit because the default one does not build

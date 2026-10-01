@@ -115,8 +115,16 @@ dmg)
     cp -R "$APP" "$STAGE/"
     ln -s /Applications "$STAGE/Applications"
     rm -f "$DMG"
-    hdiutil create -volname "byzanz-capture" -srcfolder "$STAGE" \
-        -ov -format UDZO "$DMG"
+    # "hdiutil: create failed - Resource busy" happens on CI runners when
+    # something (Spotlight, antivirus-alikes) still holds the staged tree.
+    # It passes on the next attempt.
+    for attempt in 1 2 3; do
+        hdiutil create -volname "byzanz-capture" -srcfolder "$STAGE" \
+            -ov -format UDZO "$DMG" && break
+        echo "dmg: attempt $attempt failed, retrying in 10s"
+        sleep 10
+    done
+    [ -f "$DMG" ] || { echo "dmg: could not create the image"; exit 1; }
     rm -rf "$STAGE"
     ls -la "$DMG"
     ;;
