@@ -159,9 +159,16 @@ build_libgphoto2() {
     # in its own `vusb:` port namespace and coexists with the real
     # libusb1 driver, so autodetect reports both a real camera and the
     # virtual one ('Nikon DSC D750', 'vusb:') in the same process.
+    # `camlibs=ptp2` is the only camera driver this project uses: every body in
+    # the lab (Sony, Nikon) speaks PTP, and the vusb virtual camera pairs with
+    # ptp2 as well. The default list builds 68 drivers for cameras from the
+    # 1990s, drags in dependencies we otherwise would not need (docupen wants
+    # libgd, lumix/pentax want libxml2 + libcurl — and MSYS2's gdlib.pc reports
+    # a broken version, which failed the Windows build), and bloats the bundle.
     local meson_args=(
         --prefix="$BUILD_PREFIX"
         -Diolibs=disk,vusb,ptpip,serial,libusb1,usb
+        -Dcamlibs=ptp2
     )
     if [ -d build ]; then
         # Re-run with --wipe rather than --reconfigure. meson only reads
@@ -278,8 +285,15 @@ rebuild_python_gphoto2() {
 
     echo ">> Rebuilding python-gphoto2 against $BUILD_PREFIX..."
     pip uninstall -y gphoto2 >/dev/null 2>&1 || true
-    GPHOTO2_ROOT="$BUILD_PREFIX" pip install gphoto2 \
-        --no-binary :all: --force-reinstall --no-cache-dir
+    # MSYS2 converts POSIX paths in command ARGUMENTS for native programs, but
+    # not in the environment — and its python is a native Windows build, so it
+    # would choke on /d/a/... here.
+    local gphoto2_root="$BUILD_PREFIX"
+    case "$PLATFORM" in MINGW*|MSYS*) gphoto2_root="$(cygpath -m "$BUILD_PREFIX")" ;; esac
+    # --no-build-isolation: build with the setuptools already in the venv
+    # (pacman's, on MSYS2) instead of letting pip assemble an isolated env.
+    GPHOTO2_ROOT="$gphoto2_root" pip install gphoto2 \
+        --no-binary :all: --force-reinstall --no-cache-dir --no-build-isolation
 
     # The fresh install re-creates `gphoto2/libgphoto2/{camlibs,iolibs}`
     # inside site-packages — directories that gphoto2/__init__.py uses

@@ -42,15 +42,11 @@ PACKAGES=(
     mingw-w64-ucrt-x86_64-pkgconf           # ... and locates libgphoto2 via pkg-config
     # --- what the vendored libgphoto2 fork needs to build ---
     mingw-w64-ucrt-x86_64-libgphoto2        # not linked against: installed for its dependency
-                                            # chain (libexif, libusb, libgd, ...)
+                                            # chain (libexif, libusb, libltdl, ...)
     mingw-w64-ucrt-x86_64-meson             # the fork's build system
     mingw-w64-ucrt-x86_64-ninja
     mingw-w64-ucrt-x86_64-gettext           # libintl, linked by the camlibs
     mingw-w64-ucrt-x86_64-libtool           # libltdl — libgphoto2 dlopens its drivers with it
-    mingw-w64-ucrt-x86_64-libxml2           # the remaining pkg-config deps of the fork's
-    mingw-w64-ucrt-x86_64-curl              # meson build (see PREREQ_PKGS in
-    mingw-w64-ucrt-x86_64-libgd             # scripts/bootstrap-gphoto2.sh)
-    mingw-w64-ucrt-x86_64-libtiff
     autotools                               # autoconf/automake/libtool commands the fork's
                                             # build checks for (MSYS, not a mingw package)
     # --- the app itself ---
