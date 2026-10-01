@@ -161,11 +161,14 @@ build_libgphoto2() {
         export LDFLAGS="-lsystre -lws2_32 ${LDFLAGS:-}"
     fi
 
-    # `usbdiskdirect` / `usbscsi` iolibs are Linux-only; meson errors
-    # out on macOS if the default list is used, so the list is explicit.
-    # `usb` (the libusb-0.1 driver) is left out as well: it would make
-    # libusb-compat a hard requirement for a driver nothing uses — libusb1
-    # drives every camera here.
+    # The iolibs list is explicit because the default one does not build
+    # everywhere, and because we want none of what it adds:
+    #   usbdiskdirect, usbscsi  Linux-only; meson errors out on macOS
+    #   usb                     the libusb-0.1 driver — would make libusb-compat
+    #                           a hard requirement for something nothing uses
+    #   serial                  only has a Unix implementation in this tree
+    #                           (unix.c, #include <sgtty.h>), so it cannot build
+    #                           on Windows — and no camera here speaks serial
     #
     # `vusb` is the virtual USB port driver: it pairs with the `ptp2`
     # camlib (already built by default) to expose a fully emulated PTP
@@ -183,7 +186,7 @@ build_libgphoto2() {
     # a broken version, which failed the Windows build), and bloats the bundle.
     local meson_args=(
         --prefix="$BUILD_PREFIX"
-        -Diolibs=disk,vusb,ptpip,serial,libusb1
+        -Diolibs=disk,vusb,ptpip,libusb1
         -Dcamlibs=ptp2
     )
     if [ -d build ]; then

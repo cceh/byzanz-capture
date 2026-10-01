@@ -42,7 +42,7 @@ PACKAGES=(
     mingw-w64-ucrt-x86_64-pkgconf           # ... and locates libgphoto2 via pkg-config
     # --- what the vendored libgphoto2 fork needs to build (one entry per
     #     dependency its meson build looks for in OUR configuration:
-    #     camlibs=ptp2, iolibs=disk,vusb,ptpip,serial,libusb1).
+    #     camlibs=ptp2, iolibs=disk,vusb,ptpip,libusb1).
     #     pacman's own libgphoto2 is deliberately NOT installed: the bundle
     #     must ship the fork, and a second libgphoto2-6.dll in /ucrt64/bin
     #     is exactly what PyInstaller would find first. ---
