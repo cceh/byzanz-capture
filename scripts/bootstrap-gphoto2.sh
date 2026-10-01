@@ -183,6 +183,11 @@ build_libgphoto2() {
         meson setup build "${meson_args[@]}"
     fi
     meson compile -C build
+    # Install into a CLEAN prefix: meson never removes what an earlier run put
+    # there, so a shortened driver list (or a version bump, which changes the
+    # directory name) would leave stale drivers behind — and libgphoto2 loads
+    # whatever it finds in CAMLIBS, including into the frozen bundle.
+    rm -rf "$BUILD_PREFIX"
     meson install -C build
 }
 
