@@ -35,7 +35,11 @@ PREREQ_CMDS=(meson ninja pkg-config autoconf automake libtool)
 # by command, since they're shared libs without a CLI. Discovered the
 # hard way: missing `gdlib` (Homebrew `gd`) only surfaced at `meson
 # setup` with "dependency gdlib not found", not from a missing command.
-PREREQ_PKGS=(libxml-2.0 libcurl gdlib libexif libjpeg libtiff-4 libusb-1.0)
+# What the meson build of our configuration (camlibs=ptp2, iolibs without the
+# legacy `usb` driver) actually looks for. libgd / libxml-2.0 / libcurl are
+# required only by camlibs we do not build; ltdl and mman are found via
+# cc.find_library, not pkg-config, so they are not listed here.
+PREREQ_PKGS=(libexif libjpeg libusb-1.0)
 
 check_prereqs() {
     # Newline-separated strings rather than arrays — macOS ships Bash
@@ -148,8 +152,10 @@ build_libgphoto2() {
     fi
 
     # `usbdiskdirect` / `usbscsi` iolibs are Linux-only; meson errors
-    # out on macOS if the default list is used. Pass an explicit list
-    # that's safe on both platforms.
+    # out on macOS if the default list is used, so the list is explicit.
+    # `usb` (the libusb-0.1 driver) is left out as well: it would make
+    # libusb-compat a hard requirement for a driver nothing uses — libusb1
+    # drives every camera here.
     #
     # `vusb` is the virtual USB port driver: it pairs with the `ptp2`
     # camlib (already built by default) to expose a fully emulated PTP
@@ -167,7 +173,7 @@ build_libgphoto2() {
     # a broken version, which failed the Windows build), and bloats the bundle.
     local meson_args=(
         --prefix="$BUILD_PREFIX"
-        -Diolibs=disk,vusb,ptpip,serial,libusb1,usb
+        -Diolibs=disk,vusb,ptpip,serial,libusb1
         -Dcamlibs=ptp2
     )
     if [ -d build ]; then

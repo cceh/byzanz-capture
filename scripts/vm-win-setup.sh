@@ -40,13 +40,20 @@ PACKAGES=(
     mingw-w64-ucrt-x86_64-python-pip
     mingw-w64-ucrt-x86_64-gcc               # python-gphoto2 is built from sdist
     mingw-w64-ucrt-x86_64-pkgconf           # ... and locates libgphoto2 via pkg-config
-    # --- what the vendored libgphoto2 fork needs to build ---
-    mingw-w64-ucrt-x86_64-libgphoto2        # not linked against: installed for its dependency
-                                            # chain (libexif, libusb, libltdl, ...)
+    # --- what the vendored libgphoto2 fork needs to build (one entry per
+    #     dependency its meson build looks for in OUR configuration:
+    #     camlibs=ptp2, iolibs=disk,vusb,ptpip,serial,libusb1).
+    #     pacman's own libgphoto2 is deliberately NOT installed: the bundle
+    #     must ship the fork, and a second libgphoto2-6.dll in /ucrt64/bin
+    #     is exactly what PyInstaller would find first. ---
     mingw-w64-ucrt-x86_64-meson             # the fork's build system
     mingw-w64-ucrt-x86_64-ninja
-    mingw-w64-ucrt-x86_64-gettext           # libintl, linked by the camlibs
     mingw-w64-ucrt-x86_64-libtool           # libltdl — libgphoto2 dlopens its drivers with it
+    mingw-w64-ucrt-x86_64-libusb            # libusb-1.0, for the libusb1 port driver
+    mingw-w64-ucrt-x86_64-mman-win32        # Windows has no mmap; libgphoto2 links it from here
+    mingw-w64-ucrt-x86_64-libexif           # optional, but ptp2 reads EXIF with it
+    mingw-w64-ucrt-x86_64-libjpeg-turbo     # optional, thumbnail decoding
+    mingw-w64-ucrt-x86_64-gettext           # libintl, linked by the camlibs
     autotools                               # autoconf/automake/libtool commands the fork's
                                             # build checks for (MSYS, not a mingw package)
     # --- the app itself ---

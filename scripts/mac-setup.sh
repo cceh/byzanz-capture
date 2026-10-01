@@ -35,7 +35,7 @@ deps)
     # The build prerequisites bootstrap-gphoto2.sh checks for — it only
     # prints this list, so keep the two in sync.
     brew install autoconf automake libtool gettext libusb pkg-config meson ninja \
-                 libxml2 curl gd libexif jpeg-turbo libtiff
+                 libexif jpeg-turbo
     ;;
 venv)
     rm -rf "$VENV"

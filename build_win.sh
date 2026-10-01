@@ -9,6 +9,11 @@ PREFIX=vendor/build
 [ -d "$PREFIX/lib/libgphoto2" ] || { echo "$PREFIX missing — run: ./scripts/vm-win-setup.sh gphoto2" >&2; exit 1; }
 CAMLIB_DIR=$(ls -d "$PREFIX"/lib/libgphoto2/*/ | sort -V | tail -1)
 IOLIB_DIR=$(ls -d "$PREFIX"/lib/libgphoto2_port/*/ | sort -V | tail -1)
+# PyInstaller traces DLL dependencies through PATH. The fork's own
+# libgphoto2-6.dll / libgphoto2_port-12.dll live in the prefix, nowhere a
+# default PATH points — without this they would simply be missing from the
+# bundle (on Windows a DLL carries no path of its own, unlike a macOS dylib).
+export PATH="$PWD/$PREFIX/bin:$PATH"
 echo "Using camlibs: $CAMLIB_DIR"
 echo "Using iolibs:  $IOLIB_DIR"
 
