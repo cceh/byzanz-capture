@@ -71,6 +71,10 @@ check_prereqs() {
             echo "                   libxml2-dev libcurl4-openssl-dev libgd-dev libexif-dev \\" >&2
             echo "                   libjpeg-dev libtiff-dev" >&2
             ;;
+        MINGW*|MSYS*)
+            echo "Install with (MSYS2 UCRT64):" >&2
+            echo "  ./scripts/vm-win-setup.sh deps" >&2
+            ;;
         *)
             echo "Install the listed tools with your package manager, then re-run." >&2
             ;;
@@ -179,6 +183,13 @@ seed_vcamera() {
     vusb_lib="$(ls "$BUILD_PREFIX"/lib/libgphoto2_port/*/vusb.* 2>/dev/null | head -1)"
     if [ -z "$vusb_lib" ]; then
         echo ">> No vusb driver found — skipping vcamera seed."
+        return 0
+    fi
+    if ! command -v strings >/dev/null 2>&1; then
+        # Only needed to find the driver's compiled-in default directory.
+        # A CI build never uses it: the app points VCAMERADIR* at the
+        # repo's (or the bundle's) vcamera-sources instead.
+        echo ">> No 'strings' command — skipping vcamera seed."
         return 0
     fi
     seed_dir="$(strings "$vusb_lib" | grep '/vcamera$' | head -1)"

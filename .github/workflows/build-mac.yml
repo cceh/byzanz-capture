@@ -16,12 +16,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: true   # vendor/libgphoto2 — the fork the bundle ships
 
     - name: Install dependencies (brew)
       run: ./scripts/mac-setup.sh deps
 
     - name: Set up Python environment
       run: ./scripts/mac-setup.sh venv
+
+    - name: Build libgphoto2 (vendored fork)
+      run: ./scripts/mac-setup.sh gphoto2
 
     - name: Build
       run: ./scripts/mac-setup.sh build

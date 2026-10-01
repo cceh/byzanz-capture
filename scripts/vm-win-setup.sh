@@ -7,6 +7,7 @@
 #   ./scripts/vm-win-setup.sh sync    # full pacman upgrade (stale DB is unsafe to install against)
 #   ./scripts/vm-win-setup.sh deps    # install/upgrade all UCRT64 packages the RTI app needs
 #   ./scripts/vm-win-setup.sh venv    # recreate .venv and pip-install the pure-python + sdist deps
+#   ./scripts/vm-win-setup.sh gphoto2 # build the vendored libgphoto2 fork + python-gphoto2
 #   ./scripts/vm-win-setup.sh build   # run build_win.sh (PyInstaller onedir bundle into dist/)
 #   ./scripts/vm-win-setup.sh smoketest  # launch the frozen bundle headless; fail on a startup crash
 #   ./scripts/vm-win-setup.sh run     # run the app from source (python main.py) for development
@@ -17,8 +18,12 @@
 # - requirements.txt pins wheel versions (PyQt6~=6.11, numpy 2.4, ...) that do
 #   not exist for UCRT64 python; binary deps come from pacman instead. Do NOT
 #   `pip install -r requirements.txt` here.
-# - python-gphoto2 is the only pip source build left: pip compiles it against
-#   pacman's libgphoto2 (needs gcc + pkg-config).
+# - libgphoto2 itself is built from the vendored fork (vendor/libgphoto2) by
+#   the gphoto2 phase: only the fork carries the vusb port driver, so the
+#   frozen app offers the virtual camera. pacman's libgphoto2 is still
+#   installed — it pulls exactly the libraries that build needs.
+# - python-gphoto2 is the only pip source build left: that same phase compiles
+#   it against the fork (needs gcc + pkg-config).
 
 # --- establish the UCRT64 environment (do NOT rely on cmd `set MSYSTEM=`) ---
 export MSYSTEM=UCRT64
@@ -35,7 +40,16 @@ PACKAGES=(
     mingw-w64-ucrt-x86_64-python-pip
     mingw-w64-ucrt-x86_64-gcc             # for the gphoto2 sdist build (the only pip source build left)
     mingw-w64-ucrt-x86_64-pkgconf         # gphoto2 sdist build locates libgphoto2 via pkg-config
-    mingw-w64-ucrt-x86_64-libgphoto2
+    mingw-w64-ucrt-x86_64-libgphoto2 # not linked against — installed for its dependency
+                                     # chain (libexif, libusb, libgd, ...), which is what
+                                     # the vendored fork needs to build
+    mingw-w64-ucrt-x86_64-meson      # the fork's build system
+    mingw-w64-ucrt-x86_64-ninja
+    mingw-w64-ucrt-x86_64-gettext    # libintl, linked by the camlibs
+    mingw-w64-ucrt-x86_64-libxml2    # the remaining pkg-config deps of the fork's
+    mingw-w64-ucrt-x86_64-curl       # meson build (see PREREQ_PKGS in
+    mingw-w64-ucrt-x86_64-libgd      # scripts/bootstrap-gphoto2.sh)
+    mingw-w64-ucrt-x86_64-libtiff
     mingw-w64-ucrt-x86_64-qt6-base
     mingw-w64-ucrt-x86_64-qt6-svg         # Qt6Svg.dll for PyQt6.QtSvg (SVG icon rendering);
                                      # NOT part of qt6-base, and python-pyqt6 doesn't pull
@@ -65,17 +79,19 @@ venv)
     python -m venv --system-site-packages .venv
     source .venv/bin/activate
     python -m pip install --upgrade pip
-    # gphoto2 is the only dependency with no MSYS2 package: build it from sdist
-    # against pacman's libgphoto2. --no-build-isolation reuses the pacman
-    # setuptools (visible via --system-site-packages) instead of pip building an
-    # isolated env. Everything else binary (rawpy, qasync, send2trash, numpy,
-    # scipy, opencv, pillow, psutil, pyqt6) comes from pacman; only pyinstaller and
-    # piexif are pure-python pip packages with no MSYS2 build.
+    # Everything binary (rawpy, qasync, send2trash, numpy, scipy, opencv,
+    # pillow, psutil, pyqt6) comes from pacman; only pyinstaller and piexif
+    # are pure-python pip packages with no MSYS2 build. python-gphoto2 is
+    # installed by the gphoto2 phase, compiled against the vendored fork.
     pip install setuptools wheel
-    pip install gphoto2 --no-binary :all: --no-build-isolation
     pip install pyinstaller piexif
     echo "=== installed ==="
     pip list 2>/dev/null | grep -iE "gphoto2|rawpy|pyinstaller|qasync|send2trash|piexif|numpy|scipy|opencv" || true
+    ;;
+gphoto2)
+    source .venv/bin/activate
+    git submodule update --init vendor/libgphoto2
+    ./scripts/bootstrap-gphoto2.sh
     ;;
 build)
     source .venv/bin/activate
@@ -141,7 +157,7 @@ run)
     python main.py
     ;;
 *)
-    echo "usage: $0 {sync|deps|venv|build|smoketest|installer|run}" >&2
+    echo "usage: $0 {sync|deps|venv|gphoto2|build|smoketest|installer|run}" >&2
     exit 1
     ;;
 esac

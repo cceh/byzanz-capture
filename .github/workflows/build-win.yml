@@ -20,6 +20,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: true   # vendor/libgphoto2 — the fork the bundle ships
 
     - name: Cache MSYS2 packages
       uses: actions/cache@v4
@@ -41,6 +43,9 @@ jobs:
 
     - name: Set up Python environment
       run: ./scripts/vm-win-setup.sh venv
+
+    - name: Build libgphoto2 (vendored fork)
+      run: ./scripts/vm-win-setup.sh gphoto2
 
     - name: Build
       run: ./scripts/vm-win-setup.sh build

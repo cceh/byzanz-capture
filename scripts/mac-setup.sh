@@ -3,18 +3,21 @@
 # (main.py). Same phase layout as scripts/vm-win-setup.sh, so CI and a
 # local build stay in lockstep:
 #
-#   ./scripts/mac-setup.sh deps       # brew: libgphoto2 + pkg-config (for the gphoto2 sdist build)
+#   ./scripts/mac-setup.sh deps       # brew: everything libgphoto2 needs to build
 #   ./scripts/mac-setup.sh venv       # recreate .venv-mac and pip-install requirements-rti.txt
+#   ./scripts/mac-setup.sh gphoto2    # build the vendored libgphoto2 fork + python-gphoto2
 #   ./scripts/mac-setup.sh build      # PyInstaller windowed bundle into dist/
 #   ./scripts/mac-setup.sh smoketest  # launch the frozen app headless; fail on a startup crash
 #   ./scripts/mac-setup.sh dmg        # pack the .app into a compressed disk image
 #
-# Unlike Windows (MSYS2 pacman), every binary dependency here is a PyPI
-# wheel — only python-gphoto2 is built from sdist against Homebrew's
-# libgphoto2, because its wheels ship no camera drivers. The drivers
-# (camlibs/iolibs) are bundled from the Homebrew prefix, which is why
-# the runtime hook that points CAMLIBS/IOLIBS at sys._MEIPASS is shared
-# with the Windows build.
+# Every binary dependency here is a PyPI wheel except libgphoto2: the
+# bundle ships the vendored fork (vendor/libgphoto2, built by
+# scripts/bootstrap-gphoto2.sh), not Homebrew's. Only the fork carries
+# the vusb port driver, so the frozen app offers the virtual camera the
+# same way a dev checkout does — and its gphoto2 wheels ship no camera
+# drivers at all. The drivers are bundled from vendor/build, which is
+# why the runtime hook that points CAMLIBS/IOLIBS at sys._MEIPASS is
+# shared with the Windows build.
 #
 # The result is NOT code-signed or notarized: macOS quarantines it on
 # first open. Either right-click → Open once, or run
@@ -27,16 +30,12 @@ cd "$(dirname "$0")/.."   # repo root
 VENV=".venv-mac"
 APP="dist/byzanz-capture.app"
 
-brew_prefix() {
-    brew --prefix libgphoto2 2>/dev/null || {
-        echo "libgphoto2 not installed — run: $0 deps" >&2
-        exit 1
-    }
-}
-
 case "$PHASE" in
 deps)
-    brew install libgphoto2 pkg-config
+    # The build prerequisites bootstrap-gphoto2.sh checks for — it only
+    # prints this list, so keep the two in sync.
+    brew install autoconf automake libtool gettext libusb pkg-config meson ninja \
+                 libxml2 curl gd libexif jpeg-turbo libtiff
     ;;
 venv)
     rm -rf "$VENV"
@@ -44,25 +43,35 @@ venv)
     source "$VENV/bin/activate"
     python -m pip install --upgrade pip
     pip install -r requirements-rti.txt
-    # gphoto2's wheels bundle a libgphoto2 without camera drivers, so
-    # autodetect finds nothing. Build it against Homebrew's libgphoto2
-    # (whose drivers the build phase bundles) instead.
-    PKG_CONFIG_PATH="$(brew_prefix)/lib/pkgconfig" \
-        pip install --force-reinstall --no-binary :all: gphoto2
     pip install pyinstaller
+    # python-gphoto2 is installed by the gphoto2 phase, built against the
+    # fork — a wheel here would be replaced there anyway.
+    ;;
+gphoto2)
+    source "$VENV/bin/activate"
+    git submodule update --init vendor/libgphoto2
+    ./scripts/bootstrap-gphoto2.sh
     ;;
 build)
     source "$VENV/bin/activate"
-    PREFIX="$(brew_prefix)"
-    # Versioned driver directories — a brew upgrade of libgphoto2 moves them.
+    PREFIX="vendor/build"
+    [ -d "$PREFIX/lib/libgphoto2" ] || { echo "build: $PREFIX missing — run: $0 gphoto2"; exit 1; }
+    # Versioned driver directories — a libgphoto2 version bump moves them.
     CAMLIB_DIR=$(ls -d "$PREFIX"/lib/libgphoto2/*/ | sort -V | tail -1)
     IOLIB_DIR=$(ls -d "$PREFIX"/lib/libgphoto2_port/*/ | sort -V | tail -1)
     echo "Using camlibs: $CAMLIB_DIR"
     echo "Using iolibs:  $IOLIB_DIR"
     rm -rf build dist
+    # vcamera-sources: the vusb driver's image material. Its compiled-in
+    # default directory is an absolute path on THIS machine, so a bundle
+    # would find nothing there — byzanz_camera._gphoto2_paths points
+    # VCAMERADIR* at these bundled folders instead. Only vusb2's material
+    # is committed; both virtual cameras serve it.
     pyinstaller --windowed \
         --add-binary "$CAMLIB_DIR:." \
         --add-binary "$IOLIB_DIR:." \
+        --add-data vcamera-sources/vusb2:vcamera-sources/vusb \
+        --add-data vcamera-sources/vusb2:vcamera-sources/vusb2 \
         --add-data ui:ui \
         --add-data i18n:i18n \
         --add-data cceh-dome-template.lp:. \

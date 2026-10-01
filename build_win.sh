@@ -1,10 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# Resolve the versioned camlib/iolib directories instead of hardcoding them —
-# pacman upgrades of libgphoto2 change these paths.
-CAMLIB_DIR=$(ls -d /ucrt64/lib/libgphoto2/*/ | sort -V | tail -1)
-IOLIB_DIR=$(ls -d /ucrt64/lib/libgphoto2_port/*/ | sort -V | tail -1)
+# Camera drivers come from the vendored libgphoto2 fork (built by
+# scripts/vm-win-setup.sh gphoto2), not from pacman: only the fork carries the
+# vusb port driver that backs the virtual camera. Resolve the versioned
+# camlib/iolib directories instead of hardcoding them — a version bump moves them.
+PREFIX=vendor/build
+[ -d "$PREFIX/lib/libgphoto2" ] || { echo "$PREFIX missing — run: ./scripts/vm-win-setup.sh gphoto2" >&2; exit 1; }
+CAMLIB_DIR=$(ls -d "$PREFIX"/lib/libgphoto2/*/ | sort -V | tail -1)
+IOLIB_DIR=$(ls -d "$PREFIX"/lib/libgphoto2_port/*/ | sort -V | tail -1)
 echo "Using camlibs: $CAMLIB_DIR"
 echo "Using iolibs:  $IOLIB_DIR"
 
@@ -15,6 +19,12 @@ echo "Using iolibs:  $IOLIB_DIR"
 CV2_PYD=$(python -c "import cv2; print(cv2.__file__)")
 echo "Using cv2:     $CV2_PYD"
 
+# vcamera-sources: the vusb driver's image material. Its compiled-in default
+# directory is an absolute path on the BUILD machine, so a bundle would find
+# nothing there — byzanz_camera._gphoto2_paths points VCAMERADIR* at these
+# bundled folders instead. Only vusb2's material is committed; both virtual
+# cameras serve it.
+#
 # libusb: $IOLIB_DIR ships its own STALE libusb-1.0.dll, so bundle the current
 # pacman one LAST to override it — it's the build usb1.dll actually links
 # against. mingw-w64-ucrt-x86_64-libusb comes in as a libgphoto2 dependency, so no
@@ -24,6 +34,8 @@ pyinstaller --onedir \
     --add-binary "$CAMLIB_DIR":. \
     --add-binary "$CV2_PYD":. \
     --add-binary /ucrt64/bin/libusb-1.0.dll:. \
+    --add-data vcamera-sources/vusb2:vcamera-sources/vusb \
+    --add-data vcamera-sources/vusb2:vcamera-sources/vusb2 \
     --add-data ui:ui \
     --add-data i18n:i18n \
     --add-data cceh-dome-template.lp:. \
