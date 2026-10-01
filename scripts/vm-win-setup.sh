@@ -48,7 +48,8 @@ PACKAGES=(
     #     is exactly what PyInstaller would find first. ---
     mingw-w64-ucrt-x86_64-meson             # the fork's build system
     mingw-w64-ucrt-x86_64-ninja
-    mingw-w64-ucrt-x86_64-libtool           # libltdl — libgphoto2 dlopens its drivers with it
+    mingw-w64-ucrt-x86_64-libltdl           # libgphoto2 dlopens its drivers through ltdl
+    mingw-w64-ucrt-x86_64-libsystre         # POSIX regex — not in the Windows C library
     mingw-w64-ucrt-x86_64-libusb            # libusb-1.0, for the libusb1 port driver
     mingw-w64-ucrt-x86_64-mman-win32        # Windows has no mmap; libgphoto2 links it from here
     mingw-w64-ucrt-x86_64-libexif           # optional, but ptp2 reads EXIF with it

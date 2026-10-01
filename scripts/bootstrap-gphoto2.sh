@@ -151,6 +151,16 @@ build_libgphoto2() {
         export LDFLAGS="-L${gettext_prefix}/lib -L${libtool_prefix}/lib${pkg_libs} ${LDFLAGS:-}"
     fi
 
+    if case "$PLATFORM" in MINGW*|MSYS*) true ;; *) false ;; esac; then
+        # Two libraries the meson build never looks for, but Windows needs —
+        # MSYS2's own libgphoto2 package names both (its PKGBUILD depends on
+        # libsystre, and it patches configure to link ws2_32):
+        #   libsystre  POSIX regex (regcomp & co.), absent from the Windows C
+        #              library — gphoto2-port-info-list.c matches port paths with it
+        #   ws2_32     Winsock, for the ptpip port driver
+        export LDFLAGS="-lsystre -lws2_32 ${LDFLAGS:-}"
+    fi
+
     # `usbdiskdirect` / `usbscsi` iolibs are Linux-only; meson errors
     # out on macOS if the default list is used, so the list is explicit.
     # `usb` (the libusb-0.1 driver) is left out as well: it would make
