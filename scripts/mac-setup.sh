@@ -80,6 +80,14 @@ build)
         --osx-bundle-identifier de.uni-koeln.cceh.byzanz-capture \
         --noconfirm \
         --name byzanz-capture
+    # macOS kills an app that touches Bluetooth without declaring why — the
+    # dome controller is driven over BLE, so without this the app dies with
+    # SIGKILL (termination namespace TCC) the moment it looks for the dome.
+    # PyInstaller cannot set arbitrary Info.plist keys from the command line;
+    # plutil -replace inserts the key if it is missing, so this is idempotent.
+    plutil -replace NSBluetoothAlwaysUsageDescription \
+        -string "byzanz-capture drives the RTI dome's light controller over Bluetooth." \
+        "$APP/Contents/Info.plist"
     ;;
 smoketest)
     # Launch the frozen app headless and verify it starts up cleanly. A
@@ -99,6 +107,12 @@ smoketest)
     fi
     if echo "$out" | grep -qiE "Fatal Python error|could not (find|load) the Qt platform|ModuleNotFoundError|Library not loaded"; then
         echo "SMOKE TEST FAILED (crash marker in output)"; exit 1
+    fi
+    # The bundle must declare its Bluetooth use — see the build phase. A
+    # launch alone does not prove it: macOS only kills the app once BLE is
+    # actually touched, which depends on the configured dome.
+    if ! plutil -p "$APP/Contents/Info.plist" | grep -q NSBluetoothAlwaysUsageDescription; then
+        echo "SMOKE TEST FAILED (Info.plist has no NSBluetoothAlwaysUsageDescription)"; exit 1
     fi
     echo "SMOKE TEST OK"
     ;;
