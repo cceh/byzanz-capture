@@ -30,6 +30,14 @@ cd "$(dirname "$0")/.."   # repo root
 VENV=".venv-mac"
 APP="dist/byzanz-capture.app"
 
+# Date + short commit, e.g. 2026.10.05-b1355b9. CI provides GITHUB_SHA; local
+# builds fall back to git. Used for the bundle's version AND the image's name,
+# so a .dmg and the app inside it always say the same thing.
+app_version() {
+    local sha="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+    echo "$(date +%Y.%m.%d)-${sha:0:7}"
+}
+
 case "$PHASE" in
 deps)
     # The build prerequisites bootstrap-gphoto2.sh checks for — it only
@@ -80,14 +88,20 @@ build)
         --osx-bundle-identifier de.uni-koeln.cceh.byzanz-capture \
         --noconfirm \
         --name byzanz-capture
-    # macOS kills an app that touches Bluetooth without declaring why — the
-    # dome controller is driven over BLE, so without this the app dies with
-    # SIGKILL (termination namespace TCC) the moment it looks for the dome.
-    # PyInstaller cannot set arbitrary Info.plist keys from the command line;
-    # plutil -replace inserts the key if it is missing, so this is idempotent.
+    # PyInstaller sets neither of these from the command line; plutil -replace
+    # inserts a key that is missing, so this stays idempotent.
+    #
+    # The usage description is shown VERBATIM in the system's permission
+    # dialog, so it says what the permission is for and that saying no is fine.
+    # Without the key macOS does not ask at all — it kills the app (SIGKILL,
+    # termination namespace TCC) the moment Bluetooth is touched.
+    VERSION="$(app_version)"
     plutil -replace NSBluetoothAlwaysUsageDescription \
-        -string "byzanz-capture drives the RTI dome's light controller over Bluetooth." \
+        -string "Only needed to drive the CCeH dome controller's lights. You can decline — everything else in byzanz-capture works without Bluetooth." \
         "$APP/Contents/Info.plist"
+    plutil -replace CFBundleShortVersionString -string "${VERSION%%-*}" "$APP/Contents/Info.plist"
+    plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+    echo "bundle version: $VERSION"
     ;;
 smoketest)
     # Launch the frozen app headless and verify it starts up cleanly. A
@@ -118,9 +132,7 @@ smoketest)
     ;;
 dmg)
     [ -d "$APP" ] || { echo "dmg: $APP not found — run the build phase first"; exit 1; }
-    # Version: date + short commit (CI provides GITHUB_SHA; local git fallback).
-    SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
-    VERSION="$(date +%Y.%m.%d)-${SHA:0:7}"
+    VERSION="$(app_version)"
     DMG="dist/byzanz-capture-$VERSION.dmg"
     echo "dmg: version $VERSION"
     # Stage the .app next to an /Applications symlink, so the mounted
