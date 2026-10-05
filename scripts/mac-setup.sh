@@ -102,6 +102,12 @@ build)
     plutil -replace CFBundleShortVersionString -string "${VERSION%%-*}" "$APP/Contents/Info.plist"
     plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
     echo "bundle version: $VERSION"
+    # Editing Info.plist invalidates the signature PyInstaller just applied,
+    # and macOS refuses a bundle whose seal does not match — "is damaged and
+    # cannot be opened", with no way past it. Re-sign (ad-hoc, like
+    # PyInstaller's own) and refuse to ship a bundle that does not verify.
+    codesign --force --sign - "$APP"
+    codesign --verify --strict "$APP" || { echo "build: bundle signature is broken"; exit 1; }
     ;;
 smoketest)
     # Launch the frozen app headless and verify it starts up cleanly. A
@@ -127,6 +133,9 @@ smoketest)
     # actually touched, which depends on the configured dome.
     if ! plutil -p "$APP/Contents/Info.plist" | grep -q NSBluetoothAlwaysUsageDescription; then
         echo "SMOKE TEST FAILED (Info.plist has no NSBluetoothAlwaysUsageDescription)"; exit 1
+    fi
+    if ! codesign --verify --strict "$APP" 2>/dev/null; then
+        echo "SMOKE TEST FAILED (broken code signature — macOS would call the app damaged)"; exit 1
     fi
     echo "SMOKE TEST OK"
     ;;
