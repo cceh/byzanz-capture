@@ -9,27 +9,66 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version, e.g. 2026.10.06 or 1.0 — becomes the tag (v…) and the version the apps report"
+        description: "Version, e.g. 1.0 — becomes the tag (v…) and the version the apps report. Empty: today's date, counting up if there already is a release today."
         type: string
-        required: true
+        required: false
       prerelease:
         description: "Mark as pre-release"
         type: boolean
         default: false
 
 jobs:
+  # Settled before anything is built: the version is stamped INTO the bundles,
+  # so it has to be known up front.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - id: pick
+      env:
+        GIVEN: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        exists() { git ls-remote --exit-code --tags origin "refs/tags/v$1" >/dev/null 2>&1; }
+        if [ -n "$GIVEN" ]; then
+          # An explicit version is taken as given — if that tag exists, say so
+          # instead of quietly releasing under a different name.
+          if exists "$GIVEN"; then
+            echo "A release v$GIVEN already exists." >&2
+            exit 1
+          fi
+          version="$GIVEN"
+        else
+          # Today's date, counting up for every further release the same day:
+          # 2026.10.06, 2026.10.06.2, 2026.10.06.3 …
+          base="$(date +%Y.%m.%d)"
+          version="$base"
+          n=1
+          while exists "$version"; do
+            n=$((n + 1))
+            version="$base.$n"
+          done
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "Releasing as v$version"
+
   macos:
+    needs: version
     uses: ./.github/workflows/build-mac.yml
     with:
-      version: ${{ inputs.version }}
+      version: ${{ needs.version.outputs.version }}
 
   windows:
+    needs: version
     uses: ./.github/workflows/build-win.yml
     with:
-      version: ${{ inputs.version }}
+      version: ${{ needs.version.outputs.version }}
 
   publish:
-    needs: [macos, windows]
+    needs: [version, macos, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create the tag and the release
@@ -58,9 +97,9 @@ jobs:
         ls -la artifacts
         # `gh release create` creates the tag on this commit as it publishes,
         # so no separate tagging step is needed.
-        gh release create "v${{ inputs.version }}" \
+        gh release create "v${{ needs.version.outputs.version }}" \
           --target "$GITHUB_SHA" \
-          --title "v${{ inputs.version }}" \
+          --title "v${{ needs.version.outputs.version }}" \
           --generate-notes \
           ${{ inputs.prerelease && '--prerelease' || '' }} \
           artifacts/*
