@@ -139,8 +139,10 @@ installer)
     done
     [ -n "$ISCC" ] || { echo "installer: ISCC.exe not found — install Inno Setup 6 (winget install JRSoftware.InnoSetup)"; exit 1; }
     # Version: date + short commit (CI provides GITHUB_SHA; local git fallback).
+    # BYZANZ_VERSION names the version for a published build (the release
+    # workflow passes the tag); otherwise date + short commit.
     SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
-    VERSION="$(date +%Y.%m.%d)-${SHA:0:7}"
+    VERSION="${BYZANZ_VERSION:-$(date +%Y.%m.%d)-${SHA:0:7}}"
     echo "installer: version $VERSION"
     "$ISCC" "-DAppVersion=$VERSION" scripts/win-installer.iss
     ls -la dist/installer/

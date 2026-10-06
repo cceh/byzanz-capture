@@ -30,10 +30,16 @@ cd "$(dirname "$0")/.."   # repo root
 VENV=".venv-mac"
 APP="dist/byzanz-capture.app"
 
-# Date + short commit, e.g. 2026.10.05-b1355b9. CI provides GITHUB_SHA; local
-# builds fall back to git. Used for the bundle's version AND the image's name,
-# so a .dmg and the app inside it always say the same thing.
+# Date + short commit, e.g. 2026.10.05-b1355b9 — unless BYZANZ_VERSION names
+# one (the release workflow passes the tag), which is what a published build
+# should call itself. CI provides GITHUB_SHA; local builds fall back to git.
+# Used for the bundle's version AND the image's name, so a .dmg and the app
+# inside it always say the same thing.
 app_version() {
+    if [ -n "${BYZANZ_VERSION:-}" ]; then
+        echo "$BYZANZ_VERSION"
+        return
+    fi
     local sha="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
     echo "$(date +%Y.%m.%d)-${sha:0:7}"
 }

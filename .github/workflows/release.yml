@@ -1,0 +1,66 @@
+name: Release
+
+# Publishes a release: builds both platforms from the commit this is started
+# on, tags that commit, and attaches the installer and the disk image.
+# Started by hand (Actions → Release → Run workflow); nothing publishes on a
+# push. The builds are NOT rebuilt here — this calls the very same two
+# workflows CI runs, so a release ships exactly what the tested build produces.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 2026.10.06 or 1.0 — becomes the tag (v…) and the version the apps report"
+        type: string
+        required: true
+      prerelease:
+        description: "Mark as pre-release"
+        type: boolean
+        default: false
+
+jobs:
+  macos:
+    uses: ./.github/workflows/build-mac.yml
+    with:
+      version: ${{ inputs.version }}
+
+  windows:
+    uses: ./.github/workflows/build-win.yml
+    with:
+      version: ${{ inputs.version }}
+
+  publish:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the tag and the release
+    steps:
+    - uses: actions/checkout@v4
+
+    # The two things a user installs. The .app and the raw Windows bundle
+    # stay CI artifacts — they are for inspection, not for handing out.
+    - name: Collect the disk image
+      uses: actions/download-artifact@v4
+      with:
+        name: byzanz-capture-macos-dmg
+        path: artifacts
+
+    - name: Collect the Windows installer
+      uses: actions/download-artifact@v4
+      with:
+        name: byzanz-capture-windows-installer
+        path: artifacts
+
+    - name: Publish
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        ls -la artifacts
+        # `gh release create` creates the tag on this commit as it publishes,
+        # so no separate tagging step is needed.
+        gh release create "v${{ inputs.version }}" \
+          --target "$GITHUB_SHA" \
+          --title "v${{ inputs.version }}" \
+          --generate-notes \
+          ${{ inputs.prerelease && '--prerelease' || '' }} \
+          artifacts/*

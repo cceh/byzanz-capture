@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to stamp into the build (default: date + commit)"
+        type: string
+        required: false
 
 # The build environment (pacman packages + pip deps) and the build itself are
 # defined once in scripts/vm-win-setup.sh and build_win.sh, so CI and the local
@@ -13,6 +19,8 @@ on:
 # runs those phases; do NOT re-list packages or pip installs here.
 jobs:
   build:
+    env:
+      BYZANZ_VERSION: ${{ inputs.version }}
     runs-on: windows-latest
     defaults:
       run:
