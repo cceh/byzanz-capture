@@ -3,8 +3,11 @@ name: Release
 # Publishes a release: builds both platforms from the commit this is started
 # on, tags that commit, and attaches the installer and the disk image.
 # Started by hand (Actions → Release → Run workflow); nothing publishes on a
-# push. The builds are NOT rebuilt here — this calls the very same two
-# workflows CI runs, so a release ships exactly what the tested build produces.
+# push. Both platforms are built FRESH here rather than taking the artifacts a
+# push already produced: the version is stamped into the bundles, so a reused
+# artifact would call itself by its date and commit instead of the release.
+# It is the same build either way — this calls the very workflows CI runs, so
+# there is no second build path that could drift.
 on:
   workflow_dispatch:
     inputs:
